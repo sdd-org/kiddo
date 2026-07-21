@@ -8,6 +8,7 @@ use crate::leaf_view::TlsLeafScratch;
 use crate::leaf_view_chunked::nearest_n_within::{
     nearest_n_within_with_query_wide, nearest_n_within_with_query_wide_arena,
 };
+use crate::results::result_buffer::FixedResultCollection;
 #[cfg(not(feature = "small_n_result_collectors"))]
 use crate::results::result_collection::ThresholdVecResultCollection;
 use crate::results::result_collection::{BinaryHeapResultCollection, ResultCollection};
