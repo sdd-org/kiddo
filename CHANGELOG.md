@@ -6,13 +6,11 @@
 
 - Add result capacity hint for radius queries ([@sdd](https://github.com/sdd))
 
-
 ### 🧪 Testing
 
 - Add result collection threshold profiler ([@sdd](https://github.com/sdd))
 
 - Add v6 release parity benchmark suites ([@sdd](https://github.com/sdd))
-
 
 ### 🤖 CI
 
