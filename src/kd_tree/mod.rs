@@ -15,6 +15,7 @@
 //!   the full result set up-front, maintaining the traversal state, and lazily emitting results as
 //!   soon as they are found.
 //!
+mod builder;
 mod construction;
 mod iter;
 pub(crate) mod orchestrator;
@@ -29,6 +30,10 @@ use nonmax::NonMaxUsize;
 
 #[doc(hidden)]
 pub use crate::traits::kd_tree::{KdTreeAccessor, StemLeafResolution};
+pub use builder::KdTreeBuilder;
+pub use construction::DEFAULT_PARALLEL_CONSTRUCTION_THRESHOLD;
+#[doc(hidden)]
+pub use construction::{ParallelConstruction, SerialConstruction};
 pub use iter::{KdTreeIter, WithinUnsortedIter};
 #[doc(hidden)]
 pub use orchestrator::KdTreeQueryOps;
@@ -489,7 +494,7 @@ where
         self,
     ) -> Result<KdTree<A2, T2, SS2, LS2, K, B2>, KdTreeConversionError>
     where
-        A2: Axis<Coord = A2> + TryFrom<A>,
+        A2: Axis<Coord = A2> + TryFrom<A> + Send + Sync,
         <A2 as TryFrom<A>>::Error: std::fmt::Debug,
         T2: Content + TryFrom<T>,
         <T2 as TryFrom<T>>::Error: std::fmt::Debug,
@@ -540,7 +545,7 @@ where
     T1: Content,
     SS1: StemStrategy,
     LS1: LeafStrategy<A1, T1, SS1, K, B1>,
-    A2: Axis<Coord = A2> + TryFrom<A1>,
+    A2: Axis<Coord = A2> + TryFrom<A1> + Send + Sync,
     <A2 as TryFrom<A1>>::Error: std::fmt::Debug,
     T2: Content + TryFrom<T1>,
     <T2 as TryFrom<T1>>::Error: std::fmt::Debug,

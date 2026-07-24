@@ -48,7 +48,7 @@ simd = []
 simulator = []
 rkyv_08 = ["dep:rkyv_08", "dep:ptr_meta", "dep:bytecheck"]
 small_n_result_collectors = ["dep:smallvec"]
-test_utils = ["dep:rand", "dep:rand_chacha", "dep:rayon", "dep:fixed"]
+test_utils = ["dep:rand", "dep:rand_chacha", "dep:fixed"]
 unreliable_select_nth_unstable = []
 
 [target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64"))'.dependencies]
@@ -110,7 +110,6 @@ optional = true
 
 [dependencies.rayon]
 version = "1"
-optional = true
 
 [dependencies.rkyv_08]
 package = "rkyv"

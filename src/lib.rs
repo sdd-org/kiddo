@@ -213,7 +213,7 @@ mod custom_serde;
 pub mod kd_tree;
 #[doc(hidden)]
 pub type KdTree<A, T, SS, LS, const K: usize, const B: usize> = kd_tree::KdTree<A, T, SS, LS, K, B>;
-pub use kd_tree::QueryScratch;
+pub use kd_tree::{KdTreeBuilder, QueryScratch, DEFAULT_PARALLEL_CONSTRUCTION_THRESHOLD};
 
 /// Distance metrics
 pub mod dist;

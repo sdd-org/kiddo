@@ -281,9 +281,21 @@ where
     SS: StemStrategy,
 {
     fn new_with_capacity(capacity: usize) -> Self {
+        let leaf_capacity = capacity.div_ceil(B).next_power_of_two();
+        let leaf_align = std::mem::align_of::<AX>()
+            .max(std::mem::align_of::<T>())
+            .max(std::mem::size_of::<u64>());
+        let item_bytes = std::mem::size_of::<AX>()
+            .saturating_mul(K)
+            .saturating_add(std::mem::size_of::<T>());
+        let leaf_padding_bytes = leaf_capacity.saturating_mul(leaf_align.saturating_sub(1));
+        let arena_capacity = capacity
+            .saturating_mul(item_bytes)
+            .saturating_add(leaf_padding_bytes);
+
         Self {
-            leaf_extents: Vec::with_capacity(capacity / B + 1),
-            leaf_bytes: AVec::new(CACHELINE_ALIGN),
+            leaf_extents: Vec::with_capacity(leaf_capacity),
+            leaf_bytes: AVec::with_capacity(CACHELINE_ALIGN, arena_capacity),
             size: 0,
             _phantom: std::marker::PhantomData,
         }
