@@ -3,6 +3,7 @@ use crate::dist::SquaredEuclidean;
 use crate::leaf_strategy::FlatVec;
 use crate::leaf_strategy::VecOfArenas;
 use crate::leaf_strategy::VecOfArrays;
+use crate::Donnelly;
 use crate::Eytzinger;
 
 #[test]
@@ -252,6 +253,50 @@ fn parallel_soft_construction_matches_sequential_construction() {
 
     assert_parallel_matches!(FlatTree);
     assert_parallel_matches!(ArenaTree);
+}
+
+#[test]
+fn parallel_soft_construction_handles_block_strategy_root_padding() {
+    type TestTree = KdTree<f64, u32, Donnelly<3>, FlatVec<f64, u32, 2, 4>, 2, 4>;
+
+    // Sixteen leaves require four construction levels. Donnelly<3> pads the
+    // stem layout to six levels and starts construction below two root levels.
+    let points = (0..64)
+        .map(|idx| [((idx * 17) % 67) as f64, ((idx * 29 + idx / 5) % 71) as f64])
+        .collect::<Vec<_>>();
+
+    let sequential = TestTree::builder()
+        .with_serial_construction()
+        .build_from_slice(&points)
+        .unwrap();
+    let parallel = TestTree::builder()
+        .with_parallel_construction()
+        .build_from_slice(&points)
+        .unwrap();
+
+    assert_eq!(sequential.stems.as_slice(), parallel.stems.as_slice());
+    assert_eq!(sequential.leaf_count(), 16);
+    assert_eq!(sequential.leaf_count(), parallel.leaf_count());
+    assert_eq!(sequential.max_stem_level(), 5);
+    assert_eq!(sequential.max_stem_level(), parallel.max_stem_level());
+    assert_eq!(sequential.max_leaf_len(), parallel.max_leaf_len());
+    assert_eq!(
+        sequential.iter().collect::<Vec<_>>(),
+        parallel.iter().collect::<Vec<_>>()
+    );
+
+    for query in [[0.0, 0.0], [31.0, 37.0], [66.0, 70.0]] {
+        assert_eq!(
+            sequential
+                .query(&query)
+                .nearest_one::<SquaredEuclidean<f64>>()
+                .execute(),
+            parallel
+                .query(&query)
+                .nearest_one::<SquaredEuclidean<f64>>()
+                .execute()
+        );
+    }
 }
 
 #[test]

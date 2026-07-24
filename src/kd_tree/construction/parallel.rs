@@ -139,7 +139,13 @@ where
         FA: Fn(&X, usize) -> A + Sync,
         FI: FnMut(usize, &X) -> Result<T, ConstructionError>,
     {
-        let mut leaf_ranges = vec![(0usize, 0usize); leaf_budget];
+        // Block-based stem strategies pad the tree at the root so that its total
+        // height is a multiple of the block size. `leaf_budget` includes those
+        // already-traversed padding levels, but construction only visits the
+        // levels below `root_stem_ordering`.
+        let root_padding_level_count = root_stem_ordering.level() as usize;
+        let terminal_leaf_budget = leaf_budget >> root_padding_level_count;
+        let mut leaf_ranges = vec![(0usize, 0usize); terminal_leaf_budget];
         let parallel_stems = (0..stems.len())
             .map(|_| OnceLock::new())
             .collect::<Vec<_>>();
@@ -151,7 +157,7 @@ where
             0,
             root_stem_ordering,
             max_stem_level,
-            leaf_budget,
+            terminal_leaf_budget,
             &mut leaf_ranges,
             parallel_threshold,
         )?;
