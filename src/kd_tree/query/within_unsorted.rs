@@ -1,5 +1,3 @@
-use std::num::NonZeroUsize;
-
 use crate::dist::DistanceMetric;
 use crate::kd_tree::query_context::QueryContext;
 use crate::kd_tree::query_stack::StackTrait;
@@ -127,64 +125,6 @@ where
                 );
             },
         );
-    }
-
-    #[inline]
-    pub(crate) fn within_unsorted_impl<D, const EXCLUSIVE: bool>(
-        &self,
-        query: &[A; K],
-        max_dist: D::Output,
-        result_capacity: Option<NonZeroUsize>,
-    ) -> Vec<QueryResultItem<(), T, D::Output>>
-    where
-        D: DistanceMetric<A>,
-        D::Output: crate::stem_strategy::SimdPrune
-            + SimdSelectBestChildBlock3
-            + BacktrackBlock3
-            + BacktrackBlock4
-            + TlsLeafScratch
-            + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
-    {
-        self.nearest_n_within_inner::<D, Vec<QueryResultItem<(), T, D::Output>>, EXCLUSIVE>(
-            query,
-            max_dist,
-            usize::MAX,
-            false,
-            result_capacity,
-        )
-    }
-
-    #[inline]
-    pub(crate) fn within_unsorted_impl_with_scratch<D, const EXCLUSIVE: bool>(
-        &self,
-        query: &[A; K],
-        max_dist: D::Output,
-        result_capacity: Option<NonZeroUsize>,
-        stack: &mut SS::Stack<D::Output>,
-    ) -> Vec<QueryResultItem<(), T, D::Output>>
-    where
-        D: DistanceMetric<A>,
-        D::Output: crate::stem_strategy::SimdPrune
-            + SimdSelectBestChildBlock3
-            + BacktrackBlock3
-            + BacktrackBlock4
-            + TlsLeafScratch
-            + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>,
-    {
-        self.nearest_n_within_inner_with_scratch::<
-            D,
-            Vec<QueryResultItem<(), T, D::Output>>,
-            EXCLUSIVE,
-        >(
-            query,
-            max_dist,
-            usize::MAX,
-            false,
-            result_capacity,
-            stack,
-        )
     }
 
     /// Returns a streaming iterator over all points within a given distance, unsorted.

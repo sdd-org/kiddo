@@ -443,58 +443,6 @@ where
         });
     }
 
-    pub(crate) fn within_unsorted_impl<D, const EXCLUSIVE: bool>(
-        &self,
-        query: &[A; K],
-        max_dist: D::Output,
-        result_capacity: Option<NonZeroUsize>,
-    ) -> Vec<QueryResultItem<(), T, D::Output>>
-    where
-        D: DistanceMetric<A>,
-        D::Output: crate::stem_strategy::SimdPrune
-            + SimdSelectBestChildBlock3
-            + BacktrackBlock3
-            + BacktrackBlock4
-            + TlsLeafScratch
-            + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
-    {
-        let mut results =
-            result_capacity.map_or_else(Vec::new, |capacity| Vec::with_capacity(capacity.get()));
-        self.within_unsorted_visit_impl::<D, _, EXCLUSIVE>(query, max_dist, |result| {
-            results.push(result)
-        });
-        results
-    }
-
-    pub(crate) fn within_unsorted_impl_with_scratch<D, const EXCLUSIVE: bool>(
-        &self,
-        query: &[A; K],
-        max_dist: D::Output,
-        result_capacity: Option<NonZeroUsize>,
-        stack: &mut SS::Stack<D::Output>,
-    ) -> Vec<QueryResultItem<(), T, D::Output>>
-    where
-        D: DistanceMetric<A>,
-        D::Output: crate::stem_strategy::SimdPrune
-            + SimdSelectBestChildBlock3
-            + BacktrackBlock3
-            + BacktrackBlock4
-            + TlsLeafScratch
-            + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>,
-    {
-        let mut results =
-            result_capacity.map_or_else(Vec::new, |capacity| Vec::with_capacity(capacity.get()));
-        self.within_unsorted_visit_impl_with_scratch::<D, _, EXCLUSIVE>(
-            query,
-            max_dist,
-            |result| results.push(result),
-            stack,
-        );
-        results
-    }
-
     pub(crate) fn nearest_n_within_impl_with_scratch<D, const EXCLUSIVE: bool>(
         &self,
         query: &[A; K],
