@@ -6,13 +6,11 @@
 
 - Add result capacity hint for radius queries ([@sdd](https://github.com/sdd))
 
-
 ### 🧪 Testing
 
 - Add result collection threshold profiler ([@sdd](https://github.com/sdd))
 
 - Add v6 release parity benchmark suites ([@sdd](https://github.com/sdd))
-
 
 ### 🤖 CI
 
@@ -33,7 +31,6 @@
 - Add ISA-specific stem benchmark reporting ([@sdd](https://github.com/sdd))
 
 - Add tree construction benchmarks ([@sdd](https://github.com/sdd))
-
 
 ### 🧹 Chore
 
