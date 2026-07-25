@@ -291,6 +291,12 @@ harness = false
 required-features = ["simd", "test_utils"]
 
 [[bench]]
+name = "profile_v6_embedded_leaf_descriptor"
+path = "benches/profile_v6_embedded_leaf_descriptor.rs"
+harness = false
+required-features = ["test_utils"]
+
+[[bench]]
 name = "profile_v6_stem_exact_stats"
 path = "benches/profile_v6_stem_exact_stats.rs"
 harness = false

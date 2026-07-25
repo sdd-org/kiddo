@@ -37,6 +37,17 @@ MATRIX_COLORS = (
     "#7f5f00",
     "#00838f",
 )
+LEAF_STRATEGY_SUITE = "v6-leaf-strategies"
+EMBEDDED_LEAF_DESCRIPTOR_GROUP_ID = (
+    "profile_v6_leaf_strategies/approx_nearest_one_f64"
+)
+EMBEDDED_LEAF_DESCRIPTOR_SERIES = (
+    ("embedded_descriptor", "embedded descriptor"),
+    ("embedded_extent_control", "same-layout extent control"),
+    ("baseline_donnelly_unrolled", "Donnelly unrolled"),
+    ("baseline_donnelly_simd_descent", "Donnelly SIMD descent"),
+    ("baseline_eytzinger", "Eytzinger"),
+)
 
 
 @dataclass(frozen=True)
@@ -326,6 +337,53 @@ def render_matrix_chart(
     plt.close(figure)
 
 
+def render_intra_run_matrix_chart(
+    plt: Any,
+    title: str,
+    series: list[tuple[str, list[Point]]],
+    output_path: Path,
+) -> None:
+    figure, axis = plt.subplots(figsize=(11, 7))
+    x_ticks: set[float] = set()
+    reference_name, reference_points = series[0]
+
+    for index, (series_name, points) in enumerate(series):
+        validate_series_pair(
+            reference_points,
+            points,
+            f"{title}: {reference_name} / {series_name}",
+        )
+        color = MATRIX_COLORS[index % len(MATRIX_COLORS)]
+        x = [point.tree_log2 for point in points]
+        y = [point.duration_ns / NS_PER_US for point in points]
+        lower = [point.lower_ns / NS_PER_US for point in points]
+        upper = [point.upper_ns / NS_PER_US for point in points]
+        x_ticks.update(x)
+        axis.plot(
+            x,
+            y,
+            marker="o",
+            linewidth=2.6 if index < 2 else 2,
+            linestyle="--" if index == 1 else "-",
+            label=series_name,
+            color=color,
+        )
+        axis.fill_between(x, lower, upper, color=color, alpha=0.08)
+
+    sorted_ticks = sorted(x_ticks)
+    axis.set_xticks(sorted_ticks)
+    axis.set_xticklabels([f"{value:g}" for value in sorted_ticks])
+    axis.set_yscale("log")
+    axis.set_xlabel("log2(tree size)")
+    axis.set_ylabel("Mean duration per query (us, log scale)")
+    axis.set_title(title)
+    axis.grid(True, which="both", alpha=0.25)
+    axis.legend(fontsize=9, ncol=2)
+    figure.tight_layout()
+    figure.savefig(output_path, dpi=140)
+    plt.close(figure)
+
+
 def matrix_change_score(series: list[tuple[str, list[Point], list[Point]]]) -> float:
     return sum(change_score(baseline, variant) for _, baseline, variant in series)
 
@@ -515,6 +573,52 @@ def generate_dist_metric_matrix_charts(
     return charts, metadata
 
 
+def generate_embedded_leaf_descriptor_matrix_chart(
+    plt: Any,
+    variant_key: str,
+    output_dir: Path,
+    variant_series: dict[SeriesKey, list[Point]],
+    paths_seen: set[Path],
+) -> tuple[list[tuple[str, Path]], list[dict[str, str | float]]]:
+    expected = [
+        (
+            SeriesKey(EMBEDDED_LEAF_DESCRIPTOR_GROUP_ID, function_id),
+            label,
+        )
+        for function_id, label in EMBEDDED_LEAF_DESCRIPTOR_SERIES
+    ]
+    if not all(key in variant_series for key, _ in expected):
+        return [], []
+
+    series = [(label, variant_series[key]) for key, label in expected]
+    chart_key = SeriesKey(
+        EMBEDDED_LEAF_DESCRIPTOR_GROUP_ID,
+        "embedded_leaf_descriptor_matrix",
+    )
+    chart_path = unique_chart_path(
+        output_dir,
+        LEAF_STRATEGY_SUITE,
+        chart_key,
+        variant_key,
+        paths_seen,
+    )
+    title = f"Embedded leaf descriptors: approx_nearest_one f64 ({variant_key})"
+    render_intra_run_matrix_chart(plt, title, series, chart_path)
+
+    embedded = variant_series[expected[0][0]]
+    extent_control = variant_series[expected[1][0]]
+    return [(title, chart_path)], [
+        {
+            "title": title,
+            "file_name": chart_path.name,
+            "suite": LEAF_STRATEGY_SUITE,
+            "group_id": EMBEDDED_LEAF_DESCRIPTOR_GROUP_ID,
+            "function_id": "embedded_leaf_descriptor_matrix",
+            "change_score": change_score(extent_control, embedded),
+        }
+    ]
+
+
 def generate_charts(
     variant_key: str,
     results_dir: Path,
@@ -582,6 +686,19 @@ def generate_charts(
                     "change_score": change_score(baseline_series[key], variant_series[key]),
                 }
             )
+
+        if suite == LEAF_STRATEGY_SUITE:
+            matrix_charts, matrix_metadata = (
+                generate_embedded_leaf_descriptor_matrix_chart(
+                    plt,
+                    variant_key,
+                    output_dir,
+                    variant_series,
+                    paths_seen,
+                )
+            )
+            charts.extend(matrix_charts)
+            metadata.extend(matrix_metadata)
 
     matrix_charts, matrix_metadata = generate_dist_metric_matrix_charts(
         plt,

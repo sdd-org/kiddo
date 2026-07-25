@@ -427,10 +427,13 @@ where
         }
 
         let mut stems_depth: usize = leaf_node_count.next_power_of_two().ilog2() as usize;
+        let unpadded_stems_depth = stems_depth;
 
-        // Pad stem tree height to the next block boundary for block-based strategies
-        let padding_level_count = if !stems_depth.is_multiple_of(SS::block_size()) {
-            let padding_level_count = SS::block_size() - (stems_depth % SS::block_size());
+        // Pad the occupied tree height to the next block boundary. Experimental
+        // layouts may reserve terminal levels in the final block for leaf metadata.
+        let occupied_depth = stems_depth + SS::TERMINAL_METADATA_LEVELS;
+        let padding_level_count = if !occupied_depth.is_multiple_of(SS::block_size()) {
+            let padding_level_count = SS::block_size() - (occupied_depth % SS::block_size());
             stems_depth += padding_level_count;
             padding_level_count
         } else {
@@ -452,7 +455,13 @@ where
         };
 
         // Traverse to the right-most represented leaf to determine the max used stem index
-        let rightmost_leaf_idx = soft_leaf_budget - 1;
+        let rightmost_leaf_idx = if LS::BUCKET_LIMIT_TYPE == BucketLimitType::Soft
+            && SS::TERMINAL_METADATA_LEVELS != 0
+        {
+            (1usize << unpadded_stems_depth) - 1
+        } else {
+            soft_leaf_budget - 1
+        };
         let rightmost_leaf_bit_range = if LS::BUCKET_LIMIT_TYPE == BucketLimitType::Soft {
             0..stems_depth
         } else {

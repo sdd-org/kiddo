@@ -18,6 +18,14 @@ pub trait StemStrategy: Clone + Sync + Send + 'static {
     /// The default is 1, which means that the strategy is not block-based.
     const BLOCK_SIZE: usize = 1;
 
+    /// Number of non-pivot terminal levels reserved at the bottom of the final block.
+    ///
+    /// Experimental stem layouts can use this to make construction align the pivot
+    /// depth so terminal metadata occupies the last level of a block. Ordinary stem
+    /// strategies leave this at zero.
+    #[doc(hidden)]
+    const TERMINAL_METADATA_LEVELS: usize = 0;
+
     /// Compact state persisted on scalar backtracking stacks.
     ///
     /// Scalar strategies can use this to store only the state needed to resume a deferred branch.

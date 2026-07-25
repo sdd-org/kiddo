@@ -68,6 +68,34 @@ pub struct VecOfArenas<A, T, const K: usize, const B: usize> {
     _phantom: std::marker::PhantomData<(A, T)>,
 }
 
+#[cfg(feature = "test_utils")]
+impl<A: Copy, T: Copy, const K: usize, const B: usize> VecOfArenas<A, T, K, B> {
+    #[inline(always)]
+    pub(crate) fn leaf_extent_for_embedded_descriptor(&self, leaf_idx: usize) -> (usize, usize) {
+        debug_assert!(leaf_idx < self.leaf_extents.len());
+        unsafe { *self.leaf_extents.get_unchecked(leaf_idx) }
+    }
+
+    #[inline(always)]
+    pub(crate) fn leaf_arena_from_embedded_descriptor(
+        &self,
+        byte_offset: usize,
+        leaf_len: usize,
+    ) -> LeafArena<'_, A, T, K> {
+        #[cfg(debug_assertions)]
+        {
+            debug_assert!(
+                byte_offset + LeafArena::<A, T, K>::encoded_len_bytes(leaf_len)
+                    <= self.leaf_bytes.len()
+            );
+        }
+        LeafArena::new(
+            unsafe { self.leaf_bytes.as_ptr().add(byte_offset) },
+            leaf_len,
+        )
+    }
+}
+
 #[cfg(feature = "rkyv_08")]
 impl<A, T, const K: usize, const B: usize> ArchivedVecOfArenas<A, T, K, B>
 where

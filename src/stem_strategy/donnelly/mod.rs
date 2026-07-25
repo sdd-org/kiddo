@@ -32,6 +32,8 @@ mod scalar;
 mod simd_descent;
 mod unrolled;
 mod unrolled_block_dim;
+#[cfg(feature = "test_utils")]
+mod unrolled_leaf_embedded;
 
 #[doc(hidden)]
 pub mod core;
@@ -50,3 +52,6 @@ pub use simd_full::DonnellySimdFull;
 pub use unrolled::DonnellyUnrolled;
 #[doc(inline)]
 pub use unrolled_block_dim::DonnellyUnrolledBlockDim;
+#[cfg(feature = "test_utils")]
+#[doc(hidden)]
+pub use unrolled_leaf_embedded::DonnellyUnrolledLeafEmbedded3;

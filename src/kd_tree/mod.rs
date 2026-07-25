@@ -16,6 +16,9 @@
 //!   soon as they are found.
 //!
 mod construction;
+#[cfg(feature = "test_utils")]
+#[doc(hidden)]
+pub mod embedded_leaf_descriptor_experiment;
 mod iter;
 pub(crate) mod orchestrator;
 mod query;
