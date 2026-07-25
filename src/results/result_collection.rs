@@ -10,6 +10,8 @@ use sorted_vec::SortedVec;
 
 use crate::{Axis, BestQueryResultItem, Content, QueryResultItem};
 
+pub(crate) const DEFAULT_UNSORTED_RESULT_CAPACITY: usize = 64;
+
 #[cfg(feature = "small_n_result_collectors")]
 pub(crate) const SMALL_RESULT_COLLECTION_MAX_QTY: usize = 32;
 
@@ -1275,8 +1277,10 @@ impl<O: Axis<Coord = O>, E: Ord> ResultCollection<O, E> for Vec<E> {
         if max_qty == usize::MAX {
             // Unsorted query path: start with reasonable capacity to avoid
             // the first several realloc waves when many candidates fall within
-            // the radius. 64 elements (1.55 KB at 24 B/elem) is negligible.
-            Vec::with_capacity(result_capacity.map_or(64, NonZeroUsize::get))
+            // the radius.
+            Vec::with_capacity(
+                result_capacity.map_or(DEFAULT_UNSORTED_RESULT_CAPACITY, NonZeroUsize::get),
+            )
         } else {
             Vec::with_capacity(max_qty)
         }

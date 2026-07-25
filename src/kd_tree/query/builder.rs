@@ -13,6 +13,7 @@ use crate::kd_tree::{
     KdTree, KdTreeAccessor, KdTreeIter, KdTreeQueryOps, QueryScratch, WithinUnsortedIter,
 };
 use crate::leaf_view::TlsLeafScratch;
+use crate::results::result_collection::DEFAULT_UNSORTED_RESULT_CAPACITY;
 use crate::stem_strategy::donnelly::simd_full::{
     BacktrackBlock3, BacktrackBlock4, SimdSelectBestChildBlock3,
 };
@@ -323,23 +324,6 @@ where
             + 'static,
         SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static;
 
-    fn qb_within_unsorted<D, const EXCLUSIVE: bool>(
-        &self,
-        query: &[A; K],
-        radius: D::Output,
-        result_capacity: Option<NonZeroUsize>,
-    ) -> Vec<QueryResultItem<(), T, D::Output>>
-    where
-        T: PartialOrd,
-        D: DistanceMetric<A>,
-        D::Output: crate::stem_strategy::SimdPrune
-            + SimdSelectBestChildBlock3
-            + BacktrackBlock3
-            + BacktrackBlock4
-            + TlsLeafScratch
-            + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static;
-
     fn qb_within_unsorted_visit<D, F, const EXCLUSIVE: bool>(
         &self,
         query: &[A; K],
@@ -356,6 +340,35 @@ where
             + 'static,
         SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
         F: FnMut(QueryResultItem<(), T, D::Output>);
+
+    #[inline]
+    fn qb_within_unsorted_projected<D, R, F, const EXCLUSIVE: bool>(
+        &self,
+        query: &[A; K],
+        radius: D::Output,
+        result_capacity: Option<NonZeroUsize>,
+        mut project: F,
+    ) -> Vec<R>
+    where
+        T: PartialOrd,
+        D: DistanceMetric<A>,
+        D::Output: crate::stem_strategy::SimdPrune
+            + SimdSelectBestChildBlock3
+            + BacktrackBlock3
+            + BacktrackBlock4
+            + TlsLeafScratch
+            + 'static,
+        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        F: FnMut(QueryResultItem<(), T, D::Output>) -> R,
+    {
+        let mut results = Vec::with_capacity(
+            result_capacity.map_or(DEFAULT_UNSORTED_RESULT_CAPACITY, NonZeroUsize::get),
+        );
+        self.qb_within_unsorted_visit::<D, _, EXCLUSIVE>(query, radius, |result| {
+            results.push(project(result));
+        });
+        results
+    }
 
     fn qb_best_n_within<D, const EXCLUSIVE: bool>(
         &self,
@@ -454,24 +467,6 @@ where
             + 'static,
         SS::Stack<D::Output>: StackTrait<D::Output, SS>;
 
-    fn qb_within_unsorted_with_scratch<D, const EXCLUSIVE: bool>(
-        &self,
-        query: &[A; K],
-        radius: D::Output,
-        result_capacity: Option<NonZeroUsize>,
-        stack: &mut SS::Stack<D::Output>,
-    ) -> Vec<QueryResultItem<(), T, D::Output>>
-    where
-        T: PartialOrd,
-        D: DistanceMetric<A>,
-        D::Output: crate::stem_strategy::SimdPrune
-            + SimdSelectBestChildBlock3
-            + BacktrackBlock3
-            + BacktrackBlock4
-            + TlsLeafScratch
-            + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>;
-
     fn qb_within_unsorted_visit_with_scratch<D, F, const EXCLUSIVE: bool>(
         &self,
         query: &[A; K],
@@ -489,6 +484,39 @@ where
             + 'static,
         SS::Stack<D::Output>: StackTrait<D::Output, SS>,
         F: FnMut(QueryResultItem<(), T, D::Output>);
+
+    #[inline]
+    fn qb_within_unsorted_projected_with_scratch<D, R, F, const EXCLUSIVE: bool>(
+        &self,
+        query: &[A; K],
+        radius: D::Output,
+        result_capacity: Option<NonZeroUsize>,
+        mut project: F,
+        stack: &mut SS::Stack<D::Output>,
+    ) -> Vec<R>
+    where
+        T: PartialOrd,
+        D: DistanceMetric<A>,
+        D::Output: crate::stem_strategy::SimdPrune
+            + SimdSelectBestChildBlock3
+            + BacktrackBlock3
+            + BacktrackBlock4
+            + TlsLeafScratch
+            + 'static,
+        SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+        F: FnMut(QueryResultItem<(), T, D::Output>) -> R,
+    {
+        let mut results = Vec::with_capacity(
+            result_capacity.map_or(DEFAULT_UNSORTED_RESULT_CAPACITY, NonZeroUsize::get),
+        );
+        self.qb_within_unsorted_visit_with_scratch::<D, _, EXCLUSIVE>(
+            query,
+            radius,
+            |result| results.push(project(result)),
+            stack,
+        );
+        results
+    }
 
     fn qb_best_n_within_with_scratch<D, const EXCLUSIVE: bool>(
         &self,
@@ -604,27 +632,6 @@ where
         SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
     {
         self.within_impl::<D, EXCLUSIVE>(query, radius, result_capacity)
-    }
-
-    #[inline]
-    fn qb_within_unsorted<D, const EXCLUSIVE: bool>(
-        &self,
-        query: &[A; K],
-        radius: D::Output,
-        result_capacity: Option<NonZeroUsize>,
-    ) -> Vec<QueryResultItem<(), T, D::Output>>
-    where
-        T: PartialOrd,
-        D: DistanceMetric<A>,
-        D::Output: crate::stem_strategy::SimdPrune
-            + SimdSelectBestChildBlock3
-            + BacktrackBlock3
-            + BacktrackBlock4
-            + TlsLeafScratch
-            + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
-    {
-        self.within_unsorted_impl::<D, EXCLUSIVE>(query, radius, result_capacity)
     }
 
     #[inline]
@@ -765,33 +772,6 @@ where
         SS::Stack<D::Output>: StackTrait<D::Output, SS>,
     {
         self.within_impl_with_scratch::<D, EXCLUSIVE>(query, radius, result_capacity, stack)
-    }
-
-    #[inline]
-    fn qb_within_unsorted_with_scratch<D, const EXCLUSIVE: bool>(
-        &self,
-        query: &[A; K],
-        radius: D::Output,
-        result_capacity: Option<NonZeroUsize>,
-        stack: &mut SS::Stack<D::Output>,
-    ) -> Vec<QueryResultItem<(), T, D::Output>>
-    where
-        T: PartialOrd,
-        D: DistanceMetric<A>,
-        D::Output: crate::stem_strategy::SimdPrune
-            + SimdSelectBestChildBlock3
-            + BacktrackBlock3
-            + BacktrackBlock4
-            + TlsLeafScratch
-            + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>,
-    {
-        self.within_unsorted_impl_with_scratch::<D, EXCLUSIVE>(
-            query,
-            radius,
-            result_capacity,
-            stack,
-        )
     }
 
     #[inline]
@@ -942,27 +922,6 @@ where
     }
 
     #[inline]
-    fn qb_within_unsorted<D, const EXCLUSIVE: bool>(
-        &self,
-        query: &[A; K],
-        radius: D::Output,
-        result_capacity: Option<NonZeroUsize>,
-    ) -> Vec<QueryResultItem<(), T, D::Output>>
-    where
-        T: PartialOrd,
-        D: DistanceMetric<A>,
-        D::Output: crate::stem_strategy::SimdPrune
-            + SimdSelectBestChildBlock3
-            + BacktrackBlock3
-            + BacktrackBlock4
-            + TlsLeafScratch
-            + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
-    {
-        self.within_unsorted_impl::<D, EXCLUSIVE>(query, radius, result_capacity)
-    }
-
-    #[inline]
     fn qb_within_unsorted_visit<D, F, const EXCLUSIVE: bool>(
         &self,
         query: &[A; K],
@@ -1103,33 +1062,6 @@ where
         SS::Stack<D::Output>: StackTrait<D::Output, SS>,
     {
         self.within_impl_with_scratch::<D, EXCLUSIVE>(query, radius, result_capacity, stack)
-    }
-
-    #[inline]
-    fn qb_within_unsorted_with_scratch<D, const EXCLUSIVE: bool>(
-        &self,
-        query: &[A; K],
-        radius: D::Output,
-        result_capacity: Option<NonZeroUsize>,
-        stack: &mut SS::Stack<D::Output>,
-    ) -> Vec<QueryResultItem<(), T, D::Output>>
-    where
-        T: PartialOrd,
-        D: DistanceMetric<A>,
-        D::Output: crate::stem_strategy::SimdPrune
-            + SimdSelectBestChildBlock3
-            + BacktrackBlock3
-            + BacktrackBlock4
-            + TlsLeafScratch
-            + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>,
-    {
-        self.within_unsorted_impl_with_scratch::<D, EXCLUSIVE>(
-            query,
-            radius,
-            result_capacity,
-            stack,
-        )
     }
 
     #[inline]
@@ -3874,25 +3806,27 @@ where
     #[inline]
     fn execute_with_scratch(self, scratch: &mut QueryScratch<SS, D::Output>) -> Self::Output {
         with_cleared_scratch(scratch, |stack| {
-            let results = if SORTED {
-                self.tree.qb_within_with_scratch::<D, EXCLUSIVE>(
-                    self.query,
-                    self.radius,
-                    self.result_capacity,
-                    stack,
-                )
+            if SORTED {
+                self.tree
+                    .qb_within_with_scratch::<D, EXCLUSIVE>(
+                        self.query,
+                        self.radius,
+                        self.result_capacity,
+                        stack,
+                    )
+                    .into_iter()
+                    .map(project_nearest_without_point::<A, T, D::Output, Exclude, I, Dp, K>)
+                    .collect()
             } else {
-                self.tree.qb_within_unsorted_with_scratch::<D, EXCLUSIVE>(
-                    self.query,
-                    self.radius,
-                    self.result_capacity,
-                    stack,
-                )
-            };
-            results
-                .into_iter()
-                .map(project_nearest_without_point::<A, T, D::Output, Exclude, I, Dp, K>)
-                .collect()
+                self.tree
+                    .qb_within_unsorted_projected_with_scratch::<D, _, _, EXCLUSIVE>(
+                        self.query,
+                        self.radius,
+                        self.result_capacity,
+                        project_nearest_without_point::<A, T, D::Output, Exclude, I, Dp, K>,
+                        stack,
+                    )
+            }
         })
     }
 }
@@ -5061,23 +4995,13 @@ where
                 },
             )
         } else {
-            let results = if EXCLUSIVE {
-                self.tree.qb_within_unsorted::<D, true>(
+            self.tree
+                .qb_within_unsorted_projected::<D, _, _, EXCLUSIVE>(
                     self.query,
                     self.radius,
                     self.result_capacity,
+                    project_nearest_without_point::<A, T, D::Output, P, I, Dp, K>,
                 )
-            } else {
-                self.tree.qb_within_unsorted::<D, false>(
-                    self.query,
-                    self.radius,
-                    self.result_capacity,
-                )
-            };
-            results
-                .into_iter()
-                .map(project_nearest_without_point::<A, T, D::Output, P, I, Dp, K>)
-                .collect()
         }
     }
 }
@@ -5645,6 +5569,103 @@ mod tests {
     }
 
     #[test]
+    fn unsorted_within_projects_results_and_honors_capacity_hint() {
+        let entries = [
+            (10u32, [0.0, 0.0]),
+            (11u32, [0.2, 0.1]),
+            (12u32, [0.4, 0.4]),
+            (13u32, [0.8, 0.2]),
+            (14u32, [0.9, 0.9]),
+            (15u32, [0.3, 0.7]),
+        ];
+        let tree = WrapTree::new_from_entries(&entries).unwrap();
+        let query = [0.25, 0.2];
+        let radius = 0.25;
+        let requested_capacity = 128;
+
+        let full = tree
+            .query(&query)
+            .within::<SquaredEuclidean<f64>>(radius)
+            .unsorted()
+            .execute();
+        let item_only = tree
+            .query(&query)
+            .within::<SquaredEuclidean<f64>>(radius)
+            .unsorted()
+            .without_distances()
+            .with_result_capacity(requested_capacity)
+            .execute();
+
+        assert_eq!(
+            item_only,
+            full.iter()
+                .map(|result| crate::QueryResultItem {
+                    point: (),
+                    item: result.item,
+                    distance: (),
+                })
+                .collect::<Vec<_>>()
+        );
+        assert!(item_only.capacity() >= requested_capacity);
+
+        let distance_only = tree
+            .query(&query)
+            .within::<SquaredEuclidean<f64>>(radius)
+            .unsorted()
+            .without_items()
+            .with_result_capacity(requested_capacity)
+            .execute();
+        assert_eq!(
+            distance_only,
+            full.iter()
+                .map(|result| crate::QueryResultItem {
+                    point: (),
+                    item: (),
+                    distance: result.distance,
+                })
+                .collect::<Vec<_>>()
+        );
+        assert!(distance_only.capacity() >= requested_capacity);
+
+        let exclusive_full = tree
+            .query(&query)
+            .within::<SquaredEuclidean<f64>>(radius)
+            .exclusive_boundaries()
+            .unsorted()
+            .execute();
+        let exclusive_item_only = tree
+            .query(&query)
+            .within::<SquaredEuclidean<f64>>(radius)
+            .exclusive_boundaries()
+            .unsorted()
+            .without_distances()
+            .execute();
+        assert_eq!(
+            exclusive_item_only,
+            exclusive_full
+                .iter()
+                .map(|result| crate::QueryResultItem {
+                    point: (),
+                    item: result.item,
+                    distance: (),
+                })
+                .collect::<Vec<_>>()
+        );
+
+        let mut scratch = tree.create_scratch::<SquaredEuclidean<f64>>();
+        let item_only_with_scratch = tree
+            .query(&query)
+            .within::<SquaredEuclidean<f64>>(radius)
+            .unsorted()
+            .without_distances()
+            .with_result_capacity(requested_capacity)
+            .with_scratch(&mut scratch)
+            .execute();
+        assert_eq!(item_only_with_scratch, item_only);
+        assert!(item_only_with_scratch.capacity() >= requested_capacity);
+    }
+
+    #[test]
     fn scratch_can_be_reused_across_mutable_mapped_tree_queries() {
         type MutableTree = KdTree<f32, u32, Eytzinger, VecOfArrays<f32, u32, 2, 4>, 2, 4>;
 
@@ -5752,6 +5773,34 @@ mod tests {
                 .with_scratch(&mut scratch)
                 .execute()
         );
+
+        let projected = archived
+            .query(&query)
+            .within::<SquaredEuclidean<f64>>(radius)
+            .unsorted()
+            .without_distances()
+            .execute();
+        let owned_projected = tree
+            .query(&query)
+            .within::<SquaredEuclidean<f64>>(radius)
+            .unsorted()
+            .without_distances()
+            .execute();
+        assert_eq!(projected, owned_projected);
+        assert!(projected.capacity() >= super::DEFAULT_UNSORTED_RESULT_CAPACITY);
+        assert!(owned_projected.capacity() >= super::DEFAULT_UNSORTED_RESULT_CAPACITY);
+
+        let requested_capacity = 128;
+        let projected_with_scratch = archived
+            .query(&query)
+            .within::<SquaredEuclidean<f64>>(radius)
+            .unsorted()
+            .without_distances()
+            .with_result_capacity(requested_capacity)
+            .with_scratch(&mut scratch)
+            .execute();
+        assert_eq!(projected_with_scratch, projected);
+        assert!(projected_with_scratch.capacity() >= requested_capacity);
 
         let local_best = archived
             .query(&query)
