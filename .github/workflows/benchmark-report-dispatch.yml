@@ -55,6 +55,7 @@ jobs:
                   ["/benchmark dist", "dist"],
                   ["/benchmark leaf", "leaf"],
                   ["/benchmark stems", "stems"],
+                  ["/benchmark construction", "construction"],
                 ]),
               ],
               [
@@ -101,11 +102,13 @@ jobs:
                 ? "dist-focussed"
                 : benchmarkVariant === "extended"
                   ? "query-family"
-                : benchmarkVariant === "leaf"
-                  ? "leaf-strategy"
-                  : benchmarkVariant === "stems"
-                    ? "stem-strategy"
-                  : "basic";
+                  : benchmarkVariant === "leaf"
+                    ? "leaf-strategy"
+                    : benchmarkVariant === "stems"
+                      ? "stem-strategy"
+                      : benchmarkVariant === "construction"
+                        ? "tree-construction"
+                        : "basic";
 
             await github.rest.issues.createComment({
               owner,

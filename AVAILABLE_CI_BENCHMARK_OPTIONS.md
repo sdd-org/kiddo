@@ -11,6 +11,13 @@ The workflow reads the YAML block below.
 
 ```yaml
 rules:
+  - command: /benchmark construction
+    reason: Changes to the tree builder or construction pipeline can affect tree creation performance.
+    match_any:
+      - src/kd_tree/builder.rs
+      - src/kd_tree/construction.rs
+      - src/kd_tree/construction/**
+
   - command: /benchmark dist
     reason: Changes under `src/dist/` can affect distance metric performance.
     match_any:
@@ -47,6 +54,7 @@ rules:
 ## Notes
 
 - `/benchmark dist` is reserved for distance-metric-focused changes and should stay above broader rules.
+- `/benchmark construction` is reserved for tree-builder and construction-pipeline changes and should stay above broader rules.
 - `/benchmark stems` is reserved for stem-strategy-specific changes and should stay above the broader `/benchmark` rule.
 - `/benchmark leaf` is reserved for leaf-strategy-specific changes and should stay above the broader `/benchmark` rule.
 - `/benchmark extended` is reserved for query-pipeline changes and should stay above the broader `/benchmark` rule.

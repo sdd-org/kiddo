@@ -37,6 +37,7 @@ MATRIX_COLORS = (
     "#7f5f00",
     "#00838f",
 )
+CONSTRUCTION_GROUP_PREFIX = "profile_v6_construction/"
 
 
 @dataclass(frozen=True)
@@ -102,6 +103,11 @@ def finite_positive(value: Any, description: str, path: Path) -> float:
     return number
 
 
+def duration_axis_label(group_id: str) -> str:
+    operation = "build" if group_id.startswith(CONSTRUCTION_GROUP_PREFIX) else "query"
+    return f"Mean duration per {operation} (us, log scale)"
+
+
 def result_series(path: Path) -> dict[SeriesKey, list[Point]]:
     series: dict[SeriesKey, list[Point]] = {}
     for result in load_json(path)["results"]:
@@ -119,8 +125,10 @@ def result_series(path: Path) -> dict[SeriesKey, list[Point]]:
             raise RuntimeError(f"invalid benchmark identity in {path}: {metadata!r}")
 
         throughput = metadata.get("throughput")
-        query_count = throughput.get("Elements") if isinstance(throughput, dict) else None
-        query_count = finite_positive(query_count, "query count/Elements throughput", path)
+        operation_count = throughput.get("Elements") if isinstance(throughput, dict) else None
+        operation_count = finite_positive(
+            operation_count, "operation count/Elements throughput", path
+        )
 
         mean = estimates.get("mean")
         interval = mean.get("confidence_interval") if isinstance(mean, dict) else None
@@ -134,9 +142,9 @@ def result_series(path: Path) -> dict[SeriesKey, list[Point]]:
         series.setdefault(key, []).append(
             Point(
                 tree_log2=math.log2(tree_size),
-                duration_ns=duration / query_count,
-                lower_ns=lower / query_count,
-                upper_ns=upper / query_count,
+                duration_ns=duration / operation_count,
+                lower_ns=lower / operation_count,
+                upper_ns=upper / operation_count,
             )
         )
 
@@ -210,7 +218,7 @@ def render_chart(
     axis.set_xticklabels([f"{value:g}" for value in x_ticks])
     axis.set_yscale("log")
     axis.set_xlabel("log2(tree size)")
-    axis.set_ylabel("Mean duration per query (us, log scale)")
+    axis.set_ylabel(duration_axis_label(key.group_id))
     axis.set_title(f"{suite}: {key.group_id} / {key.function_id}")
     axis.grid(True, which="both", alpha=0.25)
     axis.legend()

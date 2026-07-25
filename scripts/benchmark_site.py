@@ -25,6 +25,7 @@ from chart_benchmark_results import (
     Point,
     SeriesKey,
     SAFE_KEY,
+    duration_axis_label,
     generate_charts,
     import_matplotlib,
     load_json,
@@ -156,6 +157,8 @@ def infer_benchmark_variant(value: dict[str, Any]) -> str:
         return "dist"
     if any(name.startswith("bench_result-v5-dist-metrics-") for name in names):
         return "dist"
+    if any(name.startswith("bench_result-v6-construction-") for name in names):
+        return "construction"
     if any(name.startswith("bench_result-v6-leaf-strategies-") for name in names):
         return "leaf"
     if any(name.startswith("bench_result-v6-stem-strategies-") for name in names):
@@ -646,7 +649,7 @@ def render_baseline_trends(pages_root: Path) -> list[str]:
                 axis.plot(x_vals, y_vals, marker="o", linewidth=2, label=f"log2 n={tree_size:g}")
         axis.set_yscale("log")
         axis.set_xlabel("Baseline run")
-        axis.set_ylabel("Mean duration per query (us, log scale)")
+        axis.set_ylabel(duration_axis_label(group_id))
         axis.set_title(f"{suite}: {group_id} / {function_id}")
         axis.grid(True, which="both", alpha=0.25)
         axis.legend()
