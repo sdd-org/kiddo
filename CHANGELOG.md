@@ -1,5 +1,42 @@
 # Kiddo Changelog
 
+## [6.0.0-alpha.4] - 2026-07-25
+
+### ✨ Features
+
+- Add result capacity hint for radius queries ([@sdd](https://github.com/sdd))
+
+
+### 🧪 Testing
+
+- Add result collection threshold profiler ([@sdd](https://github.com/sdd))
+
+- Add v6 release parity benchmark suites ([@sdd](https://github.com/sdd))
+
+
+### 🤖 CI
+
+- Add stem strategy benchmark variant ([@sdd](https://github.com/sdd))
+
+- Rename basic benchmark variant ([@sdd](https://github.com/sdd))
+
+- Pass benchmark features explicitly ([@sdd](https://github.com/sdd))
+
+- Cap leaf benchmark tree size ([@sdd](https://github.com/sdd))
+
+- Fix leaf benchmark export filter ([@sdd](https://github.com/sdd))
+
+- Cap benchmark trees at 2^25 ([@sdd](https://github.com/sdd))
+
+- Fix benchmark v5-v6 chart matching ([@sdd](https://github.com/sdd))
+
+- Add ISA-specific stem benchmark reporting ([@sdd](https://github.com/sdd))
+
+
+### 🧹 Chore
+
+- Bump actions/download-artifact from 4 to 8 ([@dependabot[bot]](https://github.com/dependabot[bot]), Signed-off-by:dependabot[bot] <support@github.com>)
+
 ## [6.0.0-alpha.3] - 2026-07-21
 
 ### ✨ Features
