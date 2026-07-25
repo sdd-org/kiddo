@@ -298,6 +298,37 @@ bench-v6-stem-strategies RESULT_KEY=benchmark_result_key OUTPUT_DIR='.' QUERIES=
             ;;
     esac
 
+bench-v6-construction RESULT_KEY=benchmark_result_key OUTPUT_DIR='.' FEATURES='simd,test_utils,logging_off':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    result_key={{quote(RESULT_KEY)}}
+    output_dir={{quote(OUTPUT_DIR)}}
+    if [[ ! "$result_key" =~ ^[A-Za-z0-9][A-Za-z0-9._+:-]*$ ]]; then
+        echo "RESULT_KEY must contain only letters, digits, '.', '_', '+', ':', or '-'" >&2
+        exit 2
+    fi
+    host=$(rustc -vV | sed -n 's/^host: //p')
+    if [[ "$host" != x86_64-* ]]; then
+        echo "bench-v6-construction requires an x86_64 AVX-512 host; found $host" >&2
+        exit 2
+    fi
+    if ! rustc --print cfg -C target-cpu=native | grep -qx 'target_feature="avx512f"'; then
+        echo "bench-v6-construction requires AVX-512F support" >&2
+        exit 2
+    fi
+    mkdir -p "$output_dir"
+    RUSTC_WRAPPER= \
+        RAYON_NUM_THREADS=6 \
+        RUSTFLAGS='-C target-cpu=native' \
+        cargo criterion \
+            --target "$host" \
+            --bench profile_v6_construction \
+            --features {{quote(FEATURES)}}
+    cargo run --quiet --manifest-path tools/criterion-export/Cargo.toml -- \
+        target/criterion \
+        "$output_dir/bench_result-v6-construction-avx512-${result_key}.json" \
+        profile_v6_construction
+
 chart-benchmark-results VARIANT_KEY RESULTS_DIR='.' OUTPUT_DIR='.' PYTHON='python3':
     {{quote(PYTHON)}} scripts/chart_benchmark_results.py {{quote(VARIANT_KEY)}} --results-dir {{quote(RESULTS_DIR)}} --output-dir {{quote(OUTPUT_DIR)}}
 

@@ -45,6 +45,7 @@ on:
           - dist
           - leaf
           - stems
+          - construction
 
 concurrency:
   group: benchmark-report-${{ inputs.head_ref || github.ref_name }}-${{ inputs.benchmark_variant || 'basic' }}
@@ -168,6 +169,12 @@ jobs:
                   simd,test_utils,logging_off \
                   simd,test_utils,logging_off
                 ;;
+              construction)
+                just bench-v6-construction \
+                  "${{ steps.meta.outputs.variant_key }}" \
+                  ./target/benchmark-results \
+                  simd,test_utils,logging_off
+                ;;
               *)
                 echo "Unknown benchmark variant: $1" >&2
                 exit 2
@@ -181,6 +188,7 @@ jobs:
             run_variant dist
             run_variant leaf
             run_variant stems
+            run_variant construction
           else
             run_variant "${{ steps.meta.outputs.benchmark_variant }}"
           fi
