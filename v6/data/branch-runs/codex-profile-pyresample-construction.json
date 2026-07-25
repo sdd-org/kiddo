@@ -1,6 +1,32 @@
 [
   {
     "baseline_ref_name": "master",
+    "baseline_run_id": "20260725T221531Z-596408ccd98f",
+    "benchmark_variant": "construction",
+    "branch_path_key": "codex-profile-pyresample-construction",
+    "chart_files": [
+      "bench_result-v6-construction-avx512-f32-eytzinger-codex-profile-pyresample-construction.png",
+      "bench_result-v6-construction-avx512-f64-donnelly_simd_descent-codex-profile-pyresample-construction.png",
+      "bench_result-v6-construction-avx512-f64-eytzinger-codex-profile-pyresample-construction.png"
+    ],
+    "created_at": "2026-07-25T22:42:51Z",
+    "featured_chart_file": "bench_result-v6-construction-avx512-f32-eytzinger-codex-profile-pyresample-construction.png",
+    "is_baseline": false,
+    "pr_numbers": [
+      463
+    ],
+    "ref_name": "codex/profile-pyresample-construction",
+    "result_files": [
+      "bench_result-v6-construction-avx512-codex-profile-pyresample-construction.json"
+    ],
+    "run_id": "20260725T224251Z-af5ee14436c5",
+    "run_page_path": "branches/codex-profile-pyresample-construction/history/20260725T224251Z-af5ee14436c5/index.html",
+    "run_page_url": "https://sdd-org.github.io/kiddo/v6/branches/codex-profile-pyresample-construction/history/20260725T224251Z-af5ee14436c5/index.html",
+    "sha": "af5ee14436c5d21196ebdcd5eb327d5ad717d856",
+    "variant_key": "codex-profile-pyresample-construction"
+  },
+  {
+    "baseline_ref_name": "master",
     "baseline_run_id": "20260723T182239Z-58c61c3a2a0b",
     "benchmark_variant": "basic",
     "branch_path_key": "codex-profile-pyresample-construction",
