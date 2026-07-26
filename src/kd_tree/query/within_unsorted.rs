@@ -30,7 +30,7 @@ where
     ) where
         D: DistanceMetric<A>,
         D::Output: Axis<Coord = D::Output> + TlsLeafScratch + 'static,
-        E: FromLeafCandidate<T, D::Output>,
+        E: FromLeafCandidate<A, T, D::Output, K>,
         F: FnMut(E),
     {
         let mut results = VisitorResultCollection::new(visitor);
@@ -96,7 +96,7 @@ where
     }
 
     #[inline]
-    pub(crate) fn within_unsorted_visit_positioned_impl<D, F, const EXCLUSIVE: bool>(
+    pub(crate) fn within_unsorted_visit_with_points_impl<D, F, const EXCLUSIVE: bool>(
         &self,
         query: &[A; K],
         max_dist: D::Output,
@@ -110,7 +110,7 @@ where
             + TlsLeafScratch
             + 'static,
         SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
-        F: FnMut(usize, QueryResultItem<usize, T, D::Output>),
+        F: FnMut(QueryResultItem<[A; K], T, D::Output>),
     {
         let mut req_ctx = WithinUnsortedVisitReqCtx::<A, D::Output, EXCLUSIVE, K> {
             query,
@@ -119,17 +119,16 @@ where
         };
 
         self.backtracking_query::<_, _, D>(&mut req_ctx, |leaf_idx, query_wide, req_ctx| {
-            let mut leaf_visitor = |result| visitor(leaf_idx, result);
             self.process_leaf_within_unsorted_visit::<
                 D,
-                QueryResultItem<usize, T, D::Output>,
-                _,
+                QueryResultItem<[A; K], T, D::Output>,
+                F,
                 EXCLUSIVE,
             >(
                 leaf_idx,
                 query_wide,
                 req_ctx.max_dist(),
-                &mut leaf_visitor,
+                &mut visitor,
             );
         });
     }

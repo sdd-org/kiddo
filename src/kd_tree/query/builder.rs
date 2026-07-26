@@ -255,18 +255,6 @@ where
     SS: StemStrategy,
     LS: LeafStrategy<A, T, SS, K, B>,
 {
-    #[inline(always)]
-    fn qb_point_at(&self, leaf_idx: usize, position: usize) -> [A; K] {
-        match LS::LEAF_PROJECTION {
-            crate::traits::leaf_strategy::LeafProjection::LeafView => {
-                self.leaves().leaf_view(leaf_idx).point(position)
-            }
-            crate::traits::leaf_strategy::LeafProjection::LeafArena => {
-                self.leaves().leaf_arena(leaf_idx).point(position)
-            }
-        }
-    }
-
     fn qb_nearest_one<D>(&self, query: &[A; K]) -> (D::Output, T)
     where
         D: DistanceMetric<A>,
@@ -353,7 +341,7 @@ where
         SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
         F: FnMut(QueryResultItem<(), T, D::Output>);
 
-    fn qb_within_unsorted_visit_positioned<D, F, const EXCLUSIVE: bool>(
+    fn qb_within_unsorted_visit_with_points<D, F, const EXCLUSIVE: bool>(
         &self,
         query: &[A; K],
         radius: D::Output,
@@ -368,7 +356,7 @@ where
             + TlsLeafScratch
             + 'static,
         SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
-        F: FnMut(usize, QueryResultItem<usize, T, D::Output>);
+        F: FnMut(QueryResultItem<[A; K], T, D::Output>);
 
     #[inline]
     fn qb_within_unsorted_projected<D, R, F, const EXCLUSIVE: bool>(
@@ -422,14 +410,9 @@ where
         let mut results = Vec::with_capacity(
             result_capacity.map_or(DEFAULT_UNSORTED_RESULT_CAPACITY, NonZeroUsize::get),
         );
-        self.qb_within_unsorted_visit_positioned::<D, _, EXCLUSIVE>(
-            query,
-            radius,
-            |leaf_idx, result| {
-                let point = self.qb_point_at(leaf_idx, result.point);
-                results.push(project(point, result.item, result.distance));
-            },
-        );
+        self.qb_within_unsorted_visit_with_points::<D, _, EXCLUSIVE>(query, radius, |result| {
+            results.push(project(result.point, result.item, result.distance))
+        });
         results
     }
 
@@ -719,7 +702,7 @@ where
     }
 
     #[inline]
-    fn qb_within_unsorted_visit_positioned<D, F, const EXCLUSIVE: bool>(
+    fn qb_within_unsorted_visit_with_points<D, F, const EXCLUSIVE: bool>(
         &self,
         query: &[A; K],
         radius: D::Output,
@@ -734,9 +717,9 @@ where
             + TlsLeafScratch
             + 'static,
         SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
-        F: FnMut(usize, QueryResultItem<usize, T, D::Output>),
+        F: FnMut(QueryResultItem<[A; K], T, D::Output>),
     {
-        self.within_unsorted_visit_positioned_impl::<D, F, EXCLUSIVE>(query, radius, visitor)
+        self.within_unsorted_visit_with_points_impl::<D, F, EXCLUSIVE>(query, radius, visitor)
     }
 
     #[inline]
@@ -1027,7 +1010,7 @@ where
     }
 
     #[inline]
-    fn qb_within_unsorted_visit_positioned<D, F, const EXCLUSIVE: bool>(
+    fn qb_within_unsorted_visit_with_points<D, F, const EXCLUSIVE: bool>(
         &self,
         query: &[A; K],
         radius: D::Output,
@@ -1042,9 +1025,9 @@ where
             + TlsLeafScratch
             + 'static,
         SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
-        F: FnMut(usize, QueryResultItem<usize, T, D::Output>),
+        F: FnMut(QueryResultItem<[A; K], T, D::Output>),
     {
-        self.within_unsorted_visit_positioned_impl::<D, F, EXCLUSIVE>(query, radius, visitor)
+        self.within_unsorted_visit_with_points_impl::<D, F, EXCLUSIVE>(query, radius, visitor)
     }
 
     #[inline]
@@ -5160,13 +5143,12 @@ where
     {
         if <Projection<P, I, Dp> as ProjectionSpec<A, T, D::Output, K>>::WANTS_POINTS {
             self.tree
-                .qb_within_unsorted_visit_positioned::<D, _, EXCLUSIVE>(
+                .qb_within_unsorted_visit_with_points::<D, _, EXCLUSIVE>(
                     self.query,
                     self.radius,
-                    |leaf_idx, result| {
-                        let point = self.tree.qb_point_at(leaf_idx, result.point);
+                    |result| {
                         visitor(Projection::<P, I, Dp>::nearest_from_parts(
-                            point,
+                            result.point,
                             result.item,
                             result.distance,
                         ));
