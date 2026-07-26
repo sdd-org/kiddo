@@ -45,7 +45,7 @@ where
     ) where
         D: DistanceMetric<A>,
         D::Output: Axis<Coord = D::Output> + TlsLeafScratch + 'static,
-        E: FromLeafCandidate<T, D::Output>,
+        E: FromLeafCandidate<A, T, D::Output, K>,
         R: ResultCollection<D::Output, E>,
     {
         #[cfg(feature = "result_collection_stats")]

@@ -358,13 +358,14 @@ impl<'a, AX: Axis<Coord = AX>, T: Content, const K: usize, const B: usize>
 
     #[cfg_attr(not(feature = "no_inline"), inline)]
     pub(crate) fn update_nearest_dists<O, E, R, const EXCLUSIVE: bool>(
+        &self,
         dists: &[O],
         items: &[T],
         dist: O,
         results: &mut R,
     ) where
         O: Axis<Coord = O>,
-        E: FromLeafCandidate<T, O>,
+        E: FromLeafCandidate<AX, T, O, K>,
         R: ResultCollection<O, E>,
     {
         dists
@@ -377,7 +378,7 @@ impl<'a, AX: Axis<Coord = AX>, T: Content, const K: usize, const B: usize>
                 if is_within_dist {
                     #[cfg(feature = "result_collection_stats")]
                     crate::results::result_collection_stats::record_candidate_emitted();
-                    results.add(E::from_leaf_candidate(idx, i, d));
+                    results.add(E::from_leaf_candidate(self.point(idx), i, d));
                 }
             })
     }
@@ -450,36 +451,6 @@ where
 
             byte_offset += tile_byte_len;
         });
-    }
-
-    #[inline(always)]
-    pub(crate) fn point(&self, idx: usize) -> [AX; K] {
-        debug_assert!(idx < self.len);
-        let mut base = 0usize;
-        let mut byte_offset = 0usize;
-
-        for width in LEAF_ARENA_TILE_WIDTHS {
-            let tile_count = (self.len - base) / width;
-            let span = tile_count * width;
-            let tile_byte_len =
-                K * width * std::mem::size_of::<AX>() + width * std::mem::size_of::<T>();
-
-            if idx < base + span {
-                let position = idx - base;
-                let tile_idx = position / width;
-                let tile: LeafArenaTile<'_, AX, T, K> = LeafArenaTile {
-                    bytes: unsafe { self.bytes.add(byte_offset + tile_idx * tile_byte_len) },
-                    len: width,
-                    _phantom: PhantomData,
-                };
-                return tile.point(position % width);
-            }
-
-            base += span;
-            byte_offset += tile_count * tile_byte_len;
-        }
-
-        unsafe { std::hint::unreachable_unchecked() }
     }
 
     #[inline(always)]
@@ -908,14 +879,12 @@ mod tests {
     fn update_nearest_dists_adds_only_items_within_threshold() {
         let dists = [4.0f32, 1.5, 2.0, 5.0];
         let items = [11u32, 22, 33, 44];
+        let xs = [0.0f32; 4];
+        let ys = [0.0f32; 4];
+        let view = LeafView::<f32, u32, 2, 8>::new([&xs, &ys], &items);
         let mut results = TestNearestResults::default();
 
-        LeafView::<f32, u32, 2, 8>::update_nearest_dists::<_, _, _, false>(
-            &dists,
-            &items,
-            2.0,
-            &mut results,
-        );
+        view.update_nearest_dists::<_, _, _, false>(&dists, &items, 2.0, &mut results);
 
         let entries = results.into_sorted_vec();
         assert_eq!(entries.len(), 2);

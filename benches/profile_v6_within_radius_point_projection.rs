@@ -6,7 +6,7 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use kiddo::dist::SquaredEuclidean;
 use kiddo::kd_tree::KdTree;
-use kiddo::leaf_strategy::FlatVec;
+use kiddo::leaf_strategy::VecOfArenas;
 use kiddo::stem_strategy::Eytzinger;
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -21,8 +21,8 @@ const DEFAULT_RADIUS: f64 = 0.05;
 const POINT_SEED: u64 = 0x5eed_0000_0000_0001;
 const QUERY_SEED: u64 = 0x5eed_0000_0000_0002;
 
-type F64Tree = KdTree<f64, u32, Eytzinger, FlatVec<f64, u32, K, B>, K, B>;
-type F32Tree = KdTree<f32, u32, Eytzinger, FlatVec<f32, u32, K, B>, K, B>;
+type F64Tree = KdTree<f64, u32, Eytzinger, VecOfArenas<f64, u32, K, B>, K, B>;
+type F32Tree = KdTree<f32, u32, Eytzinger, VecOfArenas<f32, u32, K, B>, K, B>;
 
 fn read_usize_env(var: &str, default: usize) -> usize {
     std::env::var(var)

@@ -23,16 +23,11 @@ pub(crate) fn nearest_n_within_with_query_wide_fallback<
     T: Content,
     D: DistanceMetric<AX>,
     D::Output: Axis<Coord = D::Output> + TlsLeafScratch + 'static,
-    E: FromLeafCandidate<T, D::Output>,
+    E: FromLeafCandidate<AX, T, D::Output, K>,
     R: ResultCollection<D::Output, E>,
 {
     leaf.with_dists_for_slice_wide::<D, _>(query_wide, |dists| {
-        LeafView::<AX, T, K, B>::update_nearest_dists::<_, E, _, EXCLUSIVE>(
-            dists,
-            leaf.items(),
-            dist,
-            results,
-        );
+        leaf.update_nearest_dists::<_, E, _, EXCLUSIVE>(dists, leaf.items(), dist, results);
     });
 }
 
@@ -55,14 +50,13 @@ pub(crate) fn nearest_n_within_with_query_wide_arena_fallback<
     T: Content,
     D: DistanceMetric<AX>,
     D::Output: Axis<Coord = D::Output> + 'static,
-    E: FromLeafCandidate<T, D::Output>,
+    E: FromLeafCandidate<AX, T, D::Output, K>,
     R: ResultCollection<D::Output, E>,
 {
     if arena.is_empty() {
         return;
     }
 
-    let mut position_base = 0;
     arena.for_each_tiled_chunk(|tile| {
         for idx in 0..tile.len() {
             let mut candidate_dist = D::Output::zero();
@@ -88,12 +82,11 @@ pub(crate) fn nearest_n_within_with_query_wide_arena_fallback<
                 crate::results::result_collection_stats::record_candidate_emitted();
 
                 results.add(E::from_leaf_candidate(
-                    position_base + idx,
+                    tile.point(idx),
                     unsafe { tile.item_unaligned(idx) },
                     candidate_dist,
                 ));
             }
         }
-        position_base += tile.len();
     });
 }
