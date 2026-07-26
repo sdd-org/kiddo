@@ -1,5 +1,62 @@
 # Kiddo Changelog
 
+## [6.0.0-alpha.4] - 2026-07-26
+
+### ✨ Features
+
+- Add result capacity hint for radius queries ([@sdd](https://github.com/sdd))
+
+- Add adaptive parallel tree construction ([@sdd](https://github.com/sdd))
+
+
+### 🐛 Bug Fixes
+
+- Handle padded stems in parallel construction ([@sdd](https://github.com/sdd))
+
+
+### ♻️ Refactor
+
+- Within_unsorted to a visitor ([@sdd](https://github.com/sdd))
+
+
+### 🧪 Testing
+
+- Add result collection threshold profiler ([@sdd](https://github.com/sdd))
+
+- Add v6 release parity benchmark suites ([@sdd](https://github.com/sdd))
+
+
+### 🤖 CI
+
+- Add stem strategy benchmark variant ([@sdd](https://github.com/sdd))
+
+- Rename basic benchmark variant ([@sdd](https://github.com/sdd))
+
+- Pass benchmark features explicitly ([@sdd](https://github.com/sdd))
+
+- Cap leaf benchmark tree size ([@sdd](https://github.com/sdd))
+
+- Fix leaf benchmark export filter ([@sdd](https://github.com/sdd))
+
+- Cap benchmark trees at 2^25 ([@sdd](https://github.com/sdd))
+
+- Fix benchmark v5-v6 chart matching ([@sdd](https://github.com/sdd))
+
+- Add ISA-specific stem benchmark reporting ([@sdd](https://github.com/sdd))
+
+- Add tree construction benchmarks ([@sdd](https://github.com/sdd))
+
+
+### 🧹 Chore
+
+- Bump actions/download-artifact from 4 to 8 ([@dependabot[bot]](https://github.com/dependabot[bot]), Signed-off-by:dependabot[bot] <support@github.com>)
+
+- Bump actions/upload-artifact from 4 to 7 ([@dependabot[bot]](https://github.com/dependabot[bot]), Signed-off-by:dependabot[bot] <support@github.com>)
+
+- Bump actions/setup-python from 5 to 7 ([@dependabot[bot]](https://github.com/dependabot[bot]), Signed-off-by:dependabot[bot] <support@github.com>)
+
+- Add external comparison and projection tooling ([@sdd](https://github.com/sdd))
+
 ## [6.0.0-alpha.3] - 2026-07-21
 
 ### ✨ Features
