@@ -93,7 +93,7 @@ Add `kiddo` to `Cargo.toml`
 
 ```toml
 [dependencies]
-kiddo = "6.0.0-alpha.4"
+kiddo = "6.0.0-rc.1"
 ```
 
 Add points to a k-d tree and query the nearest points with a distance metric:
