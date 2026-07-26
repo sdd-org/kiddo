@@ -11,6 +11,8 @@ use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use std::hint::black_box;
 
+mod profile_tree_sizes;
+
 const K: usize = 3;
 const B: usize = 32;
 const DEFAULT_QUERY_COUNT: usize = 1_000;
@@ -55,17 +57,18 @@ where
 
 fn dist_metrics(c: &mut Criterion) {
     let query_count = read_usize_env("KIDDO_PROFILE_QUERIES", DEFAULT_QUERY_COUNT);
+    let tree_sizes = profile_tree_sizes::from_env(&TREE_SIZES);
 
     eprintln!(
-        "benchmarking v6 distance metrics: dims={} tree_sizes=2^16,2^18,...,2^26 queries={} point_seed={} query_seed={}",
-        K, query_count, POINT_SEED, QUERY_SEED
+        "benchmarking v6 distance metrics: dims={} tree_sizes=2^{}..2^{} queries={} point_seed={} query_seed={}",
+        K, tree_sizes[0].ilog2(), tree_sizes.last().unwrap().ilog2(), query_count, POINT_SEED, QUERY_SEED
     );
 
     let queries = build_queries(query_count);
     let mut group = c.benchmark_group("profile_v6_dist_metrics/f64");
     group.throughput(Throughput::Elements(query_count as u64));
 
-    for point_count in TREE_SIZES {
+    for point_count in tree_sizes {
         let points = build_points(point_count);
         let tree: F64Tree = KdTree::new_from_slice(&points).unwrap();
 

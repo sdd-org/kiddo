@@ -4,6 +4,9 @@ default:
   just --list
 
 benchmark_result_key := `date -u +%Y%m%dT%H%M%SZ`
+profile_min_log2_points := env_var_or_default("KIDDO_PROFILE_MIN_LOG2_POINTS", "16")
+profile_max_log2_points := env_var_or_default("KIDDO_PROFILE_MAX_LOG2_POINTS", "25")
+profile_queries := env_var_or_default("KIDDO_PROFILE_QUERIES", "1000")
 
 fmt:
     cargo fmt --all
@@ -125,7 +128,7 @@ benchmark-derive-key REF_NAME PYTHON='python3':
 benchmark-derive-path-key REF_NAME PYTHON='python3':
     {{quote(PYTHON)}} scripts/benchmark_site.py derive-path-key --ref-name {{quote(REF_NAME)}}
 
-bench-v6-eytzinger-focus RESULT_KEY=benchmark_result_key OUTPUT_DIR='.' FEATURES='simd,test_utils,logging_off' QUERIES='1000':
+bench-v6-eytzinger-focus RESULT_KEY OUTPUT_DIR='.' FEATURES='simd,test_utils,logging_off' QUERIES=profile_queries:
     #!/usr/bin/env bash
     set -euo pipefail
     result_key={{quote(RESULT_KEY)}}
@@ -166,7 +169,7 @@ bench-v6-eytzinger-focus RESULT_KEY=benchmark_result_key OUTPUT_DIR='.' FEATURES
         "$output_dir/bench_result-v6-approx_nearest_one-eytzinger-${result_key}.json" \
         profile_v6_approx_nearest_one_eytzinger
 
-bench-v6-query-family RESULT_KEY=benchmark_result_key OUTPUT_DIR='.' FEATURES='simd,test_utils,logging_off' QUERIES='1000':
+bench-v6-query-family RESULT_KEY=benchmark_result_key OUTPUT_DIR='.' FEATURES='simd,test_utils,logging_off' QUERIES=profile_queries:
     #!/usr/bin/env bash
     set -euo pipefail
     result_key={{quote(RESULT_KEY)}}
@@ -187,7 +190,7 @@ bench-v6-query-family RESULT_KEY=benchmark_result_key OUTPUT_DIR='.' FEATURES='s
         "$output_dir/bench_result-v6-query-family-eytzinger-${result_key}.json" \
         profile_v6_query_family_eytzinger
 
-bench-v6-dist-metrics RESULT_KEY=benchmark_result_key OUTPUT_DIR='.' QUERIES='1000' SCALAR_FEATURES='test_utils,logging_off' SIMD_FEATURES='simd,test_utils,logging_off':
+bench-v6-dist-metrics RESULT_KEY=benchmark_result_key OUTPUT_DIR='.' QUERIES=profile_queries SCALAR_FEATURES='test_utils,logging_off' SIMD_FEATURES='simd,test_utils,logging_off':
     #!/usr/bin/env bash
     set -euo pipefail
     result_key={{quote(RESULT_KEY)}}
@@ -228,7 +231,7 @@ bench-v6-dist-metrics RESULT_KEY=benchmark_result_key OUTPUT_DIR='.' QUERIES='10
     run_mode avx2 "-C target-cpu=x86-64-v2 -C target-feature=+avx2" "$simd_features"
     run_mode avx512 "-C target-cpu=native" "$simd_features"
 
-bench-v6-leaf-strategies RESULT_KEY=benchmark_result_key OUTPUT_DIR='.' FEATURES='simd,test_utils,logging_off' QUERIES='1000':
+bench-v6-leaf-strategies RESULT_KEY=benchmark_result_key OUTPUT_DIR='.' FEATURES='simd,test_utils,logging_off' QUERIES=profile_queries:
     #!/usr/bin/env bash
     set -euo pipefail
     result_key={{quote(RESULT_KEY)}}
@@ -249,7 +252,7 @@ bench-v6-leaf-strategies RESULT_KEY=benchmark_result_key OUTPUT_DIR='.' FEATURES
         "$output_dir/bench_result-v6-leaf-strategies-${result_key}.json" \
         profile_v6_leaf_strategies
 
-bench-v6-stem-strategies RESULT_KEY=benchmark_result_key OUTPUT_DIR='.' QUERIES='1000' SCALAR_FEATURES='simd,test_utils,logging_off' SIMD_FEATURES='simd,test_utils,logging_off':
+bench-v6-stem-strategies RESULT_KEY=benchmark_result_key OUTPUT_DIR='.' QUERIES=profile_queries SCALAR_FEATURES='simd,test_utils,logging_off' SIMD_FEATURES='simd,test_utils,logging_off':
     #!/usr/bin/env bash
     set -euo pipefail
     result_key={{quote(RESULT_KEY)}}
@@ -329,8 +332,157 @@ bench-v6-construction RESULT_KEY=benchmark_result_key OUTPUT_DIR='.' FEATURES='s
         "$output_dir/bench_result-v6-construction-avx512-${result_key}.json" \
         profile_v6_construction
 
+bench-v6-all RESULT_KEY=benchmark_result_key OUTPUT_DIR='.':
+    just bench-v6-eytzinger-focus {{quote(RESULT_KEY)}} {{quote(OUTPUT_DIR)}}
+    just bench-v6-query-family {{quote(RESULT_KEY)}} {{quote(OUTPUT_DIR)}}
+    just bench-v6-dist-metrics {{quote(RESULT_KEY)}} {{quote(OUTPUT_DIR)}}
+    just bench-v6-leaf-strategies {{quote(RESULT_KEY)}} {{quote(OUTPUT_DIR)}}
+    just bench-v6-stem-strategies {{quote(RESULT_KEY)}} {{quote(OUTPUT_DIR)}}
+
+bench-external-kd-trees RESULT_KEY=benchmark_result_key OUTPUT_DIR='.' FEATURES='simd,test_utils,logging_off' QUERIES=profile_queries MIN_LOG2_POINTS=profile_min_log2_points MAX_LOG2_POINTS=profile_max_log2_points RADIUS='0.05':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    result_key={{quote(RESULT_KEY)}}
+    output_dir={{quote(OUTPUT_DIR)}}
+    if [[ ! "$result_key" =~ ^[A-Za-z0-9][A-Za-z0-9._+:-]*$ ]]; then
+        echo "RESULT_KEY must contain only letters, digits, '.', '_', '+', ':', or '-'" >&2
+        exit 2
+    fi
+    mkdir -p "$output_dir"
+    RUSTC_WRAPPER= \
+        KIDDO_PROFILE_QUERIES={{quote(QUERIES)}} \
+        KIDDO_PROFILE_MIN_LOG2_POINTS={{quote(MIN_LOG2_POINTS)}} \
+        KIDDO_PROFILE_MAX_LOG2_POINTS={{quote(MAX_LOG2_POINTS)}} \
+        KIDDO_PROFILE_RADIUS={{quote(RADIUS)}} \
+        RUSTFLAGS='-C target-cpu=native' \
+        cargo criterion \
+            --bench profile_external_kd_trees \
+            --features {{quote(FEATURES)}}
+    cargo run --quiet --manifest-path tools/criterion-export/Cargo.toml -- \
+        target/criterion \
+        "$output_dir/bench_result-external-kd-trees-${result_key}.json" \
+        profile_external_kd_trees
+
+bench-v6-within-radius-projection RESULT_KEY=benchmark_result_key OUTPUT_DIR='./focused-results' FEATURES='simd,test_utils,logging_off' QUERIES='1000' MIN_LOG2_POINTS='16' MAX_LOG2_POINTS='27' RADIUS='0.05':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    result_key={{quote(RESULT_KEY)}}
+    output_dir={{quote(OUTPUT_DIR)}}
+    if [[ ! "$result_key" =~ ^[A-Za-z0-9][A-Za-z0-9._+:-]*$ ]]; then
+        echo "RESULT_KEY must contain only letters, digits, '.', '_', '+', ':', or '-'" >&2
+        exit 2
+    fi
+    mkdir -p "$output_dir"
+    RUSTC_WRAPPER= \
+        KIDDO_PROFILE_QUERIES={{quote(QUERIES)}} \
+        KIDDO_PROFILE_MIN_LOG2_POINTS={{quote(MIN_LOG2_POINTS)}} \
+        KIDDO_PROFILE_MAX_LOG2_POINTS={{quote(MAX_LOG2_POINTS)}} \
+        KIDDO_PROFILE_RADIUS={{quote(RADIUS)}} \
+        RUSTFLAGS='-C target-cpu=native' \
+        cargo criterion \
+            --bench profile_v6_within_radius_projection \
+            --features {{quote(FEATURES)}}
+    cargo run --quiet --manifest-path tools/criterion-export/Cargo.toml -- \
+        target/criterion \
+        "$output_dir/bench_result-v6-within-radius-projection-${result_key}.json" \
+        profile_v6_within_radius_projection
+
+bench-neighbourhood-published RESULT_KEY=benchmark_result_key OUTPUT_DIR='./focused-results' FEATURES='simd,test_utils,logging_off' POINTS='100000000' QUERIES='20000' RUNS='1' EPSILONS='0.02,0.05,0.1,0.2':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    result_key={{quote(RESULT_KEY)}}
+    output_dir={{quote(OUTPUT_DIR)}}
+    if [[ ! "$result_key" =~ ^[A-Za-z0-9][A-Za-z0-9._+:-]*$ ]]; then
+        echo "RESULT_KEY must contain only letters, digits, '.', '_', '+', ':', or '-'" >&2
+        exit 2
+    fi
+    mkdir -p "$output_dir"
+    RUSTC_WRAPPER= \
+        KIDDO_NEIGHBOURHOOD_POINTS={{quote(POINTS)}} \
+        KIDDO_NEIGHBOURHOOD_QUERIES={{quote(QUERIES)}} \
+        KIDDO_NEIGHBOURHOOD_RUNS={{quote(RUNS)}} \
+        KIDDO_NEIGHBOURHOOD_EPSILONS={{quote(EPSILONS)}} \
+        RUSTFLAGS='-C target-cpu=native' \
+        cargo bench \
+            --bench profile_neighbourhood_published \
+            --features {{quote(FEATURES)}} \
+        | tee "$output_dir/bench_result-neighbourhood-published-${result_key}.tsv"
+
+chart-v6-within-radius-projection RESULT_KEY RESULTS_DIR='./focused-results' OUTPUT_DIR='./focused-charts' PYTHON='python3':
+    {{quote(PYTHON)}} scripts/chart_within_radius_projection_results.py charts \
+        --result {{quote(RESULTS_DIR)}}/bench_result-v6-within-radius-projection-{{quote(RESULT_KEY)}}.json \
+        --result-label {{quote(RESULT_KEY)}} \
+        --output-dir {{quote(OUTPUT_DIR)}}
+
+html-v6-within-radius-projection RESULT_KEY RESULTS_DIR='./focused-results' OUTPUT_DIR='./focused-charts' HTML_NAME='within-radius-projection-benchmarks.html' PYTHON='python3':
+    {{quote(PYTHON)}} scripts/chart_within_radius_projection_results.py all \
+        --result {{quote(RESULTS_DIR)}}/bench_result-v6-within-radius-projection-{{quote(RESULT_KEY)}}.json \
+        --result-label {{quote(RESULT_KEY)}} \
+        --output-dir {{quote(OUTPUT_DIR)}} \
+        --html-name {{quote(HTML_NAME)}}
+
+view-v6-within-radius-projection RESULT_KEY RESULTS_DIR='./focused-results' OUTPUT_DIR='./focused-charts' HTML_NAME='within-radius-projection-benchmarks.html' PYTHON='python3':
+    just html-v6-within-radius-projection {{quote(RESULT_KEY)}} {{quote(RESULTS_DIR)}} {{quote(OUTPUT_DIR)}} {{quote(HTML_NAME)}} {{quote(PYTHON)}}
+    xdg-open {{quote(OUTPUT_DIR)}}/{{quote(HTML_NAME)}}
+
+html-v6-within-radius-item-only RESULT_KEY RESULTS_DIR='./focused-results' OUTPUT_DIR='./focused-charts' HTML_NAME='within-radius-item-only-comparison.html' PYTHON='python3':
+    {{quote(PYTHON)}} scripts/chart_within_radius_projection_results.py all \
+        --result {{quote(RESULTS_DIR)}}/bench_result-v6-within-radius-projection-{{quote(RESULT_KEY)}}.json \
+        --result-label {{quote(RESULT_KEY)}} \
+        --output-dir {{quote(OUTPUT_DIR)}} \
+        --html-name {{quote(HTML_NAME)}} \
+        --item-only
+
+view-v6-within-radius-item-only RESULT_KEY RESULTS_DIR='./focused-results' OUTPUT_DIR='./focused-charts' HTML_NAME='within-radius-item-only-comparison.html' PYTHON='python3':
+    just html-v6-within-radius-item-only {{quote(RESULT_KEY)}} {{quote(RESULTS_DIR)}} {{quote(OUTPUT_DIR)}} {{quote(HTML_NAME)}} {{quote(PYTHON)}}
+    xdg-open {{quote(OUTPUT_DIR)}}/{{quote(HTML_NAME)}}
+
+chart-external-kd-tree-results EXTERNAL_RESULT_KEY KIDDO_RESULT_KEY=EXTERNAL_RESULT_KEY RESULTS_DIR='.' OUTPUT_DIR='.' PYTHON='python3':
+    {{quote(PYTHON)}} scripts/chart_external_kd_tree_results.py charts \
+        --external {{quote(RESULTS_DIR)}}/bench_result-external-kd-trees-{{quote(EXTERNAL_RESULT_KEY)}}.json \
+        --kiddo-nearest-one {{quote(RESULTS_DIR)}}/bench_result-v6-nearest_one-eytzinger-{{quote(KIDDO_RESULT_KEY)}}.json \
+        --kiddo-nearest-n {{quote(RESULTS_DIR)}}/bench_result-v6-nearest_n-eytzinger-{{quote(KIDDO_RESULT_KEY)}}.json \
+        --kiddo-query-family {{quote(RESULTS_DIR)}}/bench_result-v6-query-family-eytzinger-{{quote(KIDDO_RESULT_KEY)}}.json \
+        --result-label {{quote(EXTERNAL_RESULT_KEY)}} \
+        --output-dir {{quote(OUTPUT_DIR)}}
+
+html-external-kd-tree-results EXTERNAL_RESULT_KEY KIDDO_RESULT_KEY=EXTERNAL_RESULT_KEY RESULTS_DIR='.' OUTPUT_DIR='.' HTML_NAME='external-kd-tree-benchmarks.html' PYTHON='python3':
+    {{quote(PYTHON)}} scripts/chart_external_kd_tree_results.py all \
+        --external {{quote(RESULTS_DIR)}}/bench_result-external-kd-trees-{{quote(EXTERNAL_RESULT_KEY)}}.json \
+        --kiddo-nearest-one {{quote(RESULTS_DIR)}}/bench_result-v6-nearest_one-eytzinger-{{quote(KIDDO_RESULT_KEY)}}.json \
+        --kiddo-nearest-n {{quote(RESULTS_DIR)}}/bench_result-v6-nearest_n-eytzinger-{{quote(KIDDO_RESULT_KEY)}}.json \
+        --kiddo-query-family {{quote(RESULTS_DIR)}}/bench_result-v6-query-family-eytzinger-{{quote(KIDDO_RESULT_KEY)}}.json \
+        --result-label {{quote(EXTERNAL_RESULT_KEY)}} \
+        --output-dir {{quote(OUTPUT_DIR)}} \
+        --html-name {{quote(HTML_NAME)}}
+
+chart-v5-v6-results V6_RESULT_KEY V5_RESULT_KEY RESULTS_DIR='.' OUTPUT_DIR='.' PYTHON='python3':
+    {{quote(PYTHON)}} scripts/chart_v5_v6_results.py charts \
+        --v6-key {{quote(V6_RESULT_KEY)}} \
+        --v5-key {{quote(V5_RESULT_KEY)}} \
+        --results-dir {{quote(RESULTS_DIR)}} \
+        --output-dir {{quote(OUTPUT_DIR)}}
+
+html-v5-v6-results V6_RESULT_KEY V5_RESULT_KEY RESULTS_DIR='.' OUTPUT_DIR='.' HTML_NAME='v5-v6-benchmarks.html' PYTHON='python3':
+    {{quote(PYTHON)}} scripts/chart_v5_v6_results.py all \
+        --v6-key {{quote(V6_RESULT_KEY)}} \
+        --v5-key {{quote(V5_RESULT_KEY)}} \
+        --results-dir {{quote(RESULTS_DIR)}} \
+        --output-dir {{quote(OUTPUT_DIR)}} \
+        --html-name {{quote(HTML_NAME)}}
+
+view-v5-v6-results V6_RESULT_KEY V5_RESULT_KEY RESULTS_DIR='.' OUTPUT_DIR='.' HTML_NAME='v5-v6-benchmarks.html' PYTHON='python3':
+    just html-v5-v6-results {{quote(V6_RESULT_KEY)}} {{quote(V5_RESULT_KEY)}} {{quote(RESULTS_DIR)}} {{quote(OUTPUT_DIR)}} {{quote(HTML_NAME)}} {{quote(PYTHON)}}
+    xdg-open {{quote(OUTPUT_DIR)}}/{{quote(HTML_NAME)}}
+
 chart-benchmark-results VARIANT_KEY RESULTS_DIR='.' OUTPUT_DIR='.' PYTHON='python3':
     {{quote(PYTHON)}} scripts/chart_benchmark_results.py {{quote(VARIANT_KEY)}} --results-dir {{quote(RESULTS_DIR)}} --output-dir {{quote(OUTPUT_DIR)}}
+
+chart-default-results VARIANT_KEY RESULTS_DIR='.' OUTPUT_DIR='.' PYTHON='python3':
+    {{quote(PYTHON)}} scripts/chart_benchmark_results.py {{quote(VARIANT_KEY)}} --baseline-key v6-baseline --v5-baseline-key v5-baseline --results-dir {{quote(RESULTS_DIR)}} --output-dir {{quote(OUTPUT_DIR)}}
+
+chart-v6-nearest-one-scratch-results RESULT_KEY RESULTS_DIR='.' OUTPUT_DIR='.' PYTHON='python3':
+    {{quote(PYTHON)}} scripts/chart_benchmark_results.py {{quote(RESULT_KEY)}} --scratch --html-name latest_v6_nearest_one_scratch.html --results-dir {{quote(RESULTS_DIR)}} --output-dir {{quote(OUTPUT_DIR)}}
 
 benchmark-site-build REF_NAME SHA RESULTS_DIR PAGES_ROOT SITE_URL_BASE='' PYTHON='python3':
     #!/usr/bin/env bash
@@ -382,29 +534,6 @@ benchmark-pr-comment-apply REF_NAME SHA PR_NUMBER REPO SITE_URL_BASE PAGES_ROOT 
     branch_path_key=$({{quote(PYTHON)}} scripts/benchmark_site.py derive-path-key --ref-name {{quote(REF_NAME)}})
     summary_file={{quote(PAGES_ROOT)}}/branches/"$branch_path_key"/latest/run.json
     {{quote(PYTHON)}} scripts/benchmark_site.py update-pr-comment --repo {{quote(REPO)}} --pr-number {{quote(PR_NUMBER)}} --summary-path "$summary_file" --site-url-base {{quote(SITE_URL_BASE)}}
-
-bench-v6-stem-strategies-focus FEATURES='simd,test_utils,logging_off' POINTS='4194304' QUERIES='10000':
-    RUSTC_WRAPPER= \
-    KIDDO_BENCH_POINTS={{POINTS}} \
-    KIDDO_BENCH_QUERIES={{QUERIES}} \
-    RUSTFLAGS='-C target-cpu=native' \
-    cargo criterion --bench v6_stem_strategies_focus --features {{FEATURES}}
-
-bench-v6-stem-strategies-big FEATURES='simd,test_utils,logging_off' POINTS='16777216' QUERIES='10000':
-    RUSTC_WRAPPER= \
-    KIDDO_BENCH_POINTS={{POINTS}} \
-    KIDDO_BENCH_QUERIES={{QUERIES}} \
-    RUSTFLAGS='-C target-cpu=native' \
-    cargo criterion --bench v6_stem_strategies_focus --features {{FEATURES}}
-
-bench-v6-result-collection-focus FEATURES='simd,test_utils,logging_off' POINTS='16777216' QUERIES='100' MAX_QTY='16' MAX_DIST='0.0025':
-    RUSTC_WRAPPER= \
-    KIDDO_BENCH_POINTS={{POINTS}} \
-    KIDDO_BENCH_QUERIES={{QUERIES}} \
-    KIDDO_BENCH_MAX_QTY={{MAX_QTY}} \
-    KIDDO_BENCH_MAX_DIST={{MAX_DIST}} \
-    RUSTFLAGS='-C target-cpu=native' \
-    cargo criterion --bench v6_result_collection_focus --features {{FEATURES}}
 
 asm-v6-sorted-nearest-n-within-donnelly-pf-focus-clean FEATURES='simd,cargo_asm,logging_off' SUFFIX='baseline':
     RUSTC_WRAPPER= cargo asm --simplify --features {{FEATURES}} --lib --target-cpu=native -C="opt-level=2" -C="target-cpu=native" "v6_sorted_nearest_n_within_donnelly_pf_focus_cargo_asm_hook" | python3 scripts/clean_cargo_asm.py > v6_sorted_nearest_n_within_donnelly_pf_focus_{{SUFFIX}}_clean.asm
