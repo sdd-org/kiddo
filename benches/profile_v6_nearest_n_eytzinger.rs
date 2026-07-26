@@ -11,6 +11,8 @@ use rand_chacha::ChaCha8Rng;
 use std::hint::black_box;
 use std::num::NonZeroUsize;
 
+mod profile_tree_sizes;
+
 const K: usize = 3;
 const B: usize = 32;
 const DEFAULT_QUERY_COUNT: usize = 1_000;
@@ -110,16 +112,17 @@ fn run_queries_f32(
 
 fn nearest_n(c: &mut Criterion) {
     let query_count = read_usize_env("KIDDO_PROFILE_QUERIES", DEFAULT_QUERY_COUNT);
+    let tree_sizes = profile_tree_sizes::from_env(&TREE_SIZES);
 
     eprintln!(
-        "benchmarking v6 nearest_n: dims={} tree_sizes=2^16..2^26 queries={} ks={:?} point_seed={} query_seed={}",
-        K, query_count, MAX_QTYS, POINT_SEED, QUERY_SEED
+        "benchmarking v6 nearest_n: dims={} tree_sizes=2^{}..2^{} queries={} ks={:?} point_seed={} query_seed={}",
+        K, tree_sizes[0].ilog2(), tree_sizes.last().unwrap().ilog2(), query_count, MAX_QTYS, POINT_SEED, QUERY_SEED
     );
 
     let f64_queries = build_queries_f64(query_count);
     let mut f64_group = c.benchmark_group("profile_v6_nearest_n_eytzinger/f64");
     f64_group.throughput(Throughput::Elements(query_count as u64));
-    for point_count in TREE_SIZES {
+    for point_count in tree_sizes.iter().copied() {
         let points = build_points_f64(point_count);
         let tree: F64Tree = KdTree::new_from_slice(&points).unwrap();
         for max_qty in MAX_QTYS {
@@ -135,7 +138,7 @@ fn nearest_n(c: &mut Criterion) {
     let f32_queries = build_queries_f32(query_count);
     let mut f32_group = c.benchmark_group("profile_v6_nearest_n_eytzinger/f32");
     f32_group.throughput(Throughput::Elements(query_count as u64));
-    for point_count in TREE_SIZES {
+    for point_count in tree_sizes {
         let points = build_points_f32(point_count);
         let tree: F32Tree = KdTree::new_from_slice(&points).unwrap();
         for max_qty in MAX_QTYS {

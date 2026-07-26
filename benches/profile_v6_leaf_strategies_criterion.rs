@@ -10,10 +10,11 @@ use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use std::hint::black_box;
 
+mod profile_tree_sizes;
+
 const K: usize = 3;
 const B: usize = 32;
 const DEFAULT_QUERY_COUNT: usize = 1_000;
-const DEFAULT_MAX_LOG2_POINTS: usize = 26;
 const POINT_SEED: u64 = 0x5eed_0000_0000_0201;
 const QUERY_SEED: u64 = 0x5eed_0000_0000_0202;
 const TREE_SIZES: [usize; 6] = [1 << 16, 1 << 18, 1 << 20, 1 << 22, 1 << 24, 1 << 25];
@@ -89,21 +90,18 @@ fn run_queries_vec_of_arrays(tree: &VecOfArraysTree, queries: &[[f64; K]]) -> (f
 
 fn leaf_strategies(c: &mut Criterion) {
     let query_count = read_usize_env("KIDDO_PROFILE_QUERIES", DEFAULT_QUERY_COUNT);
-    let max_log2_points = read_usize_env("KIDDO_PROFILE_MAX_LOG2_POINTS", DEFAULT_MAX_LOG2_POINTS);
+    let tree_sizes = profile_tree_sizes::from_env(&TREE_SIZES);
 
     eprintln!(
-        "benchmarking v6 leaf strategies: dims={} tree_sizes=2^16,2^18,... max_log2_points={} queries={} point_seed={} query_seed={}",
-        K, max_log2_points, query_count, POINT_SEED, QUERY_SEED
+        "benchmarking v6 leaf strategies: dims={} tree_sizes=2^{}..2^{} queries={} point_seed={} query_seed={}",
+        K, tree_sizes[0].ilog2(), tree_sizes.last().unwrap().ilog2(), query_count, POINT_SEED, QUERY_SEED
     );
 
     let queries = build_queries(query_count);
     let mut group = c.benchmark_group("profile_v6_leaf_strategies/f64");
     group.throughput(Throughput::Elements(query_count as u64));
 
-    for point_count in TREE_SIZES
-        .into_iter()
-        .filter(|point_count| point_count.ilog2() as usize <= max_log2_points)
-    {
+    for point_count in tree_sizes {
         let points = build_points(point_count);
 
         let flat_tree: FlatTree = KdTree::new_from_slice(&points).unwrap();

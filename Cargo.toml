@@ -139,16 +139,23 @@ elapsed = "0.1.2"
 flate2 = { version = "1", features = [
   "zlib-ng-compat",
 ], default-features = false }
+fnntw = { version = "0.4.1", default-features = false, features = [
+  "no-position",
+] }
 itertools = "0.15"
+kd-tree = "0.6.2"
 # required to be able to run tests without specifying --features=test_utils
 # see https://github.com/rust-lang/cargo/issues/2911#issuecomment-749580481
 kiddo = { path = ".", features = ["test_utils"] }
 las = { version = "0.10", features = ["laz-parallel"] }
 memmap = "0.7"
+nabo = { version = "0.6.0", default-features = false }
+neighbourhood = "0.2.0"
 postcard = { version = "1", features = ["alloc"] }
 proc-macro2 = { version = "1", features = ["default", "proc-macro"] }
 radians = "0.3"
 rand = "0.10"
+rand_09 = { package = "rand", version = "0.9", features = ["small_rng"] }
 rand_distr = "0.6"
 rayon = "1"
 reqwest = { version = "0.13", default-features = false, features = [
@@ -264,7 +271,6 @@ required-features = ["test_utils"]
 name = "profile_v6_nearest_n_eytzinger"
 path = "benches/profile_v6_nearest_n_eytzinger.rs"
 harness = false
-required-features = ["test_utils"]
 
 [[bench]]
 name = "profile_v6_query_family_eytzinger"
@@ -295,6 +301,24 @@ name = "profile_v6_construction"
 path = "benches/profile_v6_construction.rs"
 harness = false
 required-features = ["simd", "test_utils"]
+
+[[bench]]
+name = "profile_external_kd_trees"
+path = "benches/profile_external_kd_trees.rs"
+harness = false
+required-features = ["test_utils"]
+
+[[bench]]
+name = "profile_v6_within_radius_projection"
+path = "benches/profile_v6_within_radius_projection.rs"
+harness = false
+required-features = ["test_utils"]
+
+[[bench]]
+name = "profile_neighbourhood_published"
+path = "benches/profile_neighbourhood_published.rs"
+harness = false
+required-features = ["test_utils"]
 
 [[bench]]
 name = "profile_v6_stem_exact_stats"
