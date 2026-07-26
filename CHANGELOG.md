@@ -1,6 +1,6 @@
 # Kiddo Changelog
 
-## [6.0.0-alpha.4] - 2026-07-26
+## [6.0.0-rc.1] - 2026-07-26
 
 ### ✨ Features
 
