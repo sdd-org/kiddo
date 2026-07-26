@@ -13,7 +13,7 @@ use crate::leaf_view_chunked::nearest_one::{
     nearest_one_with_query_wide, nearest_one_with_query_wide_arena,
 };
 use crate::results::result_collection::{
-    BestNeighbourResultCollection, BinaryHeapResultCollection, ResultCollection,
+    BestNeighbourResultCollection, BinaryHeapResultCollection, FromLeafCandidate, ResultCollection,
     VisitorResultCollection,
 };
 use crate::stem_strategy::donnelly::simd_full::{
@@ -159,7 +159,7 @@ where
     rkyv_08::Archived<LS>: LeafStrategy<A, T, SS, K, B>,
 {
     #[inline(always)]
-    fn process_leaf_nearest_n_within<D, R, const EXCLUSIVE: bool>(
+    fn process_leaf_nearest_n_within<D, E, R, const EXCLUSIVE: bool>(
         &self,
         leaf_idx: usize,
         query_wide: &[D::Output; K],
@@ -168,12 +168,13 @@ where
     ) where
         D: DistanceMetric<A>,
         D::Output: Axis<Coord = D::Output> + TlsLeafScratch + 'static,
-        R: ResultCollection<D::Output, QueryResultItem<(), T, D::Output>>,
+        E: FromLeafCandidate<T, D::Output>,
+        R: ResultCollection<D::Output, E>,
     {
         match <rkyv_08::Archived<LS> as LeafStrategy<A, T, SS, K, B>>::LEAF_PROJECTION {
             LeafProjection::LeafArena => {
                 let arena = self.leaves().leaf_arena(leaf_idx);
-                nearest_n_within_with_query_wide_arena::<A, T, D, R, EXCLUSIVE, K>(
+                nearest_n_within_with_query_wide_arena::<A, T, D, E, R, EXCLUSIVE, K>(
                     &arena, query_wide, max_dist, results,
                 );
             }
@@ -183,6 +184,7 @@ where
                     A,
                     T,
                     D,
+                    E,
                     R,
                     EXCLUSIVE,
                     K,
@@ -272,7 +274,12 @@ where
 
         self.backtracking_query::<_, _, D>(&mut req_ctx, |leaf_idx, query_wide, req_ctx| {
             let leaf_max_dist = req_ctx.max_dist();
-            self.process_leaf_nearest_n_within::<D, R, EXCLUSIVE>(
+            self.process_leaf_nearest_n_within::<
+                D,
+                QueryResultItem<(), T, D::Output>,
+                R,
+                EXCLUSIVE,
+            >(
                 leaf_idx,
                 query_wide,
                 leaf_max_dist,
@@ -434,7 +441,51 @@ where
 
         self.backtracking_query::<_, _, D>(&mut req_ctx, |leaf_idx, query_wide, req_ctx| {
             let mut results = VisitorResultCollection::new(&mut visitor);
-            self.process_leaf_nearest_n_within::<D, _, EXCLUSIVE>(
+            self.process_leaf_nearest_n_within::<
+                D,
+                QueryResultItem<(), T, D::Output>,
+                _,
+                EXCLUSIVE,
+            >(
+                leaf_idx,
+                query_wide,
+                req_ctx.max_dist(),
+                &mut results,
+            );
+        });
+    }
+
+    pub(crate) fn within_unsorted_visit_positioned_impl<D, F, const EXCLUSIVE: bool>(
+        &self,
+        query: &[A; K],
+        max_dist: D::Output,
+        mut visitor: F,
+    ) where
+        D: DistanceMetric<A>,
+        D::Output: crate::stem_strategy::SimdPrune
+            + SimdSelectBestChildBlock3
+            + BacktrackBlock3
+            + BacktrackBlock4
+            + TlsLeafScratch
+            + 'static,
+        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        F: FnMut(usize, QueryResultItem<usize, T, D::Output>),
+    {
+        let mut req_ctx = ArchivedWithinUnsortedVisitReqCtx::<A, D::Output, EXCLUSIVE, K> {
+            query,
+            max_dist,
+            _phantom: std::marker::PhantomData,
+        };
+
+        self.backtracking_query::<_, _, D>(&mut req_ctx, |leaf_idx, query_wide, req_ctx| {
+            let mut leaf_visitor = |result| visitor(leaf_idx, result);
+            let mut results = VisitorResultCollection::new(&mut leaf_visitor);
+            self.process_leaf_nearest_n_within::<
+                D,
+                QueryResultItem<usize, T, D::Output>,
+                _,
+                EXCLUSIVE,
+            >(
                 leaf_idx,
                 query_wide,
                 req_ctx.max_dist(),
@@ -509,7 +560,12 @@ where
             stack,
             |leaf_idx, query_wide, req_ctx| {
                 let leaf_max_dist = req_ctx.max_dist();
-                self.process_leaf_nearest_n_within::<D, R, EXCLUSIVE>(
+                self.process_leaf_nearest_n_within::<
+                    D,
+                    QueryResultItem<(), T, D::Output>,
+                    R,
+                    EXCLUSIVE,
+                >(
                     leaf_idx,
                     query_wide,
                     leaf_max_dist,
@@ -553,7 +609,12 @@ where
             stack,
             |leaf_idx, query_wide, req_ctx| {
                 let mut results = VisitorResultCollection::new(&mut visitor);
-                self.process_leaf_nearest_n_within::<D, _, EXCLUSIVE>(
+                self.process_leaf_nearest_n_within::<
+                    D,
+                    QueryResultItem<(), T, D::Output>,
+                    _,
+                    EXCLUSIVE,
+                >(
                     leaf_idx,
                     query_wide,
                     req_ctx.max_dist(),

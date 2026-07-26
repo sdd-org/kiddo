@@ -12,6 +12,32 @@ use crate::{Axis, BestQueryResultItem, Content, QueryResultItem};
 
 pub(crate) const DEFAULT_UNSORTED_RESULT_CAPACITY: usize = 64;
 
+pub(crate) trait FromLeafCandidate<T, O>: Sized {
+    fn from_leaf_candidate(position: usize, item: T, distance: O) -> Self;
+}
+
+impl<T, O> FromLeafCandidate<T, O> for QueryResultItem<(), T, O> {
+    #[inline(always)]
+    fn from_leaf_candidate(_position: usize, item: T, distance: O) -> Self {
+        Self {
+            point: (),
+            item,
+            distance,
+        }
+    }
+}
+
+impl<T, O> FromLeafCandidate<T, O> for QueryResultItem<usize, T, O> {
+    #[inline(always)]
+    fn from_leaf_candidate(position: usize, item: T, distance: O) -> Self {
+        Self {
+            point: position,
+            item,
+            distance,
+        }
+    }
+}
+
 #[cfg(feature = "small_n_result_collectors")]
 pub(crate) const SMALL_RESULT_COLLECTION_MAX_QTY: usize = 32;
 

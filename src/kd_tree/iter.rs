@@ -395,7 +395,15 @@ where
         match LS::LEAF_PROJECTION {
             LeafProjection::LeafArena => {
                 let arena = self.tree.leaves().leaf_arena(leaf_idx);
-                nearest_n_within_with_query_wide_arena::<A, T, D, _, EXCLUSIVE, K>(
+                nearest_n_within_with_query_wide_arena::<
+                    A,
+                    T,
+                    D,
+                    QueryResultItem<(), T, D::Output>,
+                    _,
+                    EXCLUSIVE,
+                    K,
+                >(
                     &arena,
                     &self.query_wide,
                     self.max_dist,
@@ -404,7 +412,16 @@ where
             }
             LeafProjection::LeafView => {
                 let leaf = self.tree.leaves().leaf_view(leaf_idx);
-                nearest_n_within_with_query_wide::<A, T, D, _, EXCLUSIVE, K, B>(
+                nearest_n_within_with_query_wide::<
+                    A,
+                    T,
+                    D,
+                    QueryResultItem<(), T, D::Output>,
+                    _,
+                    EXCLUSIVE,
+                    K,
+                    B,
+                >(
                     &leaf,
                     &self.query_wide,
                     self.max_dist,

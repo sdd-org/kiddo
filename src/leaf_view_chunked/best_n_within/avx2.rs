@@ -20,6 +20,7 @@ pub(crate) unsafe fn best_n_within_avx2_unchecked_f64<
     T: Content + PartialOrd,
     F: FnMut(f64, T),
 {
+    let mut emit_positioned = |_, distance, item| emit(distance, item);
     crate::leaf_view_chunked::nearest_n_within::avx2::nearest_n_within_avx2_unchecked_f64::<
         L,
         T,
@@ -27,7 +28,7 @@ pub(crate) unsafe fn best_n_within_avx2_unchecked_f64<
         EXCLUSIVE,
         K,
         B,
-    >(leaf, query, max_dist, emit);
+    >(leaf, query, max_dist, &mut emit_positioned);
 }
 
 #[target_feature(enable = "avx2")]
@@ -48,13 +49,14 @@ pub(crate) unsafe fn best_n_within_avx2_arena_unchecked_f64<
     T: Content + PartialOrd,
     F: FnMut(f64, T),
 {
+    let mut emit_positioned = |_, distance, item| emit(distance, item);
     crate::leaf_view_chunked::nearest_n_within::avx2::nearest_n_within_avx2_arena_unchecked_f64::<
         L,
         T,
         _,
         EXCLUSIVE,
         K,
-    >(tile_base, len, query, max_dist, emit);
+    >(tile_base, len, query, max_dist, &mut emit_positioned);
 }
 
 #[target_feature(enable = "avx2")]
@@ -75,6 +77,7 @@ pub(crate) unsafe fn best_n_within_avx2_unchecked_f32<
     T: Content + PartialOrd,
     F: FnMut(f32, T),
 {
+    let mut emit_positioned = |_, distance, item| emit(distance, item);
     crate::leaf_view_chunked::nearest_n_within::avx2::nearest_n_within_avx2_unchecked_f32::<
         L,
         T,
@@ -82,7 +85,7 @@ pub(crate) unsafe fn best_n_within_avx2_unchecked_f32<
         EXCLUSIVE,
         K,
         B,
-    >(leaf, query, max_dist, emit);
+    >(leaf, query, max_dist, &mut emit_positioned);
 }
 
 #[target_feature(enable = "avx2")]
@@ -103,11 +106,12 @@ pub(crate) unsafe fn best_n_within_avx2_arena_unchecked_f32<
     T: Content + PartialOrd,
     F: FnMut(f32, T),
 {
+    let mut emit_positioned = |_, distance, item| emit(distance, item);
     crate::leaf_view_chunked::nearest_n_within::avx2::nearest_n_within_avx2_arena_unchecked_f32::<
         L,
         T,
         _,
         EXCLUSIVE,
         K,
-    >(tile_base, len, query, max_dist, emit);
+    >(tile_base, len, query, max_dist, &mut emit_positioned);
 }

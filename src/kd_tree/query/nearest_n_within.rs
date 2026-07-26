@@ -10,7 +10,9 @@ use crate::leaf_view_chunked::nearest_n_within::{
 };
 #[cfg(any(not(feature = "small_n_result_collectors"), feature = "test_utils"))]
 use crate::results::result_collection::ThresholdVecResultCollection;
-use crate::results::result_collection::{BinaryHeapResultCollection, ResultCollection};
+use crate::results::result_collection::{
+    BinaryHeapResultCollection, FromLeafCandidate, ResultCollection,
+};
 #[cfg(feature = "small_n_result_collectors")]
 use crate::results::result_collection::{
     SmallSortedVecResultCollection, SMALL_RESULT_COLLECTION_MAX_QTY,
@@ -34,7 +36,7 @@ where
     SS: StemStrategy,
 {
     #[inline(always)]
-    fn process_leaf_nearest_n_within<D, R, const EXCLUSIVE: bool>(
+    fn process_leaf_nearest_n_within<D, E, R, const EXCLUSIVE: bool>(
         &self,
         leaf_idx: usize,
         query_wide: &[D::Output; K],
@@ -43,7 +45,8 @@ where
     ) where
         D: DistanceMetric<A>,
         D::Output: Axis<Coord = D::Output> + TlsLeafScratch + 'static,
-        R: ResultCollection<D::Output, QueryResultItem<(), T, D::Output>>,
+        E: FromLeafCandidate<T, D::Output>,
+        R: ResultCollection<D::Output, E>,
     {
         #[cfg(feature = "result_collection_stats")]
         let was_full = results.is_full();
@@ -58,13 +61,13 @@ where
         match LS::LEAF_PROJECTION {
             LeafProjection::LeafArena => {
                 let arena = self.leaves.leaf_arena(leaf_idx);
-                nearest_n_within_with_query_wide_arena::<A, T, D, R, EXCLUSIVE, K>(
+                nearest_n_within_with_query_wide_arena::<A, T, D, E, R, EXCLUSIVE, K>(
                     &arena, query_wide, max_dist, results,
                 );
             }
             LeafProjection::LeafView => {
                 let leaf = self.leaves.leaf_view(leaf_idx);
-                nearest_n_within_with_query_wide::<A, T, D, R, EXCLUSIVE, K, B>(
+                nearest_n_within_with_query_wide::<A, T, D, E, R, EXCLUSIVE, K, B>(
                     &leaf, query_wide, max_dist, results,
                 );
             }
@@ -305,7 +308,12 @@ where
 
         self.backtracking_query::<_, _, D>(&mut req_ctx, |leaf_idx, query_wide, req_ctx| {
             let leaf_max_dist = req_ctx.max_dist();
-            self.process_leaf_nearest_n_within::<D, R, EXCLUSIVE>(
+            self.process_leaf_nearest_n_within::<
+                D,
+                QueryResultItem<(), T, D::Output>,
+                R,
+                EXCLUSIVE,
+            >(
                 leaf_idx,
                 query_wide,
                 leaf_max_dist,
@@ -352,7 +360,12 @@ where
             stack,
             |leaf_idx, query_wide, req_ctx| {
                 let leaf_max_dist = req_ctx.max_dist();
-                self.process_leaf_nearest_n_within::<D, R, EXCLUSIVE>(
+                self.process_leaf_nearest_n_within::<
+                    D,
+                    QueryResultItem<(), T, D::Output>,
+                    R,
+                    EXCLUSIVE,
+                >(
                     leaf_idx,
                     query_wide,
                     leaf_max_dist,

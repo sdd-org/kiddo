@@ -255,6 +255,18 @@ where
     SS: StemStrategy,
     LS: LeafStrategy<A, T, SS, K, B>,
 {
+    #[inline(always)]
+    fn qb_point_at(&self, leaf_idx: usize, position: usize) -> [A; K] {
+        match LS::LEAF_PROJECTION {
+            crate::traits::leaf_strategy::LeafProjection::LeafView => {
+                self.leaves().leaf_view(leaf_idx).point(position)
+            }
+            crate::traits::leaf_strategy::LeafProjection::LeafArena => {
+                self.leaves().leaf_arena(leaf_idx).point(position)
+            }
+        }
+    }
+
     fn qb_nearest_one<D>(&self, query: &[A; K]) -> (D::Output, T)
     where
         D: DistanceMetric<A>,
@@ -341,6 +353,23 @@ where
         SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
         F: FnMut(QueryResultItem<(), T, D::Output>);
 
+    fn qb_within_unsorted_visit_positioned<D, F, const EXCLUSIVE: bool>(
+        &self,
+        query: &[A; K],
+        radius: D::Output,
+        visitor: F,
+    ) where
+        T: PartialOrd,
+        D: DistanceMetric<A>,
+        D::Output: crate::stem_strategy::SimdPrune
+            + SimdSelectBestChildBlock3
+            + BacktrackBlock3
+            + BacktrackBlock4
+            + TlsLeafScratch
+            + 'static,
+        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        F: FnMut(usize, QueryResultItem<usize, T, D::Output>);
+
     #[inline]
     fn qb_within_unsorted_projected<D, R, F, const EXCLUSIVE: bool>(
         &self,
@@ -367,6 +396,40 @@ where
         self.qb_within_unsorted_visit::<D, _, EXCLUSIVE>(query, radius, |result| {
             results.push(project(result));
         });
+        results
+    }
+
+    #[inline]
+    fn qb_within_unsorted_projected_with_points<D, R, F, const EXCLUSIVE: bool>(
+        &self,
+        query: &[A; K],
+        radius: D::Output,
+        result_capacity: Option<NonZeroUsize>,
+        mut project: F,
+    ) -> Vec<R>
+    where
+        T: PartialOrd,
+        D: DistanceMetric<A>,
+        D::Output: crate::stem_strategy::SimdPrune
+            + SimdSelectBestChildBlock3
+            + BacktrackBlock3
+            + BacktrackBlock4
+            + TlsLeafScratch
+            + 'static,
+        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        F: FnMut([A; K], T, D::Output) -> R,
+    {
+        let mut results = Vec::with_capacity(
+            result_capacity.map_or(DEFAULT_UNSORTED_RESULT_CAPACITY, NonZeroUsize::get),
+        );
+        self.qb_within_unsorted_visit_positioned::<D, _, EXCLUSIVE>(
+            query,
+            radius,
+            |leaf_idx, result| {
+                let point = self.qb_point_at(leaf_idx, result.point);
+                results.push(project(point, result.item, result.distance));
+            },
+        );
         results
     }
 
@@ -656,6 +719,27 @@ where
     }
 
     #[inline]
+    fn qb_within_unsorted_visit_positioned<D, F, const EXCLUSIVE: bool>(
+        &self,
+        query: &[A; K],
+        radius: D::Output,
+        visitor: F,
+    ) where
+        T: PartialOrd,
+        D: DistanceMetric<A>,
+        D::Output: crate::stem_strategy::SimdPrune
+            + SimdSelectBestChildBlock3
+            + BacktrackBlock3
+            + BacktrackBlock4
+            + TlsLeafScratch
+            + 'static,
+        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        F: FnMut(usize, QueryResultItem<usize, T, D::Output>),
+    {
+        self.within_unsorted_visit_positioned_impl::<D, F, EXCLUSIVE>(query, radius, visitor)
+    }
+
+    #[inline]
     fn qb_best_n_within<D, const EXCLUSIVE: bool>(
         &self,
         query: &[A; K],
@@ -940,6 +1024,27 @@ where
         F: FnMut(QueryResultItem<(), T, D::Output>),
     {
         self.within_unsorted_visit_impl::<D, F, EXCLUSIVE>(query, radius, visitor)
+    }
+
+    #[inline]
+    fn qb_within_unsorted_visit_positioned<D, F, const EXCLUSIVE: bool>(
+        &self,
+        query: &[A; K],
+        radius: D::Output,
+        visitor: F,
+    ) where
+        T: PartialOrd,
+        D: DistanceMetric<A>,
+        D::Output: crate::stem_strategy::SimdPrune
+            + SimdSelectBestChildBlock3
+            + BacktrackBlock3
+            + BacktrackBlock4
+            + TlsLeafScratch
+            + 'static,
+        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        F: FnMut(usize, QueryResultItem<usize, T, D::Output>),
+    {
+        self.within_unsorted_visit_positioned_impl::<D, F, EXCLUSIVE>(query, radius, visitor)
     }
 
     #[inline]
@@ -1905,9 +2010,7 @@ where
     /// This is available only for non-periodic queries.
     ///
     /// [`with_scratch`](Self::with_scratch) is not currently available after
-    /// `with_points()`. Point-projected queries use a separate traversal and
-    /// collection path that maintains more complex state than the stack-scratch
-    /// query orchestrator. See the
+    /// `with_points()`. See the
     /// [`QueryBuilder` scratch strategy section](QueryBuilder#scratch-strategy)
     /// for more detail.
     #[inline]
@@ -4981,19 +5084,13 @@ where
     #[inline]
     fn execute(self) -> Vec<QueryResultItem<P::Output, I::Output, Dp::Output>> {
         if <Projection<P, I, Dp> as ProjectionSpec<A, T, D::Output, K>>::WANTS_POINTS {
-            scan_projected_nearest_results::<Tree, A, T, SS, LS, D, Projection<P, I, Dp>, K, B>(
-                self.tree,
-                self.query,
-                Some(self.radius),
-                None,
-                false,
-                self.result_capacity,
-                if EXCLUSIVE {
-                    BoundaryMode::Exclusive
-                } else {
-                    BoundaryMode::Inclusive
-                },
-            )
+            self.tree
+                .qb_within_unsorted_projected_with_points::<D, _, _, EXCLUSIVE>(
+                    self.query,
+                    self.radius,
+                    self.result_capacity,
+                    Projection::<P, I, Dp>::nearest_from_parts,
+                )
         } else {
             self.tree
                 .qb_within_unsorted_projected::<D, _, _, EXCLUSIVE>(
@@ -5062,24 +5159,19 @@ where
         F: FnMut(QueryResultItem<P::Output, I::Output, Dp::Output>),
     {
         if <Projection<P, I, Dp> as ProjectionSpec<A, T, D::Output, K>>::WANTS_POINTS {
-            let query_wide = self.query.map(D::widen_coord);
-            for (item, point) in KdTreeIter::<Tree, A, T, SS, LS, K, B>::new(self.tree) {
-                let point_wide = point.map(D::widen_coord);
-                let distance = D::dist(&point_wide, &query_wide);
-                if boundary_accepts(
-                    if EXCLUSIVE {
-                        BoundaryMode::Exclusive
-                    } else {
-                        BoundaryMode::Inclusive
-                    },
-                    distance,
+            self.tree
+                .qb_within_unsorted_visit_positioned::<D, _, EXCLUSIVE>(
+                    self.query,
                     self.radius,
-                ) {
-                    visitor(Projection::<P, I, Dp>::nearest_from_parts(
-                        point, item, distance,
-                    ));
-                }
-            }
+                    |leaf_idx, result| {
+                        let point = self.tree.qb_point_at(leaf_idx, result.point);
+                        visitor(Projection::<P, I, Dp>::nearest_from_parts(
+                            point,
+                            result.item,
+                            result.distance,
+                        ));
+                    },
+                );
         } else if EXCLUSIVE {
             self.tree.qb_within_unsorted_visit::<D, _, true>(
                 self.query,
@@ -5627,6 +5719,62 @@ mod tests {
         );
         assert!(distance_only.capacity() >= requested_capacity);
 
+        let with_points = tree
+            .query(&query)
+            .within::<SquaredEuclidean<f64>>(radius)
+            .unsorted()
+            .with_points()
+            .with_result_capacity(requested_capacity)
+            .execute();
+        assert_eq!(
+            with_points
+                .iter()
+                .map(|result| crate::QueryResultItem {
+                    point: (),
+                    item: result.item,
+                    distance: result.distance,
+                })
+                .collect::<Vec<_>>(),
+            full
+        );
+        assert!(with_points.capacity() >= requested_capacity);
+        for result in &with_points {
+            assert_eq!(
+                result.point,
+                entries
+                    .iter()
+                    .find_map(|&(item, point)| (item == result.item).then_some(point))
+                    .unwrap()
+            );
+        }
+
+        let item_and_point = tree
+            .query(&query)
+            .within::<SquaredEuclidean<f64>>(radius)
+            .unsorted()
+            .with_points()
+            .without_distances()
+            .execute();
+        assert_eq!(
+            item_and_point,
+            with_points
+                .iter()
+                .map(|result| crate::QueryResultItem {
+                    point: result.point,
+                    item: result.item,
+                    distance: (),
+                })
+                .collect::<Vec<_>>()
+        );
+
+        let mut visited_with_points = Vec::new();
+        tree.query(&query)
+            .within::<SquaredEuclidean<f64>>(radius)
+            .unsorted()
+            .with_points()
+            .visit(|result| visited_with_points.push(result));
+        assert_eq!(visited_with_points, with_points);
+
         let exclusive_full = tree
             .query(&query)
             .within::<SquaredEuclidean<f64>>(radius)
@@ -5650,6 +5798,24 @@ mod tests {
                     distance: (),
                 })
                 .collect::<Vec<_>>()
+        );
+        let exclusive_with_points = tree
+            .query(&query)
+            .within::<SquaredEuclidean<f64>>(radius)
+            .exclusive_boundaries()
+            .unsorted()
+            .with_points()
+            .execute();
+        assert_eq!(
+            exclusive_with_points
+                .iter()
+                .map(|result| crate::QueryResultItem {
+                    point: (),
+                    item: result.item,
+                    distance: result.distance,
+                })
+                .collect::<Vec<_>>(),
+            exclusive_full
         );
 
         let mut scratch = tree.create_scratch::<SquaredEuclidean<f64>>();
@@ -5789,6 +5955,48 @@ mod tests {
         assert_eq!(projected, owned_projected);
         assert!(projected.capacity() >= super::DEFAULT_UNSORTED_RESULT_CAPACITY);
         assert!(owned_projected.capacity() >= super::DEFAULT_UNSORTED_RESULT_CAPACITY);
+
+        let archived_with_points = archived
+            .query(&query)
+            .within::<SquaredEuclidean<f64>>(radius)
+            .unsorted()
+            .with_points()
+            .execute();
+        let owned_with_points = tree
+            .query(&query)
+            .within::<SquaredEuclidean<f64>>(radius)
+            .unsorted()
+            .with_points()
+            .execute();
+        assert_eq!(archived_with_points, owned_with_points);
+
+        let archived_item_and_point = archived
+            .query(&query)
+            .within::<SquaredEuclidean<f64>>(radius)
+            .unsorted()
+            .with_points()
+            .without_distances()
+            .execute();
+        assert_eq!(
+            archived_item_and_point,
+            archived_with_points
+                .iter()
+                .map(|result| crate::QueryResultItem {
+                    point: result.point,
+                    item: result.item,
+                    distance: (),
+                })
+                .collect::<Vec<_>>()
+        );
+
+        let mut archived_visited_with_points = Vec::new();
+        archived
+            .query(&query)
+            .within::<SquaredEuclidean<f64>>(radius)
+            .unsorted()
+            .with_points()
+            .visit(|result| archived_visited_with_points.push(result));
+        assert_eq!(archived_visited_with_points, archived_with_points);
 
         let requested_capacity = 128;
         let projected_with_scratch = archived

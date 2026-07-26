@@ -3,8 +3,10 @@ use std::cell::UnsafeCell;
 use std::mem::MaybeUninit;
 
 use crate::dist::DistanceMetric;
-use crate::results::result_collection::{BestNeighbourResultCollection, ResultCollection};
-use crate::{Axis, BestQueryResultItem, Content, QueryResultItem};
+use crate::results::result_collection::{
+    BestNeighbourResultCollection, FromLeafCandidate, ResultCollection,
+};
+use crate::{Axis, BestQueryResultItem, Content};
 
 use fixed::{
     types::extra::{U0, U16, U8},
@@ -168,11 +170,15 @@ impl<'a, AX: Axis<Coord = AX>, T: Content, const K: usize, const B: usize>
     }
 
     #[inline(always)]
+    pub(crate) fn point(&self, idx: usize) -> [AX; K] {
+        debug_assert!(idx < self.items.len());
+        array_init::array_init(|dim| unsafe { *self.points.get_unchecked(dim).get_unchecked(idx) })
+    }
+
+    #[inline(always)]
     pub(crate) fn point_item(&self, idx: usize) -> ([AX; K], T) {
         debug_assert!(idx < self.items.len());
-        let point = array_init::array_init(|dim| unsafe {
-            *self.points.get_unchecked(dim).get_unchecked(idx)
-        });
+        let point = self.point(idx);
         let item = unsafe { *self.items.get_unchecked(idx) };
         (point, item)
     }
@@ -351,28 +357,29 @@ impl<'a, AX: Axis<Coord = AX>, T: Content, const K: usize, const B: usize>
     }
 
     #[cfg_attr(not(feature = "no_inline"), inline)]
-    pub(crate) fn update_nearest_dists<O, R, const EXCLUSIVE: bool>(
+    pub(crate) fn update_nearest_dists<O, E, R, const EXCLUSIVE: bool>(
         dists: &[O],
         items: &[T],
         dist: O,
         results: &mut R,
     ) where
         O: Axis<Coord = O>,
-        R: ResultCollection<O, QueryResultItem<(), T, O>>,
+        E: FromLeafCandidate<T, O>,
+        R: ResultCollection<O, E>,
     {
-        dists.iter().zip(items).for_each(|(&d, &i)| {
-            let is_within_dist = if EXCLUSIVE { d < dist } else { d <= dist };
+        dists
+            .iter()
+            .zip(items)
+            .enumerate()
+            .for_each(|(idx, (&d, &i))| {
+                let is_within_dist = if EXCLUSIVE { d < dist } else { d <= dist };
 
-            if is_within_dist {
-                #[cfg(feature = "result_collection_stats")]
-                crate::results::result_collection_stats::record_candidate_emitted();
-                results.add(QueryResultItem {
-                    point: (),
-                    distance: d,
-                    item: i,
-                });
-            }
-        })
+                if is_within_dist {
+                    #[cfg(feature = "result_collection_stats")]
+                    crate::results::result_collection_stats::record_candidate_emitted();
+                    results.add(E::from_leaf_candidate(idx, i, d));
+                }
+            })
     }
 }
 
@@ -446,6 +453,36 @@ where
     }
 
     #[inline(always)]
+    pub(crate) fn point(&self, idx: usize) -> [AX; K] {
+        debug_assert!(idx < self.len);
+        let mut base = 0usize;
+        let mut byte_offset = 0usize;
+
+        for width in LEAF_ARENA_TILE_WIDTHS {
+            let tile_count = (self.len - base) / width;
+            let span = tile_count * width;
+            let tile_byte_len =
+                K * width * std::mem::size_of::<AX>() + width * std::mem::size_of::<T>();
+
+            if idx < base + span {
+                let position = idx - base;
+                let tile_idx = position / width;
+                let tile: LeafArenaTile<'_, AX, T, K> = LeafArenaTile {
+                    bytes: unsafe { self.bytes.add(byte_offset + tile_idx * tile_byte_len) },
+                    len: width,
+                    _phantom: PhantomData,
+                };
+                return tile.point(position % width);
+            }
+
+            base += span;
+            byte_offset += tile_count * tile_byte_len;
+        }
+
+        unsafe { std::hint::unreachable_unchecked() }
+    }
+
+    #[inline(always)]
     pub(crate) fn point_item(&self, idx: usize) -> ([AX; K], T) {
         debug_assert!(idx < self.len);
         let mut base = 0usize;
@@ -485,6 +522,11 @@ where
     #[inline(always)]
     pub(crate) fn len(&self) -> usize {
         self.len
+    }
+
+    #[inline(always)]
+    pub(crate) fn point(&self, idx: usize) -> [AX; K] {
+        array_init::array_init(|dim| unsafe { self.point_unaligned(dim, idx) })
     }
 
     #[inline(always)]
@@ -558,6 +600,7 @@ mod tests {
     use super::*;
     use crate::dist::SquaredEuclidean;
     use crate::results::result_collection::{BestNeighbourResultCollection, ResultCollection};
+    use crate::QueryResultItem;
 
     fn encode_leaf_arena<const K: usize>(points: [&[f32]; K], items: &[u32]) -> Vec<u8> {
         let len = items.len();
@@ -867,7 +910,7 @@ mod tests {
         let items = [11u32, 22, 33, 44];
         let mut results = TestNearestResults::default();
 
-        LeafView::<f32, u32, 2, 8>::update_nearest_dists::<_, _, false>(
+        LeafView::<f32, u32, 2, 8>::update_nearest_dists::<_, _, _, false>(
             &dists,
             &items,
             2.0,
