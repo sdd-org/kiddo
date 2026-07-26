@@ -1,13 +1,14 @@
 use crate::dist::DistanceMetric;
 use crate::leaf_view::{LeafArena, LeafView, TlsLeafScratch};
-use crate::results::result_collection::ResultCollection;
-use crate::{Axis, Content, QueryResultItem};
+use crate::results::result_collection::{FromLeafCandidate, ResultCollection};
+use crate::{Axis, Content};
 
 #[inline(always)]
 pub(crate) fn nearest_n_within_with_query_wide_fallback<
     AX,
     T,
     D,
+    E,
     R,
     const EXCLUSIVE: bool,
     const K: usize,
@@ -22,10 +23,11 @@ pub(crate) fn nearest_n_within_with_query_wide_fallback<
     T: Content,
     D: DistanceMetric<AX>,
     D::Output: Axis<Coord = D::Output> + TlsLeafScratch + 'static,
-    R: ResultCollection<D::Output, QueryResultItem<(), T, D::Output>>,
+    E: FromLeafCandidate<T, D::Output>,
+    R: ResultCollection<D::Output, E>,
 {
     leaf.with_dists_for_slice_wide::<D, _>(query_wide, |dists| {
-        LeafView::<AX, T, K, B>::update_nearest_dists::<_, _, EXCLUSIVE>(
+        LeafView::<AX, T, K, B>::update_nearest_dists::<_, E, _, EXCLUSIVE>(
             dists,
             leaf.items(),
             dist,
@@ -39,6 +41,7 @@ pub(crate) fn nearest_n_within_with_query_wide_arena_fallback<
     AX,
     T,
     D,
+    E,
     R,
     const EXCLUSIVE: bool,
     const K: usize,
@@ -52,12 +55,14 @@ pub(crate) fn nearest_n_within_with_query_wide_arena_fallback<
     T: Content,
     D: DistanceMetric<AX>,
     D::Output: Axis<Coord = D::Output> + 'static,
-    R: ResultCollection<D::Output, QueryResultItem<(), T, D::Output>>,
+    E: FromLeafCandidate<T, D::Output>,
+    R: ResultCollection<D::Output, E>,
 {
     if arena.is_empty() {
         return;
     }
 
+    let mut position_base = 0;
     arena.for_each_tiled_chunk(|tile| {
         for idx in 0..tile.len() {
             let mut candidate_dist = D::Output::zero();
@@ -82,14 +87,13 @@ pub(crate) fn nearest_n_within_with_query_wide_arena_fallback<
                 #[cfg(feature = "result_collection_stats")]
                 crate::results::result_collection_stats::record_candidate_emitted();
 
-                let candidate = QueryResultItem {
-                    point: (),
-                    distance: candidate_dist,
-                    item: unsafe { tile.item_unaligned(idx) },
-                };
-
-                results.add(candidate);
+                results.add(E::from_leaf_candidate(
+                    position_base + idx,
+                    unsafe { tile.item_unaligned(idx) },
+                    candidate_dist,
+                ));
             }
         }
+        position_base += tile.len();
     });
 }

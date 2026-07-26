@@ -15,7 +15,7 @@ unsafe fn emit_results_neon_f64<T, F, const EXCLUSIVE: bool>(
     emit: &mut F,
 ) where
     T: Content,
-    F: FnMut(f64, T),
+    F: FnMut(usize, f64, T),
 {
     let mask = if EXCLUSIVE {
         vcltq_f64(dists, vdupq_n_f64(max_dist))
@@ -32,10 +32,15 @@ unsafe fn emit_results_neon_f64<T, F, const EXCLUSIVE: bool>(
     vst1q_f64(dist_values.as_mut_ptr(), dists);
 
     if lane0 != 0 {
-        emit(dist_values[0], std::ptr::read_unaligned(items.add(base)));
+        emit(
+            base,
+            dist_values[0],
+            std::ptr::read_unaligned(items.add(base)),
+        );
     }
     if lane1 != 0 {
         emit(
+            base + 1,
             dist_values[1],
             std::ptr::read_unaligned(items.add(base + 1)),
         );
@@ -96,7 +101,7 @@ pub(crate) unsafe fn nearest_n_within_neon_unchecked_f64<
 ) where
     L: NeonF64LeafOps,
     T: Content,
-    F: FnMut(f64, T),
+    F: FnMut(usize, f64, T),
 {
     let points = leaf.points();
     let point_ptrs = array_init(|dim| points[dim].as_ptr());
@@ -126,7 +131,7 @@ pub(crate) unsafe fn nearest_n_within_neon_arena_unchecked_f64<
 ) where
     L: NeonF64LeafOps,
     T: Content,
-    F: FnMut(f64, T),
+    F: FnMut(usize, f64, T),
 {
     let point_base = tile_base as *const f64;
     let point_ptrs = array_init(|dim| point_base.add(dim * len));
@@ -148,7 +153,7 @@ unsafe fn nearest_n_within_neon_raw_f64<L, T, F, const EXCLUSIVE: bool, const K:
 ) where
     L: NeonF64LeafOps,
     T: Content,
-    F: FnMut(f64, T),
+    F: FnMut(usize, f64, T),
 {
     if len == 0 {
         return;
@@ -172,7 +177,7 @@ unsafe fn nearest_n_within_neon_raw_f64<L, T, F, const EXCLUSIVE: bool, const K:
         };
 
         if is_within_dist {
-            emit(dist, std::ptr::read_unaligned(items.add(idx)));
+            emit(idx, dist, std::ptr::read_unaligned(items.add(idx)));
         }
     }
 }
@@ -186,7 +191,7 @@ unsafe fn emit_results_neon_f32<T, F, const EXCLUSIVE: bool>(
     emit: &mut F,
 ) where
     T: Content,
-    F: FnMut(f32, T),
+    F: FnMut(usize, f32, T),
 {
     let mask = if EXCLUSIVE {
         vcltq_f32(dists, vdupq_n_f32(max_dist))
@@ -205,22 +210,29 @@ unsafe fn emit_results_neon_f32<T, F, const EXCLUSIVE: bool>(
     vst1q_f32(dist_values.as_mut_ptr(), dists);
 
     if lane0 != 0 {
-        emit(dist_values[0], std::ptr::read_unaligned(items.add(base)));
+        emit(
+            base,
+            dist_values[0],
+            std::ptr::read_unaligned(items.add(base)),
+        );
     }
     if lane1 != 0 {
         emit(
+            base + 1,
             dist_values[1],
             std::ptr::read_unaligned(items.add(base + 1)),
         );
     }
     if lane2 != 0 {
         emit(
+            base + 2,
             dist_values[2],
             std::ptr::read_unaligned(items.add(base + 2)),
         );
     }
     if lane3 != 0 {
         emit(
+            base + 3,
             dist_values[3],
             std::ptr::read_unaligned(items.add(base + 3)),
         );
@@ -281,7 +293,7 @@ pub(crate) unsafe fn nearest_n_within_neon_unchecked_f32<
 ) where
     L: NeonF32LeafOps,
     T: Content,
-    F: FnMut(f32, T),
+    F: FnMut(usize, f32, T),
 {
     let points = leaf.points();
     let point_ptrs = array_init(|dim| points[dim].as_ptr());
@@ -311,7 +323,7 @@ pub(crate) unsafe fn nearest_n_within_neon_arena_unchecked_f32<
 ) where
     L: NeonF32LeafOps,
     T: Content,
-    F: FnMut(f32, T),
+    F: FnMut(usize, f32, T),
 {
     let point_base = tile_base as *const f32;
     let point_ptrs = array_init(|dim| point_base.add(dim * len));
@@ -333,7 +345,7 @@ unsafe fn nearest_n_within_neon_raw_f32<L, T, F, const EXCLUSIVE: bool, const K:
 ) where
     L: NeonF32LeafOps,
     T: Content,
-    F: FnMut(f32, T),
+    F: FnMut(usize, f32, T),
 {
     if len == 0 {
         return;
@@ -357,7 +369,7 @@ unsafe fn nearest_n_within_neon_raw_f32<L, T, F, const EXCLUSIVE: bool, const K:
         };
 
         if is_within_dist {
-            emit(dist, std::ptr::read_unaligned(items.add(idx)));
+            emit(idx, dist, std::ptr::read_unaligned(items.add(idx)));
         }
     }
 }

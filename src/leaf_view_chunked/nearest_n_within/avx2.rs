@@ -17,7 +17,7 @@ unsafe fn emit_results_avx2_f64<T, F, const EXCLUSIVE: bool>(
     emit: &mut F,
 ) where
     T: Content,
-    F: FnMut(f64, T),
+    F: FnMut(usize, f64, T),
 {
     let mask = if EXCLUSIVE {
         _mm256_movemask_pd(_mm256_cmp_pd(dists, _mm256_set1_pd(max_dist), _CMP_LT_OQ)) as u32
@@ -35,6 +35,7 @@ unsafe fn emit_results_avx2_f64<T, F, const EXCLUSIVE: bool>(
     while remaining != 0 {
         let lane = remaining.trailing_zeros() as usize;
         emit(
+            base + lane,
             *dist_values.get_unchecked(lane),
             std::ptr::read_unaligned(items.add(base + lane)),
         );
@@ -51,7 +52,7 @@ unsafe fn emit_results_sse_f64<T, F, const EXCLUSIVE: bool>(
     emit: &mut F,
 ) where
     T: Content,
-    F: FnMut(f64, T),
+    F: FnMut(usize, f64, T),
 {
     let mask = _mm_movemask_pd(if EXCLUSIVE {
         _mm_cmplt_pd(dists, _mm_set1_pd(max_dist))
@@ -69,6 +70,7 @@ unsafe fn emit_results_sse_f64<T, F, const EXCLUSIVE: bool>(
     while remaining != 0 {
         let lane = remaining.trailing_zeros() as usize;
         emit(
+            base + lane,
             *dist_values.get_unchecked(lane),
             std::ptr::read_unaligned(items.add(base + lane)),
         );
@@ -152,7 +154,7 @@ pub(crate) unsafe fn nearest_n_within_avx2_unchecked_f64<
 ) where
     L: Avx2F64LeafOps,
     T: Content,
-    F: FnMut(f64, T),
+    F: FnMut(usize, f64, T),
 {
     let points = leaf.points();
     let point_ptrs = array_init(|dim| points[dim].as_ptr());
@@ -182,7 +184,7 @@ pub(crate) unsafe fn nearest_n_within_avx2_arena_unchecked_f64<
 ) where
     L: Avx2F64LeafOps,
     T: Content,
-    F: FnMut(f64, T),
+    F: FnMut(usize, f64, T),
 {
     let point_base = tile_base as *const f64;
     let point_ptrs = array_init(|dim| point_base.add(dim * len));
@@ -204,7 +206,7 @@ unsafe fn nearest_n_within_avx2_raw_f64<L, T, F, const EXCLUSIVE: bool, const K:
 ) where
     L: Avx2F64LeafOps,
     T: Content,
-    F: FnMut(f64, T),
+    F: FnMut(usize, f64, T),
 {
     if len == 0 {
         return;
@@ -235,7 +237,7 @@ unsafe fn nearest_n_within_avx2_raw_f64<L, T, F, const EXCLUSIVE: bool, const K:
         };
 
         if is_within_dist {
-            emit(dist, std::ptr::read_unaligned(items.add(idx)));
+            emit(idx, dist, std::ptr::read_unaligned(items.add(idx)));
         }
     }
 }
@@ -249,7 +251,7 @@ unsafe fn emit_results_avx2_f32<T, F, const EXCLUSIVE: bool>(
     emit: &mut F,
 ) where
     T: Content,
-    F: FnMut(f32, T),
+    F: FnMut(usize, f32, T),
 {
     let mask = if EXCLUSIVE {
         _mm256_movemask_ps(_mm256_cmp_ps(dists, _mm256_set1_ps(max_dist), _CMP_LT_OQ)) as u32
@@ -267,6 +269,7 @@ unsafe fn emit_results_avx2_f32<T, F, const EXCLUSIVE: bool>(
     while remaining != 0 {
         let lane = remaining.trailing_zeros() as usize;
         emit(
+            base + lane,
             *dist_values.get_unchecked(lane),
             std::ptr::read_unaligned(items.add(base + lane)),
         );
@@ -283,7 +286,7 @@ unsafe fn emit_results_sse_f32<T, F, const EXCLUSIVE: bool>(
     emit: &mut F,
 ) where
     T: Content,
-    F: FnMut(f32, T),
+    F: FnMut(usize, f32, T),
 {
     let mask = if EXCLUSIVE {
         _mm_movemask_ps(_mm_cmp_ps(dists, _mm_set1_ps(max_dist), _CMP_LT_OQ)) as u32
@@ -301,6 +304,7 @@ unsafe fn emit_results_sse_f32<T, F, const EXCLUSIVE: bool>(
     while remaining != 0 {
         let lane = remaining.trailing_zeros() as usize;
         emit(
+            base + lane,
             *dist_values.get_unchecked(lane),
             std::ptr::read_unaligned(items.add(base + lane)),
         );
@@ -384,7 +388,7 @@ pub(crate) unsafe fn nearest_n_within_avx2_unchecked_f32<
 ) where
     L: Avx2F32LeafOps,
     T: Content,
-    F: FnMut(f32, T),
+    F: FnMut(usize, f32, T),
 {
     let points = leaf.points();
     let point_ptrs = array_init(|dim| points[dim].as_ptr());
@@ -414,7 +418,7 @@ pub(crate) unsafe fn nearest_n_within_avx2_arena_unchecked_f32<
 ) where
     L: Avx2F32LeafOps,
     T: Content,
-    F: FnMut(f32, T),
+    F: FnMut(usize, f32, T),
 {
     let point_base = tile_base as *const f32;
     let point_ptrs = array_init(|dim| point_base.add(dim * len));
@@ -436,7 +440,7 @@ unsafe fn nearest_n_within_avx2_raw_f32<L, T, F, const EXCLUSIVE: bool, const K:
 ) where
     L: Avx2F32LeafOps,
     T: Content,
-    F: FnMut(f32, T),
+    F: FnMut(usize, f32, T),
 {
     if len == 0 {
         return;
@@ -467,7 +471,7 @@ unsafe fn nearest_n_within_avx2_raw_f32<L, T, F, const EXCLUSIVE: bool, const K:
         };
 
         if is_within_dist {
-            emit(dist, std::ptr::read_unaligned(items.add(idx)));
+            emit(idx, dist, std::ptr::read_unaligned(items.add(idx)));
         }
     }
 }

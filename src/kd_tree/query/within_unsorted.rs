@@ -6,7 +6,7 @@ use crate::leaf_view::TlsLeafScratch;
 use crate::leaf_view_chunked::nearest_n_within::{
     nearest_n_within_with_query_wide, nearest_n_within_with_query_wide_arena,
 };
-use crate::results::result_collection::VisitorResultCollection;
+use crate::results::result_collection::{FromLeafCandidate, VisitorResultCollection};
 use crate::stem_strategy::donnelly::simd_full::{
     BacktrackBlock3, BacktrackBlock4, SimdSelectBestChildBlock3,
 };
@@ -21,7 +21,7 @@ where
     SS: StemStrategy,
 {
     #[inline(always)]
-    fn process_leaf_within_unsorted_visit<D, F, const EXCLUSIVE: bool>(
+    fn process_leaf_within_unsorted_visit<D, E, F, const EXCLUSIVE: bool>(
         &self,
         leaf_idx: usize,
         query_wide: &[D::Output; K],
@@ -30,14 +30,15 @@ where
     ) where
         D: DistanceMetric<A>,
         D::Output: Axis<Coord = D::Output> + TlsLeafScratch + 'static,
-        F: FnMut(QueryResultItem<(), T, D::Output>),
+        E: FromLeafCandidate<T, D::Output>,
+        F: FnMut(E),
     {
         let mut results = VisitorResultCollection::new(visitor);
 
         match LS::LEAF_PROJECTION {
             LeafProjection::LeafArena => {
                 let arena = self.leaves.leaf_arena(leaf_idx);
-                nearest_n_within_with_query_wide_arena::<A, T, D, _, EXCLUSIVE, K>(
+                nearest_n_within_with_query_wide_arena::<A, T, D, E, _, EXCLUSIVE, K>(
                     &arena,
                     query_wide,
                     max_dist,
@@ -46,7 +47,7 @@ where
             }
             LeafProjection::LeafView => {
                 let leaf = self.leaves.leaf_view(leaf_idx);
-                nearest_n_within_with_query_wide::<A, T, D, _, EXCLUSIVE, K, B>(
+                nearest_n_within_with_query_wide::<A, T, D, E, _, EXCLUSIVE, K, B>(
                     &leaf,
                     query_wide,
                     max_dist,
@@ -80,11 +81,55 @@ where
         };
 
         self.backtracking_query::<_, _, D>(&mut req_ctx, |leaf_idx, query_wide, req_ctx| {
-            self.process_leaf_within_unsorted_visit::<D, F, EXCLUSIVE>(
+            self.process_leaf_within_unsorted_visit::<
+                D,
+                QueryResultItem<(), T, D::Output>,
+                F,
+                EXCLUSIVE,
+            >(
                 leaf_idx,
                 query_wide,
                 req_ctx.max_dist(),
                 &mut visitor,
+            );
+        });
+    }
+
+    #[inline]
+    pub(crate) fn within_unsorted_visit_positioned_impl<D, F, const EXCLUSIVE: bool>(
+        &self,
+        query: &[A; K],
+        max_dist: D::Output,
+        mut visitor: F,
+    ) where
+        D: DistanceMetric<A>,
+        D::Output: crate::stem_strategy::SimdPrune
+            + SimdSelectBestChildBlock3
+            + BacktrackBlock3
+            + BacktrackBlock4
+            + TlsLeafScratch
+            + 'static,
+        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        F: FnMut(usize, QueryResultItem<usize, T, D::Output>),
+    {
+        let mut req_ctx = WithinUnsortedVisitReqCtx::<A, D::Output, EXCLUSIVE, K> {
+            query,
+            max_dist,
+            _phantom: std::marker::PhantomData,
+        };
+
+        self.backtracking_query::<_, _, D>(&mut req_ctx, |leaf_idx, query_wide, req_ctx| {
+            let mut leaf_visitor = |result| visitor(leaf_idx, result);
+            self.process_leaf_within_unsorted_visit::<
+                D,
+                QueryResultItem<usize, T, D::Output>,
+                _,
+                EXCLUSIVE,
+            >(
+                leaf_idx,
+                query_wide,
+                req_ctx.max_dist(),
+                &mut leaf_visitor,
             );
         });
     }
@@ -117,7 +162,12 @@ where
             &mut req_ctx,
             stack,
             |leaf_idx, query_wide, req_ctx| {
-                self.process_leaf_within_unsorted_visit::<D, F, EXCLUSIVE>(
+                self.process_leaf_within_unsorted_visit::<
+                    D,
+                    QueryResultItem<(), T, D::Output>,
+                    F,
+                    EXCLUSIVE,
+                >(
                     leaf_idx,
                     query_wide,
                     req_ctx.max_dist(),
@@ -332,6 +382,26 @@ mod tests {
             stabilize_sort(&mut arena);
 
             assert_eq!(arena, flat, "len={len}");
+
+            let mut flat_with_points = flat_tree
+                .query(&query)
+                .within::<SquaredEuclidean<f32>>(radius)
+                .unsorted()
+                .with_points()
+                .execute();
+            let mut arena_with_points = arena_tree
+                .query(&query)
+                .within::<SquaredEuclidean<f32>>(radius)
+                .unsorted()
+                .with_points()
+                .execute();
+            flat_with_points.sort_unstable_by_key(|result| result.item);
+            arena_with_points.sort_unstable_by_key(|result| result.item);
+
+            assert_eq!(arena_with_points, flat_with_points, "len={len}");
+            assert!(arena_with_points
+                .iter()
+                .all(|result| result.point == points[result.item as usize]));
         }
     }
 

@@ -11,8 +11,8 @@ pub(crate) mod neon;
 
 use crate::dist::DistanceMetric;
 use crate::leaf_view::{LeafArena, LeafView, TlsLeafScratch};
-use crate::results::result_collection::ResultCollection;
-use crate::{Axis, Content, QueryResultItem};
+use crate::results::result_collection::{FromLeafCandidate, ResultCollection};
+use crate::{Axis, Content};
 
 pub(crate) use fallback::{
     nearest_n_within_with_query_wide_arena_fallback, nearest_n_within_with_query_wide_fallback,
@@ -23,6 +23,7 @@ pub(crate) fn nearest_n_within_with_query_wide_arena<
     AX,
     T,
     D,
+    E,
     R,
     const EXCLUSIVE: bool,
     const K: usize,
@@ -36,11 +37,12 @@ pub(crate) fn nearest_n_within_with_query_wide_arena<
     T: Content,
     D: DistanceMetric<AX>,
     D::Output: Axis<Coord = D::Output> + 'static,
-    R: ResultCollection<D::Output, QueryResultItem<(), T, D::Output>>,
+    E: FromLeafCandidate<T, D::Output>,
+    R: ResultCollection<D::Output, E>,
 {
     #[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"))]
     if unsafe {
-        try_nearest_n_within_arena_avx512::<AX, T, D, R, EXCLUSIVE, K>(
+        try_nearest_n_within_arena_avx512::<AX, T, D, E, R, EXCLUSIVE, K>(
             arena, query_wide, dist, results,
         )
     } {
@@ -49,7 +51,7 @@ pub(crate) fn nearest_n_within_with_query_wide_arena<
 
     #[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx2"))]
     if unsafe {
-        try_nearest_n_within_arena_avx2::<AX, T, D, R, EXCLUSIVE, K>(
+        try_nearest_n_within_arena_avx2::<AX, T, D, E, R, EXCLUSIVE, K>(
             arena, query_wide, dist, results,
         )
     } {
@@ -58,14 +60,14 @@ pub(crate) fn nearest_n_within_with_query_wide_arena<
 
     #[cfg(all(feature = "simd", target_arch = "aarch64", target_feature = "neon"))]
     if unsafe {
-        try_nearest_n_within_arena_neon::<AX, T, D, R, EXCLUSIVE, K>(
+        try_nearest_n_within_arena_neon::<AX, T, D, E, R, EXCLUSIVE, K>(
             arena, query_wide, dist, results,
         )
     } {
         return;
     }
 
-    nearest_n_within_with_query_wide_arena_fallback::<AX, T, D, R, EXCLUSIVE, K>(
+    nearest_n_within_with_query_wide_arena_fallback::<AX, T, D, E, R, EXCLUSIVE, K>(
         arena, query_wide, dist, results,
     );
 }
@@ -75,6 +77,7 @@ pub(crate) fn nearest_n_within_with_query_wide<
     AX,
     T,
     D,
+    E,
     R,
     const EXCLUSIVE: bool,
     const K: usize,
@@ -89,30 +92,37 @@ pub(crate) fn nearest_n_within_with_query_wide<
     T: Content + PartialOrd,
     D: DistanceMetric<AX>,
     D::Output: Axis<Coord = D::Output> + TlsLeafScratch + 'static,
-    R: ResultCollection<D::Output, QueryResultItem<(), T, D::Output>>,
+    E: FromLeafCandidate<T, D::Output>,
+    R: ResultCollection<D::Output, E>,
 {
     #[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"))]
     if unsafe {
-        try_nearest_n_within_avx512::<AX, T, D, R, EXCLUSIVE, K, B>(leaf, query_wide, dist, results)
+        try_nearest_n_within_avx512::<AX, T, D, E, R, EXCLUSIVE, K, B>(
+            leaf, query_wide, dist, results,
+        )
     } {
         return;
     }
 
     #[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx2"))]
     if unsafe {
-        try_nearest_n_within_avx2::<AX, T, D, R, EXCLUSIVE, K, B>(leaf, query_wide, dist, results)
+        try_nearest_n_within_avx2::<AX, T, D, E, R, EXCLUSIVE, K, B>(
+            leaf, query_wide, dist, results,
+        )
     } {
         return;
     }
 
     #[cfg(all(feature = "simd", target_arch = "aarch64", target_feature = "neon"))]
     if unsafe {
-        try_nearest_n_within_neon::<AX, T, D, R, EXCLUSIVE, K, B>(leaf, query_wide, dist, results)
+        try_nearest_n_within_neon::<AX, T, D, E, R, EXCLUSIVE, K, B>(
+            leaf, query_wide, dist, results,
+        )
     } {
         return;
     }
 
-    nearest_n_within_with_query_wide_fallback::<AX, T, D, R, EXCLUSIVE, K, B>(
+    nearest_n_within_with_query_wide_fallback::<AX, T, D, E, R, EXCLUSIVE, K, B>(
         leaf, query_wide, dist, results,
     );
 }
@@ -123,6 +133,7 @@ unsafe fn try_nearest_n_within_avx512<
     AX,
     T,
     D,
+    E,
     R,
     const EXCLUSIVE: bool,
     const K: usize,
@@ -138,14 +149,15 @@ where
     T: Content,
     D: DistanceMetric<AX>,
     D::Output: Axis<Coord = D::Output> + 'static,
-    R: ResultCollection<D::Output, QueryResultItem<(), T, D::Output>>,
+    E: FromLeafCandidate<T, D::Output>,
+    R: ResultCollection<D::Output, E>,
 {
-    D::try_nearest_n_within_leaf_avx512::<T, R, EXCLUSIVE, K, B>(leaf, query_wide, dist, results)
+    D::try_nearest_n_within_leaf_avx512::<T, E, R, EXCLUSIVE, K, B>(leaf, query_wide, dist, results)
 }
 
 #[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"))]
 #[inline(always)]
-unsafe fn try_nearest_n_within_arena_avx512<AX, T, D, R, const EXCLUSIVE: bool, const K: usize>(
+unsafe fn try_nearest_n_within_arena_avx512<AX, T, D, E, R, const EXCLUSIVE: bool, const K: usize>(
     arena: &LeafArena<'_, AX, T, K>,
     query_wide: &[D::Output; K],
     dist: D::Output,
@@ -156,9 +168,10 @@ where
     T: Content,
     D: DistanceMetric<AX>,
     D::Output: Axis<Coord = D::Output> + 'static,
-    R: ResultCollection<D::Output, QueryResultItem<(), T, D::Output>>,
+    E: FromLeafCandidate<T, D::Output>,
+    R: ResultCollection<D::Output, E>,
 {
-    D::try_nearest_n_within_arena_avx512::<T, R, EXCLUSIVE, K>(arena, query_wide, dist, results)
+    D::try_nearest_n_within_arena_avx512::<T, E, R, EXCLUSIVE, K>(arena, query_wide, dist, results)
 }
 
 #[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx2"))]
@@ -167,6 +180,7 @@ unsafe fn try_nearest_n_within_avx2<
     AX,
     T,
     D,
+    E,
     R,
     const EXCLUSIVE: bool,
     const K: usize,
@@ -182,14 +196,15 @@ where
     T: Content,
     D: DistanceMetric<AX>,
     D::Output: Axis<Coord = D::Output> + 'static,
-    R: ResultCollection<D::Output, QueryResultItem<(), T, D::Output>>,
+    E: FromLeafCandidate<T, D::Output>,
+    R: ResultCollection<D::Output, E>,
 {
-    D::try_nearest_n_within_leaf_avx2::<T, R, EXCLUSIVE, K, B>(leaf, query_wide, dist, results)
+    D::try_nearest_n_within_leaf_avx2::<T, E, R, EXCLUSIVE, K, B>(leaf, query_wide, dist, results)
 }
 
 #[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx2"))]
 #[inline(always)]
-unsafe fn try_nearest_n_within_arena_avx2<AX, T, D, R, const EXCLUSIVE: bool, const K: usize>(
+unsafe fn try_nearest_n_within_arena_avx2<AX, T, D, E, R, const EXCLUSIVE: bool, const K: usize>(
     arena: &LeafArena<'_, AX, T, K>,
     query_wide: &[D::Output; K],
     dist: D::Output,
@@ -200,9 +215,10 @@ where
     T: Content,
     D: DistanceMetric<AX>,
     D::Output: Axis<Coord = D::Output> + 'static,
-    R: ResultCollection<D::Output, QueryResultItem<(), T, D::Output>>,
+    E: FromLeafCandidate<T, D::Output>,
+    R: ResultCollection<D::Output, E>,
 {
-    D::try_nearest_n_within_arena_avx2::<T, R, EXCLUSIVE, K>(arena, query_wide, dist, results)
+    D::try_nearest_n_within_arena_avx2::<T, E, R, EXCLUSIVE, K>(arena, query_wide, dist, results)
 }
 
 #[cfg(all(feature = "simd", target_arch = "aarch64", target_feature = "neon"))]
@@ -211,6 +227,7 @@ unsafe fn try_nearest_n_within_neon<
     AX,
     T,
     D,
+    E,
     R,
     const EXCLUSIVE: bool,
     const K: usize,
@@ -226,14 +243,15 @@ where
     T: Content,
     D: DistanceMetric<AX>,
     D::Output: Axis<Coord = D::Output> + 'static,
-    R: ResultCollection<D::Output, QueryResultItem<(), T, D::Output>>,
+    E: FromLeafCandidate<T, D::Output>,
+    R: ResultCollection<D::Output, E>,
 {
-    D::try_nearest_n_within_leaf_neon::<T, R, EXCLUSIVE, K, B>(leaf, query_wide, dist, results)
+    D::try_nearest_n_within_leaf_neon::<T, E, R, EXCLUSIVE, K, B>(leaf, query_wide, dist, results)
 }
 
 #[cfg(all(feature = "simd", target_arch = "aarch64", target_feature = "neon"))]
 #[inline(always)]
-unsafe fn try_nearest_n_within_arena_neon<AX, T, D, R, const EXCLUSIVE: bool, const K: usize>(
+unsafe fn try_nearest_n_within_arena_neon<AX, T, D, E, R, const EXCLUSIVE: bool, const K: usize>(
     arena: &LeafArena<'_, AX, T, K>,
     query_wide: &[D::Output; K],
     dist: D::Output,
@@ -244,7 +262,8 @@ where
     T: Content,
     D: DistanceMetric<AX>,
     D::Output: Axis<Coord = D::Output> + 'static,
-    R: ResultCollection<D::Output, QueryResultItem<(), T, D::Output>>,
+    E: FromLeafCandidate<T, D::Output>,
+    R: ResultCollection<D::Output, E>,
 {
-    D::try_nearest_n_within_arena_neon::<T, R, EXCLUSIVE, K>(arena, query_wide, dist, results)
+    D::try_nearest_n_within_arena_neon::<T, E, R, EXCLUSIVE, K>(arena, query_wide, dist, results)
 }
