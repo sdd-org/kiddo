@@ -174,6 +174,63 @@ fn unsplittable_immutable_hard_bucket_returns_error() {
 }
 
 #[test]
+fn mutable_split_preserves_point_item_associations_when_pivot_scan_retries() {
+    type TestTree = KdTree<f32, u32, Eytzinger, VecOfArrays<f32, u32, 2, 16>, 2, 16>;
+
+    const EXTREMES: [[f32; 2]; 6] = [
+        [-1.0, -1.0],
+        [1.0, 1.0],
+        [-1.0, 1.0],
+        [1.0, -1.0],
+        [0.0, -0.0],
+        [-0.0, 0.0],
+    ];
+
+    let mut tree = TestTree::default();
+    let mut expected = Vec::new();
+    for item in 0..33u32 {
+        let point = EXTREMES[item as usize % EXTREMES.len()];
+        tree.add(&point, item).unwrap();
+        expected.push((item, point.map(f32::to_bits)));
+    }
+
+    let final_point = [1.0, 4.0 / 9.0];
+    tree.add(&final_point, 33).unwrap();
+    expected.push((33, final_point.map(f32::to_bits)));
+
+    let mut got = tree
+        .iter()
+        .map(|(item, point)| (item, point.map(f32::to_bits)))
+        .collect::<Vec<_>>();
+    got.sort_unstable();
+
+    assert_eq!(got, expected);
+}
+
+#[test]
+fn rejected_mutable_split_preserves_existing_point_item_associations() {
+    type TestTree = KdTree<f32, u32, Eytzinger, VecOfArrays<f32, u32, 2, 4>, 2, 4>;
+
+    let mut tree = TestTree::default();
+    let mut expected = Vec::new();
+    for item in 0..4u32 {
+        let point = [2.0, 200.0 + item as f32];
+        tree.add(&point, item).unwrap();
+        expected.push((item, point));
+    }
+
+    assert_eq!(
+        tree.add(&[2.0, 204.0], 4),
+        Err(ConstructionError::UnsplittableBucket { split_dim: 0 })
+    );
+    assert_eq!(tree.size(), expected.len());
+
+    let mut got = tree.iter().collect::<Vec<_>>();
+    got.sort_unstable_by_key(|(item, _)| *item);
+    assert_eq!(got, expected);
+}
+
+#[test]
 fn parallel_construction_threshold_is_inclusive() {
     type TestTree = KdTree<f32, u32, Eytzinger, FlatVec<f32, u32, 2, 32>, 2, 32>;
 

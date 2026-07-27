@@ -440,24 +440,11 @@ where
                 |a, b| a.partial_cmp(b).expect("Leaf node sort failed."),
             );
 
-            // Apply the permutation to all other dimensions and items
-            for dim in 0..K {
-                if dim != split_dim {
-                    let temp = orig.content_points[dim];
-                    for i in 0..orig.size {
-                        orig.content_points[dim][i] = temp[mirror[i]];
-                    }
-                }
-            }
-            let temp_items = orig.content_items;
-            for i in 0..orig.size {
-                orig.content_items[i] = temp_items[mirror[i]];
-            }
-
             let mut split_val = *orig
                 .content_points
                 .get_unchecked(split_dim)
                 .get_unchecked(pivot_idx);
+            let mut unsplittable = false;
 
             // At this point we hava a candidate position at which to split the leaf, that
             // being the midpoint. This may not be a valid location, however. Take this 1D case
@@ -529,20 +516,6 @@ where
                         |a, b| a.partial_cmp(b).expect("Leaf node sort failed."),
                     );
 
-                    // Re-apply the permutation to all other dimensions and items
-                    for dim in 0..K {
-                        if dim != split_dim {
-                            let temp = orig.content_points[dim];
-                            for i in 0..orig.size {
-                                orig.content_points[dim][i] = temp[mirror[i]];
-                            }
-                        }
-                    }
-                    let temp_items = orig.content_items;
-                    for i in 0..orig.size {
-                        orig.content_items[i] = temp_items[mirror[i]];
-                    }
-
                     pivot_idx = orig_pivot_idx;
                     while *orig
                         .content_points
@@ -553,15 +526,38 @@ where
                         pivot_idx += 1;
 
                         if pivot_idx == B {
-                            return Err(ConstructionError::UnsplittableBucket { split_dim });
+                            unsplittable = true;
+                            break;
                         }
                     }
                 }
 
-                split_val = *orig
-                    .content_points
-                    .get_unchecked(split_dim)
-                    .get_unchecked(pivot_idx);
+                if !unsplittable {
+                    split_val = *orig
+                        .content_points
+                        .get_unchecked(split_dim)
+                        .get_unchecked(pivot_idx);
+                }
+            }
+
+            // `mirror` tracks the cumulative permutation back to the original leaf,
+            // including the optional second selection pass above. Apply it exactly
+            // once so every coordinate and item remains associated.
+            for dim in 0..K {
+                if dim != split_dim {
+                    let temp = orig.content_points[dim];
+                    for i in 0..orig.size {
+                        orig.content_points[dim][i] = temp[mirror[i]];
+                    }
+                }
+            }
+            let temp_items = orig.content_items;
+            for i in 0..orig.size {
+                orig.content_items[i] = temp_items[mirror[i]];
+            }
+
+            if unsplittable {
+                return Err(ConstructionError::UnsplittableBucket { split_dim });
             }
 
             // At this point, we have a valid index at which we can split the bucket.
@@ -945,5 +941,27 @@ mod test {
         assert_eq!(right_points[0], &[4.0]);
         assert_eq!(right_points[1], &[400.0]);
         assert_eq!(right_items, &[13]);
+
+        let mut item_points = left_items
+            .iter()
+            .enumerate()
+            .map(|(idx, item)| (*item, [left_points[0][idx], left_points[1][idx]]))
+            .chain(
+                right_items
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, item)| (*item, [right_points[0][idx], right_points[1][idx]])),
+            )
+            .collect::<Vec<_>>();
+        item_points.sort_unstable_by_key(|(item, _)| *item);
+        assert_eq!(
+            item_points,
+            vec![
+                (10, [2.0, 200.0]),
+                (11, [2.0, 201.0]),
+                (12, [2.0, 202.0]),
+                (13, [4.0, 400.0]),
+            ]
+        );
     }
 }
