@@ -1,11 +1,19 @@
 #![allow(clippy::too_many_arguments)]
 
+//! Long-running v6 correctness and approximate-quality fuzz-style tests.
+//!
+//! Run the complete non-SIMD and SIMD matrix locally with
+//! `just fuzz-kd-tree-v6`. The generated sweeps are ignored so ordinary test
+//! runs stay fast; the compact adversarial checks run whenever this test target
+//! is selected. The just task and manual CI workflow use `--include-ignored`
+//! deliberately.
+
 use std::any::TypeId;
 use std::array;
 use std::collections::{BinaryHeap, HashSet};
 use std::env;
 use std::fs::OpenOptions;
-use std::io::{IsTerminal, Write};
+use std::io::Write;
 use std::num::NonZeroUsize;
 use std::sync::{Mutex, OnceLock};
 
@@ -13,7 +21,7 @@ use kiddo::kd_tree::KdTree;
 use kiddo::leaf_strategy::{FlatVec, VecOfArenas, VecOfArrays};
 use kiddo::stem_strategy::{Donnelly, Eytzinger};
 use kiddo::traits::leaf_strategy::ConstructibleLeafStrategy;
-use kiddo::{dist::DistanceMetricScalar, Manhattan, SquaredEuclidean};
+use kiddo::{dist::DistanceMetricScalar, Chebyshev, Manhattan, SquaredEuclidean};
 use kiddo::{Axis, LeafStrategy, QueryResultItem, StemStrategy};
 
 #[cfg(feature = "simd")]
@@ -21,11 +29,11 @@ use kiddo::stem_strategy::DonnellySimdFull;
 
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
-use zzz::ProgressBar;
+use rayon::prelude::*;
 
-const DEFAULT_CASES: usize = 5;
+const DEFAULT_CASES: usize = 8;
 const DEFAULT_MIN_POW: u32 = 10;
-const DEFAULT_MAX_POW: u32 = 24;
+const DEFAULT_MAX_POW: u32 = 20;
 const DEFAULT_PERTURB_MIN: i32 = -5;
 const DEFAULT_PERTURB_MAX: i32 = 5;
 const DEFAULT_MAX_NEAREST_N: usize = 32;
@@ -42,6 +50,7 @@ const SEED_MIX_CASE: u64 = 0x9e37_79b9_7f4a_7c15;
 const SEED_MIX_QUERY: u64 = 0xbf58_476d_1ce4_e5b9;
 
 static REPORT_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static FUZZ_POOL: OnceLock<rayon::ThreadPool> = OnceLock::new();
 
 #[derive(Clone, Copy)]
 struct FuzzConfig {
@@ -134,6 +143,24 @@ fn read_env_bool(key: &str, default: bool) -> bool {
             _ => default,
         })
         .unwrap_or(default)
+}
+
+fn fuzz_pool() -> &'static rayon::ThreadPool {
+    FUZZ_POOL.get_or_init(|| {
+        let available = std::thread::available_parallelism()
+            .map(NonZeroUsize::get)
+            .unwrap_or(1);
+        let threads = read_env_usize("KIDDO_FUZZ_THREADS", available.min(4))
+            .max(1)
+            .min(available);
+
+        println!("v6 fuzz query worker threads: {threads}");
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .thread_name(|idx| format!("kiddo-fuzz-{idx}"))
+            .build()
+            .expect("failed to build v6 fuzz worker pool")
+    })
 }
 
 fn should_run_non_simd_paths() -> bool {
@@ -1054,61 +1081,6 @@ fn print_query_progress(
     }
 }
 
-struct ProgressReporter {
-    bar: Option<ProgressBar>,
-    label: String,
-    cases: usize,
-    query_count: usize,
-}
-
-impl ProgressReporter {
-    fn new(label: &str, cases: usize, query_count: usize) -> Self {
-        let bar = if std::io::stderr().is_terminal() {
-            let total = cases.saturating_mul(query_count);
-            Some(ProgressBar::with_target(total))
-        } else {
-            None
-        };
-
-        Self {
-            bar,
-            label: label.to_string(),
-            cases,
-            query_count,
-        }
-    }
-
-    fn case_start(&self, case_idx: usize, point_count: usize, content_seed: u64) {
-        if self.bar.is_none() {
-            print_case_start(&self.label, case_idx, self.cases, point_count, content_seed);
-        }
-    }
-
-    fn advance(&mut self, case_idx: usize, query_idx: usize, _content_seed: u64, query_seed: u64) {
-        if let Some(bar) = self.bar.as_mut() {
-            if query_idx.is_multiple_of(PROGRESS_EVERY) || query_idx + 1 == self.query_count {
-                bar.set_message(Some(format!(
-                    "{} case {}/{} query {}/{} ",
-                    self.label,
-                    case_idx + 1,
-                    self.cases,
-                    query_idx + 1,
-                    self.query_count,
-                )));
-            }
-            bar.add(1);
-        } else {
-            print_query_progress(
-                &self.label,
-                case_idx,
-                query_idx,
-                self.query_count,
-                query_seed,
-            );
-        }
-    }
-}
-
 fn run_mutable_case_f32<const K: usize, const B: usize, SO>(
     cfg: FuzzConfig,
     label: &str,
@@ -1117,7 +1089,6 @@ fn run_mutable_case_f32<const K: usize, const B: usize, SO>(
     SO: StemStrategy + 'static,
     <SO as StemStrategy>::Stack<f32>: 'static,
 {
-    let mut progress = ProgressReporter::new(label, cfg.cases, cfg.query_count);
     for case_idx in 0..cfg.cases {
         let content_seed = cfg.case_seed(case_idx);
         let mut rng_content = StdRng::seed_from_u64(content_seed);
@@ -1126,18 +1097,20 @@ fn run_mutable_case_f32<const K: usize, const B: usize, SO>(
             .map(|_| random_point_f32::<K>(&mut rng_content))
             .collect();
 
-        progress.case_start(case_idx, point_count, content_seed);
+        print_case_start(label, case_idx, cfg.cases, point_count, content_seed);
 
         let mut tree: KdTree<f32, usize, SO, VecOfArrays<f32, usize, K, B>, K, B> =
             KdTree::default();
 
         for (idx, point) in points.iter().enumerate() {
-            let _ = tree.add(point, idx);
+            tree.add(point, idx)
+                .expect("random finite point set must be splittable");
         }
 
         let max_nearest_n = cfg.max_nearest_n.max(1).min(point_count);
 
-        for query_idx in 0..cfg.query_count {
+        fuzz_pool().install(|| {
+            (0..cfg.query_count).into_par_iter().for_each(|query_idx| {
             let query_seed = query_seed(content_seed, query_idx);
             let mut rng_query = StdRng::seed_from_u64(query_seed);
             let query = random_point_f32::<K>(&mut rng_query);
@@ -1501,8 +1474,9 @@ fn run_mutable_case_f32<const K: usize, const B: usize, SO>(
                 );
             }
 
-            progress.advance(case_idx, query_idx, content_seed, query_seed);
-        }
+                print_query_progress(label, case_idx, query_idx, cfg.query_count, query_seed);
+            });
+        });
     }
 }
 
@@ -1514,7 +1488,6 @@ fn run_mutable_case_f64<const K: usize, const B: usize, SO>(
     SO: StemStrategy + 'static,
     <SO as StemStrategy>::Stack<f64>: 'static,
 {
-    let mut progress = ProgressReporter::new(label, cfg.cases, cfg.query_count);
     for case_idx in 0..cfg.cases {
         let content_seed = cfg.case_seed(case_idx);
         let mut rng_content = StdRng::seed_from_u64(content_seed);
@@ -1523,18 +1496,20 @@ fn run_mutable_case_f64<const K: usize, const B: usize, SO>(
             .map(|_| random_point_f64::<K>(&mut rng_content))
             .collect();
 
-        progress.case_start(case_idx, point_count, content_seed);
+        print_case_start(label, case_idx, cfg.cases, point_count, content_seed);
 
         let mut tree: KdTree<f64, usize, SO, VecOfArrays<f64, usize, K, B>, K, B> =
             KdTree::default();
 
         for (idx, point) in points.iter().enumerate() {
-            let _ = tree.add(point, idx);
+            tree.add(point, idx)
+                .expect("random finite point set must be splittable");
         }
 
         let max_nearest_n = cfg.max_nearest_n.max(1).min(point_count);
 
-        for query_idx in 0..cfg.query_count {
+        fuzz_pool().install(|| {
+            (0..cfg.query_count).into_par_iter().for_each(|query_idx| {
             let query_seed = query_seed(content_seed, query_idx);
             let mut rng_query = StdRng::seed_from_u64(query_seed);
             let query = random_point_f64::<K>(&mut rng_query);
@@ -1898,8 +1873,9 @@ fn run_mutable_case_f64<const K: usize, const B: usize, SO>(
                 );
             }
 
-            progress.advance(case_idx, query_idx, content_seed, query_seed);
-        }
+                print_query_progress(label, case_idx, query_idx, cfg.query_count, query_seed);
+            });
+        });
     }
 }
 
@@ -1910,9 +1886,8 @@ fn run_immutable_case_f32_with_leaf<const K: usize, const B: usize, SO, LS>(
 ) where
     SO: StemStrategy + 'static,
     <SO as StemStrategy>::Stack<f32>: 'static,
-    LS: LeafStrategy<f32, usize, SO, K, B> + ConstructibleLeafStrategy<f32, usize, SO, K, B>,
+    LS: LeafStrategy<f32, usize, SO, K, B> + ConstructibleLeafStrategy<f32, usize, SO, K, B> + Sync,
 {
-    let mut progress = ProgressReporter::new(label, cfg.cases, cfg.query_count);
     for case_idx in 0..cfg.cases {
         let content_seed = cfg.case_seed(case_idx);
         let mut rng_content = StdRng::seed_from_u64(content_seed);
@@ -1921,13 +1896,14 @@ fn run_immutable_case_f32_with_leaf<const K: usize, const B: usize, SO, LS>(
             .map(|_| random_point_f32::<K>(&mut rng_content))
             .collect();
 
-        progress.case_start(case_idx, point_count, content_seed);
+        print_case_start(label, case_idx, cfg.cases, point_count, content_seed);
 
         let tree: KdTree<f32, usize, SO, LS, K, B> = KdTree::new_from_slice(&points).unwrap();
 
         let max_nearest_n = cfg.max_nearest_n.max(1).min(point_count);
 
-        for query_idx in 0..cfg.query_count {
+        fuzz_pool().install(|| {
+            (0..cfg.query_count).into_par_iter().for_each(|query_idx| {
             let query_seed = query_seed(content_seed, query_idx);
             let mut rng_query = StdRng::seed_from_u64(query_seed);
             let query = random_point_f32::<K>(&mut rng_query);
@@ -2291,8 +2267,9 @@ fn run_immutable_case_f32_with_leaf<const K: usize, const B: usize, SO, LS>(
                 );
             }
 
-            progress.advance(case_idx, query_idx, content_seed, query_seed);
-        }
+                print_query_progress(label, case_idx, query_idx, cfg.query_count, query_seed);
+            });
+        });
     }
 }
 
@@ -2325,9 +2302,8 @@ fn run_immutable_case_f64_with_leaf<const K: usize, const B: usize, SO, LS>(
 ) where
     SO: StemStrategy + 'static,
     <SO as StemStrategy>::Stack<f64>: 'static,
-    LS: LeafStrategy<f64, usize, SO, K, B> + ConstructibleLeafStrategy<f64, usize, SO, K, B>,
+    LS: LeafStrategy<f64, usize, SO, K, B> + ConstructibleLeafStrategy<f64, usize, SO, K, B> + Sync,
 {
-    let mut progress = ProgressReporter::new(label, cfg.cases, cfg.query_count);
     for case_idx in 0..cfg.cases {
         let content_seed = cfg.case_seed(case_idx);
         let mut rng_content = StdRng::seed_from_u64(content_seed);
@@ -2336,13 +2312,14 @@ fn run_immutable_case_f64_with_leaf<const K: usize, const B: usize, SO, LS>(
             .map(|_| random_point_f64::<K>(&mut rng_content))
             .collect();
 
-        progress.case_start(case_idx, point_count, content_seed);
+        print_case_start(label, case_idx, cfg.cases, point_count, content_seed);
 
         let tree: KdTree<f64, usize, SO, LS, K, B> = KdTree::new_from_slice(&points).unwrap();
 
         let max_nearest_n = cfg.max_nearest_n.max(1).min(point_count);
 
-        for query_idx in 0..cfg.query_count {
+        fuzz_pool().install(|| {
+            (0..cfg.query_count).into_par_iter().for_each(|query_idx| {
             let query_seed = query_seed(content_seed, query_idx);
             let mut rng_query = StdRng::seed_from_u64(query_seed);
             let query = random_point_f64::<K>(&mut rng_query);
@@ -2706,8 +2683,9 @@ fn run_immutable_case_f64_with_leaf<const K: usize, const B: usize, SO, LS>(
                 );
             }
 
-            progress.advance(case_idx, query_idx, content_seed, query_seed);
-        }
+                print_query_progress(label, case_idx, query_idx, cfg.query_count, query_seed);
+            });
+        });
     }
 }
 
@@ -3219,14 +3197,33 @@ fn fuzz_v6_immutable_f64() {
 
 const ADVERSARIAL_B: usize = 16;
 const ADVERSARIAL_MAX_QTY: usize = 5;
-const ADVERSARIAL_RADIUS_SQ_F32: f32 = 0.6;
-const ADVERSARIAL_RADIUS_MAN_F32: f32 = 0.9;
+const ADVERSARIAL_RADIUS_SQ_F32: f32 = 0.625;
+const ADVERSARIAL_RADIUS_MAN_F32: f32 = 0.75;
 #[cfg(feature = "simd")]
-const ADVERSARIAL_RADIUS_SQ_F64: f64 = 0.6;
+const ADVERSARIAL_RADIUS_SQ_F64: f64 = 0.625;
 #[cfg(feature = "simd")]
-const ADVERSARIAL_RADIUS_MAN_F64: f64 = 0.9;
+const ADVERSARIAL_RADIUS_MAN_F64: f64 = 0.75;
 
-const ADVERSARIAL_SIZES: [usize; 5] = [0, 1, ADVERSARIAL_B - 1, ADVERSARIAL_B, ADVERSARIAL_B + 1];
+const ADVERSARIAL_SIZES: [usize; 18] = [
+    0,
+    1,
+    2,
+    ADVERSARIAL_B - 1,
+    ADVERSARIAL_B,
+    ADVERSARIAL_B + 1,
+    2 * ADVERSARIAL_B - 1,
+    2 * ADVERSARIAL_B,
+    2 * ADVERSARIAL_B + 1,
+    4 * ADVERSARIAL_B - 1,
+    4 * ADVERSARIAL_B,
+    4 * ADVERSARIAL_B + 1,
+    8 * ADVERSARIAL_B - 1,
+    8 * ADVERSARIAL_B,
+    8 * ADVERSARIAL_B + 1,
+    64 * ADVERSARIAL_B - 1,
+    64 * ADVERSARIAL_B,
+    64 * ADVERSARIAL_B + 1,
+];
 
 #[derive(Clone, Copy)]
 enum AdversarialPattern {
@@ -3234,6 +3231,11 @@ enum AdversarialPattern {
     Quantized,
     AxisDegenerate,
     AllSame,
+    MonotonicDiagonal,
+    TwoClusters,
+    AlternatingExtremes,
+    NearCoincident,
+    MixedScale,
 }
 
 impl AdversarialPattern {
@@ -3243,6 +3245,11 @@ impl AdversarialPattern {
             AdversarialPattern::Quantized => "quantized",
             AdversarialPattern::AxisDegenerate => "axis_degenerate",
             AdversarialPattern::AllSame => "all_same",
+            AdversarialPattern::MonotonicDiagonal => "monotonic_diagonal",
+            AdversarialPattern::TwoClusters => "two_clusters",
+            AdversarialPattern::AlternatingExtremes => "alternating_extremes",
+            AdversarialPattern::NearCoincident => "near_coincident",
+            AdversarialPattern::MixedScale => "mixed_scale",
         }
     }
 
@@ -3252,15 +3259,25 @@ impl AdversarialPattern {
             AdversarialPattern::Quantized => 2,
             AdversarialPattern::AxisDegenerate => 3,
             AdversarialPattern::AllSame => 4,
+            AdversarialPattern::MonotonicDiagonal => 5,
+            AdversarialPattern::TwoClusters => 6,
+            AdversarialPattern::AlternatingExtremes => 7,
+            AdversarialPattern::NearCoincident => 8,
+            AdversarialPattern::MixedScale => 9,
         }
     }
 }
 
-const ADVERSARIAL_PATTERNS: [AdversarialPattern; 4] = [
+const ADVERSARIAL_PATTERNS: [AdversarialPattern; 9] = [
     AdversarialPattern::Grid,
     AdversarialPattern::Quantized,
     AdversarialPattern::AxisDegenerate,
     AdversarialPattern::AllSame,
+    AdversarialPattern::MonotonicDiagonal,
+    AdversarialPattern::TwoClusters,
+    AdversarialPattern::AlternatingExtremes,
+    AdversarialPattern::NearCoincident,
+    AdversarialPattern::MixedScale,
 ];
 
 type EntryF32 = ([f32; 2], usize);
@@ -3272,26 +3289,38 @@ type ApproxTreeF32Builder =
     )
         -> KdTree<f32, usize, Eytzinger, FlatVec<f32, usize, 2, ADVERSARIAL_B>, 2, ADVERSARIAL_B>;
 
-fn adversarial_queries_f32() -> [[f32; 2]; 6] {
+fn adversarial_queries_f32() -> [[f32; 2]; 12] {
     [
         [0.0, 0.0],
+        [-0.0, 0.0],
+        [f32::EPSILON, -f32::EPSILON],
+        [f32::from_bits(1), -f32::from_bits(1)],
         [0.125, -0.75],
         [-0.5, 0.5],
         [0.75, -0.25],
         [1.0, 1.0],
         [-1.0, -1.0],
+        [1.0 + f32::EPSILON, -1.0 - f32::EPSILON],
+        [2.0, -2.0],
+        [1.0e15, -1.0e15],
     ]
 }
 
 #[cfg(feature = "simd")]
-fn adversarial_queries_f64() -> [[f64; 2]; 6] {
+fn adversarial_queries_f64() -> [[f64; 2]; 12] {
     [
         [0.0, 0.0],
+        [-0.0, 0.0],
+        [f64::EPSILON, -f64::EPSILON],
+        [f64::from_bits(1), -f64::from_bits(1)],
         [0.125, -0.75],
         [-0.5, 0.5],
         [0.75, -0.25],
         [1.0, 1.0],
         [-1.0, -1.0],
+        [1.0 + f64::EPSILON, -1.0 - f64::EPSILON],
+        [2.0, -2.0],
+        [1.0e150, -1.0e150],
     ]
 }
 
@@ -3321,6 +3350,54 @@ fn adversarial_points_f32(size: usize, pattern: AdversarialPattern, seed: u64) -
             })
             .collect(),
         AdversarialPattern::AllSame => vec![[0.125, -0.75]; size],
+        AdversarialPattern::MonotonicDiagonal => (0..size)
+            .map(|i| {
+                let t = -1.0 + 2.0 * i as f32 / size.saturating_sub(1).max(1) as f32;
+                [t, t]
+            })
+            .collect(),
+        AdversarialPattern::TwoClusters => (0..size)
+            .map(|i| {
+                let center = if i.is_multiple_of(2) { -0.75 } else { 0.75 };
+                let jitter = (i % 7) as f32 * f32::EPSILON;
+                [center + jitter, center - jitter]
+            })
+            .collect(),
+        AdversarialPattern::AlternatingExtremes => {
+            const EXTREMES: [[f32; 2]; 6] = [
+                [-1.0, -1.0],
+                [1.0, 1.0],
+                [-1.0, 1.0],
+                [1.0, -1.0],
+                [0.0, -0.0],
+                [-0.0, 0.0],
+            ];
+            (0..size).map(|i| EXTREMES[i % EXTREMES.len()]).collect()
+        }
+        AdversarialPattern::NearCoincident => (0..size)
+            .map(|i| {
+                let ulps = (i % 8) as u32;
+                [
+                    f32::from_bits(0.125f32.to_bits() + ulps),
+                    f32::from_bits((-0.75f32).to_bits() - ulps),
+                ]
+            })
+            .collect(),
+        AdversarialPattern::MixedScale => {
+            const VALUES: [f32; 8] = [
+                -1.0e15,
+                -1.0,
+                -f32::MIN_POSITIVE,
+                -f32::from_bits(1),
+                f32::from_bits(1),
+                f32::MIN_POSITIVE,
+                1.0,
+                1.0e15,
+            ];
+            (0..size)
+                .map(|i| [VALUES[i % VALUES.len()], VALUES[(i * 5 + 3) % VALUES.len()]])
+                .collect()
+        }
     }
 }
 
@@ -3351,6 +3428,54 @@ fn adversarial_points_f64(size: usize, pattern: AdversarialPattern, seed: u64) -
             })
             .collect(),
         AdversarialPattern::AllSame => vec![[0.125, -0.75]; size],
+        AdversarialPattern::MonotonicDiagonal => (0..size)
+            .map(|i| {
+                let t = -1.0 + 2.0 * i as f64 / size.saturating_sub(1).max(1) as f64;
+                [t, t]
+            })
+            .collect(),
+        AdversarialPattern::TwoClusters => (0..size)
+            .map(|i| {
+                let center = if i.is_multiple_of(2) { -0.75 } else { 0.75 };
+                let jitter = (i % 7) as f64 * f64::EPSILON;
+                [center + jitter, center - jitter]
+            })
+            .collect(),
+        AdversarialPattern::AlternatingExtremes => {
+            const EXTREMES: [[f64; 2]; 6] = [
+                [-1.0, -1.0],
+                [1.0, 1.0],
+                [-1.0, 1.0],
+                [1.0, -1.0],
+                [0.0, -0.0],
+                [-0.0, 0.0],
+            ];
+            (0..size).map(|i| EXTREMES[i % EXTREMES.len()]).collect()
+        }
+        AdversarialPattern::NearCoincident => (0..size)
+            .map(|i| {
+                let ulps = (i % 8) as u64;
+                [
+                    f64::from_bits(0.125f64.to_bits() + ulps),
+                    f64::from_bits((-0.75f64).to_bits() - ulps),
+                ]
+            })
+            .collect(),
+        AdversarialPattern::MixedScale => {
+            const VALUES: [f64; 8] = [
+                -1.0e150,
+                -1.0,
+                -f64::MIN_POSITIVE,
+                -f64::from_bits(1),
+                f64::from_bits(1),
+                f64::MIN_POSITIVE,
+                1.0,
+                1.0e150,
+            ];
+            (0..size)
+                .map(|i| [VALUES[i % VALUES.len()], VALUES[(i * 5 + 3) % VALUES.len()]])
+                .collect()
+        }
     }
 }
 
@@ -3393,6 +3518,47 @@ fn find_point_by_item_f32(entries: &[EntryF32], item: usize) -> [f32; 2] {
         .unwrap_or_else(|| panic!("item {item} not found in adversarial entry set"))
 }
 
+fn validate_tree_contents_f32<SO, LS, const B: usize>(
+    tree: &KdTree<f32, usize, SO, LS, 2, B>,
+    entries: &[EntryF32],
+    context: &str,
+) where
+    SO: StemStrategy,
+    LS: LeafStrategy<f32, usize, SO, 2, B>,
+{
+    let mut expected: Vec<(usize, [u32; 2])> = entries
+        .iter()
+        .map(|(point, item)| (*item, point.map(f32::to_bits)))
+        .collect();
+    let mut got: Vec<(usize, [u32; 2])> = tree
+        .iter()
+        .map(|(item, point)| (item, point.map(f32::to_bits)))
+        .collect();
+    expected.sort_unstable();
+    got.sort_unstable();
+    if got != expected {
+        let differences: Vec<(usize, [f32; 2], usize, [f32; 2])> = expected
+            .iter()
+            .zip(got.iter())
+            .filter(|(expected, got)| expected != got)
+            .take(PREVIEW_LEN)
+            .map(|((expected_item, expected_point), (got_item, got_point))| {
+                (
+                    *expected_item,
+                    expected_point.map(f32::from_bits),
+                    *got_item,
+                    got_point.map(f32::from_bits),
+                )
+            })
+            .collect();
+        panic!(
+            "{context} tree contents mismatch expected_len={} got_len={} first_differences={differences:?}",
+            expected.len(),
+            got.len()
+        );
+    }
+}
+
 #[cfg(feature = "simd")]
 fn find_point_by_item_f64(entries: &[EntryF64], item: usize) -> [f64; 2] {
     entries
@@ -3400,6 +3566,397 @@ fn find_point_by_item_f64(entries: &[EntryF64], item: usize) -> [f64; 2] {
         .find(|(_, entry_item)| *entry_item == item)
         .map(|(point, _)| *point)
         .unwrap_or_else(|| panic!("item {item} not found in adversarial entry set"))
+}
+
+#[cfg(feature = "simd")]
+fn validate_tree_contents_f64<SO, LS, const B: usize>(
+    tree: &KdTree<f64, usize, SO, LS, 2, B>,
+    entries: &[EntryF64],
+    context: &str,
+) where
+    SO: StemStrategy,
+    LS: LeafStrategy<f64, usize, SO, 2, B>,
+{
+    let mut expected: Vec<(usize, [u64; 2])> = entries
+        .iter()
+        .map(|(point, item)| (*item, point.map(f64::to_bits)))
+        .collect();
+    let mut got: Vec<(usize, [u64; 2])> = tree
+        .iter()
+        .map(|(item, point)| (item, point.map(f64::to_bits)))
+        .collect();
+    expected.sort_unstable();
+    got.sort_unstable();
+    if got != expected {
+        let differences: Vec<(usize, [f64; 2], usize, [f64; 2])> = expected
+            .iter()
+            .zip(got.iter())
+            .filter(|(expected, got)| expected != got)
+            .take(PREVIEW_LEN)
+            .map(|((expected_item, expected_point), (got_item, got_point))| {
+                (
+                    *expected_item,
+                    expected_point.map(f64::from_bits),
+                    *got_item,
+                    got_point.map(f64::from_bits),
+                )
+            })
+            .collect();
+        panic!(
+            "{context} tree contents mismatch expected_len={} got_len={} first_differences={differences:?}",
+            expected.len(),
+            got.len()
+        );
+    }
+}
+
+fn validate_result_projections_f32<SO, LS, const B: usize>(
+    tree: &KdTree<f32, usize, SO, LS, 2, B>,
+    entries: &[EntryF32],
+    query: &[f32; 2],
+    context: &str,
+) where
+    SO: StemStrategy + 'static,
+    <SO as StemStrategy>::Stack<f32>: 'static,
+    LS: LeafStrategy<f32, usize, SO, 2, B>,
+{
+    let full = tree
+        .query(query)
+        .within::<SquaredEuclidean<f32>>(ADVERSARIAL_RADIUS_SQ_F32)
+        .unsorted()
+        .with_points()
+        .execute();
+    let item_only = tree
+        .query(query)
+        .within::<SquaredEuclidean<f32>>(ADVERSARIAL_RADIUS_SQ_F32)
+        .unsorted()
+        .without_distances()
+        .execute();
+    let distance_only = tree
+        .query(query)
+        .within::<SquaredEuclidean<f32>>(ADVERSARIAL_RADIUS_SQ_F32)
+        .unsorted()
+        .without_items()
+        .execute();
+    let points_only = tree
+        .query(query)
+        .within::<SquaredEuclidean<f32>>(ADVERSARIAL_RADIUS_SQ_F32)
+        .unsorted()
+        .with_points()
+        .without_items()
+        .without_distances()
+        .execute();
+
+    assert_eq!(
+        full.len(),
+        item_only.len(),
+        "{context} item projection length"
+    );
+    assert_eq!(
+        full.len(),
+        distance_only.len(),
+        "{context} distance projection length"
+    );
+    assert_eq!(
+        full.len(),
+        points_only.len(),
+        "{context} point projection length"
+    );
+
+    for result in &full {
+        let expected_point = find_point_by_item_f32(entries, result.item);
+        assert_eq!(
+            result.point, expected_point,
+            "{context} full point projection item={}",
+            result.item
+        );
+    }
+
+    let mut full_items: Vec<usize> = full.iter().map(|result| result.item).collect();
+    let mut projected_items: Vec<usize> = item_only.iter().map(|result| result.item).collect();
+    full_items.sort_unstable();
+    projected_items.sort_unstable();
+    assert_eq!(
+        projected_items, full_items,
+        "{context} item-only projection"
+    );
+
+    let mut full_distances: Vec<f32> = full.iter().map(|result| result.distance).collect();
+    let mut projected_distances: Vec<f32> =
+        distance_only.iter().map(|result| result.distance).collect();
+    full_distances.sort_by(|a, b| a.partial_cmp(b).expect("NaN full projected distance"));
+    projected_distances.sort_by(|a, b| {
+        a.partial_cmp(b)
+            .expect("NaN distance-only projected distance")
+    });
+    for (idx, (expected, got)) in full_distances
+        .iter()
+        .zip(projected_distances.iter())
+        .enumerate()
+    {
+        assert_distance_match_for_fuzz!(
+            *expected,
+            *got,
+            "{context} distance-only projection mismatch index={idx} expected={} got={}",
+            expected,
+            got
+        );
+    }
+
+    let mut full_points: Vec<[u32; 2]> = full
+        .iter()
+        .map(|result| result.point.map(f32::to_bits))
+        .collect();
+    let mut projected_points: Vec<[u32; 2]> = points_only
+        .iter()
+        .map(|result| result.point.map(f32::to_bits))
+        .collect();
+    full_points.sort_unstable();
+    projected_points.sort_unstable();
+    assert_eq!(
+        projected_points, full_points,
+        "{context} points-only projection"
+    );
+
+    let mut expected_zero: Vec<(f32, usize)> =
+        brute_ranked_entries_f32::<SquaredEuclidean<f32>>(entries, query)
+            .into_iter()
+            .filter(|(distance, _)| *distance <= 0.0)
+            .collect();
+    let mut inclusive_zero: Vec<(f32, usize)> = tree
+        .query(query)
+        .within::<SquaredEuclidean<f32>>(0.0)
+        .unsorted()
+        .execute()
+        .into_iter()
+        .map(|result| (result.distance, result.item))
+        .collect();
+    sort_by_item_idx(&mut expected_zero);
+    sort_by_item_idx(&mut inclusive_zero);
+    if let Err(reason) = compare_item_sorted_results(&expected_zero, &inclusive_zero) {
+        panic!("{context} zero-radius inclusive-boundary mismatch: {reason}");
+    }
+
+    let exclusive_zero = tree
+        .query(query)
+        .within::<SquaredEuclidean<f32>>(0.0)
+        .exclusive_boundaries()
+        .unsorted()
+        .execute();
+    assert!(
+        exclusive_zero.is_empty(),
+        "{context} zero-radius exclusive query returned {} results",
+        exclusive_zero.len()
+    );
+
+    let mut expected_all: Vec<usize> = entries.iter().map(|(_, item)| *item).collect();
+    let mut got_all: Vec<usize> = tree
+        .query(query)
+        .within::<SquaredEuclidean<f32>>(f32::MAX)
+        .unsorted()
+        .without_distances()
+        .execute()
+        .into_iter()
+        .map(|result| result.item)
+        .collect();
+    expected_all.sort_unstable();
+    got_all.sort_unstable();
+    assert_eq!(got_all, expected_all, "{context} maximum-radius query");
+
+    let mut expected_exclusive: Vec<(f32, usize)> =
+        brute_ranked_entries_f32::<SquaredEuclidean<f32>>(entries, query)
+            .into_iter()
+            .filter(|(distance, _)| *distance < ADVERSARIAL_RADIUS_SQ_F32)
+            .collect();
+    let mut exclusive: Vec<(f32, usize)> = tree
+        .query(query)
+        .within::<SquaredEuclidean<f32>>(ADVERSARIAL_RADIUS_SQ_F32)
+        .exclusive_boundaries()
+        .unsorted()
+        .execute()
+        .into_iter()
+        .map(|result| (result.distance, result.item))
+        .collect();
+    sort_by_item_idx(&mut expected_exclusive);
+    sort_by_item_idx(&mut exclusive);
+    if let Err(reason) = compare_item_sorted_results(&expected_exclusive, &exclusive) {
+        panic!("{context} exclusive-boundary projection mismatch: {reason}");
+    }
+}
+
+#[cfg(feature = "simd")]
+fn validate_result_projections_f64<SO, LS, const B: usize>(
+    tree: &KdTree<f64, usize, SO, LS, 2, B>,
+    entries: &[EntryF64],
+    query: &[f64; 2],
+    context: &str,
+) where
+    SO: StemStrategy + 'static,
+    <SO as StemStrategy>::Stack<f64>: 'static,
+    LS: LeafStrategy<f64, usize, SO, 2, B>,
+{
+    let full = tree
+        .query(query)
+        .within::<SquaredEuclidean<f64>>(ADVERSARIAL_RADIUS_SQ_F64)
+        .unsorted()
+        .with_points()
+        .execute();
+    let item_only = tree
+        .query(query)
+        .within::<SquaredEuclidean<f64>>(ADVERSARIAL_RADIUS_SQ_F64)
+        .unsorted()
+        .without_distances()
+        .execute();
+    let distance_only = tree
+        .query(query)
+        .within::<SquaredEuclidean<f64>>(ADVERSARIAL_RADIUS_SQ_F64)
+        .unsorted()
+        .without_items()
+        .execute();
+    let points_only = tree
+        .query(query)
+        .within::<SquaredEuclidean<f64>>(ADVERSARIAL_RADIUS_SQ_F64)
+        .unsorted()
+        .with_points()
+        .without_items()
+        .without_distances()
+        .execute();
+
+    assert_eq!(
+        full.len(),
+        item_only.len(),
+        "{context} item projection length"
+    );
+    assert_eq!(
+        full.len(),
+        distance_only.len(),
+        "{context} distance projection length"
+    );
+    assert_eq!(
+        full.len(),
+        points_only.len(),
+        "{context} point projection length"
+    );
+
+    for result in &full {
+        let expected_point = find_point_by_item_f64(entries, result.item);
+        assert_eq!(
+            result.point, expected_point,
+            "{context} full point projection item={}",
+            result.item
+        );
+    }
+
+    let mut full_items: Vec<usize> = full.iter().map(|result| result.item).collect();
+    let mut projected_items: Vec<usize> = item_only.iter().map(|result| result.item).collect();
+    full_items.sort_unstable();
+    projected_items.sort_unstable();
+    assert_eq!(
+        projected_items, full_items,
+        "{context} item-only projection"
+    );
+
+    let mut full_distances: Vec<f64> = full.iter().map(|result| result.distance).collect();
+    let mut projected_distances: Vec<f64> =
+        distance_only.iter().map(|result| result.distance).collect();
+    full_distances.sort_by(|a, b| a.partial_cmp(b).expect("NaN full projected distance"));
+    projected_distances.sort_by(|a, b| {
+        a.partial_cmp(b)
+            .expect("NaN distance-only projected distance")
+    });
+    for (idx, (expected, got)) in full_distances
+        .iter()
+        .zip(projected_distances.iter())
+        .enumerate()
+    {
+        assert_distance_match_for_fuzz!(
+            *expected,
+            *got,
+            "{context} distance-only projection mismatch index={idx} expected={} got={}",
+            expected,
+            got
+        );
+    }
+
+    let mut full_points: Vec<[u64; 2]> = full
+        .iter()
+        .map(|result| result.point.map(f64::to_bits))
+        .collect();
+    let mut projected_points: Vec<[u64; 2]> = points_only
+        .iter()
+        .map(|result| result.point.map(f64::to_bits))
+        .collect();
+    full_points.sort_unstable();
+    projected_points.sort_unstable();
+    assert_eq!(
+        projected_points, full_points,
+        "{context} points-only projection"
+    );
+
+    let mut expected_zero: Vec<(f64, usize)> =
+        brute_ranked_entries_f64::<SquaredEuclidean<f64>>(entries, query)
+            .into_iter()
+            .filter(|(distance, _)| *distance <= 0.0)
+            .collect();
+    let mut inclusive_zero: Vec<(f64, usize)> = tree
+        .query(query)
+        .within::<SquaredEuclidean<f64>>(0.0)
+        .unsorted()
+        .execute()
+        .into_iter()
+        .map(|result| (result.distance, result.item))
+        .collect();
+    sort_by_item_idx(&mut expected_zero);
+    sort_by_item_idx(&mut inclusive_zero);
+    if let Err(reason) = compare_item_sorted_results(&expected_zero, &inclusive_zero) {
+        panic!("{context} zero-radius inclusive-boundary mismatch: {reason}");
+    }
+
+    let exclusive_zero = tree
+        .query(query)
+        .within::<SquaredEuclidean<f64>>(0.0)
+        .exclusive_boundaries()
+        .unsorted()
+        .execute();
+    assert!(
+        exclusive_zero.is_empty(),
+        "{context} zero-radius exclusive query returned {} results",
+        exclusive_zero.len()
+    );
+
+    let mut expected_all: Vec<usize> = entries.iter().map(|(_, item)| *item).collect();
+    let mut got_all: Vec<usize> = tree
+        .query(query)
+        .within::<SquaredEuclidean<f64>>(f64::MAX)
+        .unsorted()
+        .without_distances()
+        .execute()
+        .into_iter()
+        .map(|result| result.item)
+        .collect();
+    expected_all.sort_unstable();
+    got_all.sort_unstable();
+    assert_eq!(got_all, expected_all, "{context} maximum-radius query");
+
+    let mut expected_exclusive: Vec<(f64, usize)> =
+        brute_ranked_entries_f64::<SquaredEuclidean<f64>>(entries, query)
+            .into_iter()
+            .filter(|(distance, _)| *distance < ADVERSARIAL_RADIUS_SQ_F64)
+            .collect();
+    let mut exclusive: Vec<(f64, usize)> = tree
+        .query(query)
+        .within::<SquaredEuclidean<f64>>(ADVERSARIAL_RADIUS_SQ_F64)
+        .exclusive_boundaries()
+        .unsorted()
+        .execute()
+        .into_iter()
+        .map(|result| (result.distance, result.item))
+        .collect();
+    sort_by_item_idx(&mut expected_exclusive);
+    sort_by_item_idx(&mut exclusive);
+    if let Err(reason) = compare_item_sorted_results(&expected_exclusive, &exclusive) {
+        panic!("{context} exclusive-boundary projection mismatch: {reason}");
+    }
 }
 
 fn validate_adversarial_tree_f32<SO, LS, const B: usize>(
@@ -3414,6 +3971,8 @@ fn validate_adversarial_tree_f32<SO, LS, const B: usize>(
 {
     let max_qty = ADVERSARIAL_MAX_QTY;
     let max_qty_nz = NonZeroUsize::new(max_qty).expect("adversarial max_qty must be non-zero");
+    validate_tree_contents_f32(tree, entries, context);
+    validate_result_projections_f32(tree, entries, query, context);
 
     let expected_sq = brute_ranked_entries_f32::<SquaredEuclidean<f32>>(entries, query);
     let expected_sq_n: Vec<(f32, usize)> = expected_sq.iter().take(max_qty).copied().collect();
@@ -3661,6 +4220,39 @@ fn validate_adversarial_tree_f32<SO, LS, const B: usize>(
             approx_man.item
         );
     }
+
+    let expected_cheb = brute_ranked_entries_f32::<Chebyshev<f32>>(entries, query);
+    let expected_cheb_n: Vec<(f32, usize)> = expected_cheb.iter().take(max_qty).copied().collect();
+    let mut got_cheb_n =
+        query_nearest_n_sorted::<_, _, _, _, Chebyshev<f32>, 2, B>(tree, query, max_qty_nz);
+    sort_by_distance_then_index(&mut got_cheb_n);
+    if let Err(reason) = compare_nearest_n_sorted(&expected_cheb_n, &got_cheb_n) {
+        panic!(
+            "{context} metric=Chebyshev op=nearest_n {reason} expected={} got={}",
+            format_preview(&expected_cheb_n, PREVIEW_LEN),
+            format_preview(&got_cheb_n, PREVIEW_LEN)
+        );
+    }
+    if let Some((best_cheb_dist, _)) = expected_cheb.first().copied() {
+        let expected_cheb_items: Vec<usize> = expected_cheb
+            .iter()
+            .take_while(|(dist, _)| *dist == best_cheb_dist)
+            .map(|(_, item)| *item)
+            .collect();
+        let got_cheb = tree.query(query).nearest_one::<Chebyshev<f32>>().execute();
+        assert_distance_match_for_fuzz!(
+            best_cheb_dist,
+            got_cheb.distance,
+            "{context} metric=Chebyshev op=nearest_one distance mismatch expected={} got={}",
+            best_cheb_dist,
+            got_cheb.distance
+        );
+        assert!(
+            expected_cheb_items.contains(&got_cheb.item),
+            "{context} metric=Chebyshev op=nearest_one item mismatch expected_one_of={expected_cheb_items:?} got={}",
+            got_cheb.item
+        );
+    }
 }
 
 #[cfg(feature = "simd")]
@@ -3676,6 +4268,8 @@ fn validate_adversarial_tree_f64<SO, LS, const B: usize>(
 {
     let max_qty = ADVERSARIAL_MAX_QTY;
     let max_qty_nz = NonZeroUsize::new(max_qty).expect("adversarial max_qty must be non-zero");
+    validate_tree_contents_f64(tree, entries, context);
+    validate_result_projections_f64(tree, entries, query, context);
 
     let expected_sq = brute_ranked_entries_f64::<SquaredEuclidean<f64>>(entries, query);
     let expected_sq_n: Vec<(f64, usize)> = expected_sq.iter().take(max_qty).copied().collect();
@@ -3923,6 +4517,39 @@ fn validate_adversarial_tree_f64<SO, LS, const B: usize>(
             approx_man.item
         );
     }
+
+    let expected_cheb = brute_ranked_entries_f64::<Chebyshev<f64>>(entries, query);
+    let expected_cheb_n: Vec<(f64, usize)> = expected_cheb.iter().take(max_qty).copied().collect();
+    let mut got_cheb_n =
+        query_nearest_n_sorted::<_, _, _, _, Chebyshev<f64>, 2, B>(tree, query, max_qty_nz);
+    sort_by_distance_then_index(&mut got_cheb_n);
+    if let Err(reason) = compare_nearest_n_sorted(&expected_cheb_n, &got_cheb_n) {
+        panic!(
+            "{context} metric=Chebyshev op=nearest_n {reason} expected={} got={}",
+            format_preview(&expected_cheb_n, PREVIEW_LEN),
+            format_preview(&got_cheb_n, PREVIEW_LEN)
+        );
+    }
+    if let Some((best_cheb_dist, _)) = expected_cheb.first().copied() {
+        let expected_cheb_items: Vec<usize> = expected_cheb
+            .iter()
+            .take_while(|(dist, _)| *dist == best_cheb_dist)
+            .map(|(_, item)| *item)
+            .collect();
+        let got_cheb = tree.query(query).nearest_one::<Chebyshev<f64>>().execute();
+        assert_distance_match_for_fuzz!(
+            best_cheb_dist,
+            got_cheb.distance,
+            "{context} metric=Chebyshev op=nearest_one distance mismatch expected={} got={}",
+            best_cheb_dist,
+            got_cheb.distance
+        );
+        assert!(
+            expected_cheb_items.contains(&got_cheb.item),
+            "{context} metric=Chebyshev op=nearest_one item mismatch expected_one_of={expected_cheb_items:?} got={}",
+            got_cheb.item
+        );
+    }
 }
 
 fn run_adversarial_immutable_f32_with_leaf<SO, LS>(label: &str)
@@ -4015,11 +4642,12 @@ where
 
             let mut entries: Vec<EntryF32> = Vec::with_capacity(points.len() + queries.len());
             for (item, point) in points.iter().copied().enumerate() {
-                let _ = tree.add(&point, item);
-                entries.push((point, item));
+                if tree.add(&point, item).is_ok() {
+                    entries.push((point, item));
+                }
             }
 
-            let mut next_item = entries.len();
+            let mut next_item = points.len();
             for (query_idx, query) in queries.iter().enumerate() {
                 let context = format!(
                     "{label} mode=mutable pattern={} requested_size={} effective_size={} query={} before_mutation_size={}",
@@ -4040,17 +4668,29 @@ where
                     let remove_idx = (size + query_idx * 5 + 1) % entries.len();
                     let (remove_point, remove_item) = entries.swap_remove(remove_idx);
                     tree.remove(&remove_point, remove_item);
+                    validate_tree_contents_f32(
+                        &tree,
+                        &entries,
+                        &format!("{context} after_pre_add_remove"),
+                    );
                 }
 
                 let add_point = adversarial_mutation_point_f32(size, query_idx);
-                let _ = tree.add(&add_point, next_item);
-                entries.push((add_point, next_item));
+                if tree.add(&add_point, next_item).is_ok() {
+                    entries.push((add_point, next_item));
+                }
+                validate_tree_contents_f32(&tree, &entries, &format!("{context} after_add"));
                 next_item += 1;
 
                 if !hard_degenerate && !entries.is_empty() {
                     let remove_idx = (size + query_idx * 5 + 1) % entries.len();
                     let (remove_point, remove_item) = entries.swap_remove(remove_idx);
                     tree.remove(&remove_point, remove_item);
+                    validate_tree_contents_f32(
+                        &tree,
+                        &entries,
+                        &format!("{context} after_post_add_remove"),
+                    );
                 }
             }
         }
@@ -4123,16 +4763,16 @@ fn fuzz_v6_adversarial_fast_non_simd() {
         return;
     }
 
+    run_adversarial_mutable_f32::<Eytzinger>("v6 adversarial non-simd f32 Eytzinger");
     run_adversarial_immutable_f32::<Eytzinger>("v6 adversarial non-simd f32 Eytzinger");
     run_adversarial_immutable_f32_arenas::<Eytzinger>(
         "v6 adversarial non-simd f32 Eytzinger VecOfArenas",
     );
-    run_adversarial_mutable_f32::<Eytzinger>("v6 adversarial non-simd f32 Eytzinger");
+    run_adversarial_mutable_f32::<DonnellyF32<2>>("v6 adversarial non-simd f32 Donnelly");
     run_adversarial_immutable_f32::<DonnellyF32<2>>("v6 adversarial non-simd f32 Donnelly");
     run_adversarial_immutable_f32_arenas::<DonnellyF32<2>>(
         "v6 adversarial non-simd f32 Donnelly VecOfArenas",
     );
-    run_adversarial_mutable_f32::<DonnellyF32<2>>("v6 adversarial non-simd f32 Donnelly");
 }
 
 #[test]
@@ -4210,7 +4850,7 @@ fn assert_approx_invariants_f32<SO, LS, const B: usize>(
         exact_sq.item
     );
 
-    if entries.len() <= B {
+    if tree.leaf_count() == 1 {
         assert_distance_match_for_fuzz!(
             exact_sq.distance,
             approx_sq.distance,
@@ -4264,7 +4904,7 @@ fn assert_approx_invariants_f32<SO, LS, const B: usize>(
         exact_man.item
     );
 
-    if entries.len() <= B {
+    if tree.leaf_count() == 1 {
         assert_distance_match_for_fuzz!(
             exact_man.distance,
             approx_man.distance,
@@ -4337,7 +4977,7 @@ fn assert_approx_invariants_f64<SO, LS, const B: usize>(
         exact_sq.item
     );
 
-    if entries.len() <= B {
+    if tree.leaf_count() == 1 {
         assert_distance_match_for_fuzz!(
             exact_sq.distance,
             approx_sq.distance,
@@ -4391,7 +5031,7 @@ fn assert_approx_invariants_f64<SO, LS, const B: usize>(
         exact_man.item
     );
 
-    if entries.len() <= B {
+    if tree.leaf_count() == 1 {
         assert_distance_match_for_fuzz!(
             exact_man.distance,
             approx_man.distance,
@@ -4478,11 +5118,12 @@ where
 
             let mut entries: Vec<EntryF32> = Vec::with_capacity(points.len() + queries.len());
             for (item, point) in points.iter().copied().enumerate() {
-                let _ = tree.add(&point, item);
-                entries.push((point, item));
+                if tree.add(&point, item).is_ok() {
+                    entries.push((point, item));
+                }
             }
 
-            let mut next_item = entries.len();
+            let mut next_item = points.len();
             for (query_idx, query) in queries.iter().enumerate() {
                 let context = format!(
                     "{label} mode=mutable pattern={} requested_size={} effective_size={} query={} size={}",
@@ -4502,17 +5143,29 @@ where
                     let remove_idx = (size + query_idx * 5 + 3) % entries.len();
                     let (remove_point, remove_item) = entries.swap_remove(remove_idx);
                     tree.remove(&remove_point, remove_item);
+                    validate_tree_contents_f32(
+                        &tree,
+                        &entries,
+                        &format!("{context} after_pre_add_remove"),
+                    );
                 }
 
                 let add_point = adversarial_mutation_point_f32(size + 31, query_idx);
-                let _ = tree.add(&add_point, next_item);
-                entries.push((add_point, next_item));
+                if tree.add(&add_point, next_item).is_ok() {
+                    entries.push((add_point, next_item));
+                }
+                validate_tree_contents_f32(&tree, &entries, &format!("{context} after_add"));
                 next_item += 1;
 
                 if !hard_degenerate && !entries.is_empty() {
                     let remove_idx = (size + query_idx * 7 + 1) % entries.len();
                     let (remove_point, remove_item) = entries.swap_remove(remove_idx);
                     tree.remove(&remove_point, remove_item);
+                    validate_tree_contents_f32(
+                        &tree,
+                        &entries,
+                        &format!("{context} after_post_add_remove"),
+                    );
                 }
             }
         }

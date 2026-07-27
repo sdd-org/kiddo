@@ -428,6 +428,31 @@ mod tests {
     }
 
     #[test]
+    fn nearest_one_handles_degenerate_leaf_larger_than_tls_scratch() {
+        let points = vec![[0.25f32, -0.5]; 1_025];
+        let tree: KdTree<f32, u32, Eytzinger, FlatVec<f32, u32, 2, 16>, 2, 16> =
+            KdTree::new_from_slice(&points).unwrap();
+
+        let exact = tree
+            .query(&points[0])
+            .nearest_one::<SquaredEuclidean<f32>>()
+            .execute();
+        let approximate = tree
+            .query(&points[0])
+            .nearest_one::<SquaredEuclidean<f32>>()
+            .approx()
+            .execute();
+        let within = tree
+            .query(&points[0])
+            .within::<SquaredEuclidean<f32>>(0.0)
+            .execute();
+
+        assert_eq!(exact.distance, 0.0);
+        assert_eq!(approximate.distance, 0.0);
+        assert_eq!(within.len(), points.len());
+    }
+
+    #[test]
     fn nearest_one_vec_of_arenas_matches_flat_vec_f32() {
         let points = vec![
             [0.1f32, 0.2, 0.3],

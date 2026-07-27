@@ -86,9 +86,10 @@
 //!
 //! If you need to add or remove points after construction, start with
 //! [`MutableKdTree`]. Mutable trees remain a good fit for many dynamic
-//! workloads, but they do not currently perform dynamic rebalancing, so
-//! workloads with substantial growth or heavy churn may benefit from periodic
-//! rebuilds.
+//! workloads. They do not continuously rebalance, although a stem strategy may
+//! perform a safety rebuild when growth makes its layout pathologically
+//! unbalanced. Workloads with substantial growth or heavy churn may still
+//! benefit from periodic caller-controlled rebuilds.
 //!
 //! [`ImmutableKdTree`] and [`MutableKdTree`] are convenience aliases for
 //! [`KdTree`](crate::kd_tree::KdTree) with sensible defaults for these common read-heavy and mutable

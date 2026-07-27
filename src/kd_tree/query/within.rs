@@ -80,9 +80,10 @@ mod tests {
 
     use crate::dist::Manhattan;
     use crate::dist::SquaredEuclidean;
-    use crate::kd_tree::KdTree;
+    use crate::kd_tree::{KdTree, KdTreeQueryOps};
     use crate::leaf_strategy::{FlatVec, VecOfArenas, VecOfArrays};
     use crate::Axis;
+    use crate::Donnelly;
     use crate::Eytzinger;
 
     const RNG_SEED: u64 = 42;
@@ -136,6 +137,54 @@ mod tests {
 
         assert_eq!(inclusive, vec![0, 3, 1]);
         assert_eq!(exclusive, vec![0, 3]);
+    }
+
+    #[test]
+    fn zero_radius_inclusive_finds_point_after_monotonic_eytzinger_growth() {
+        type TestTree = KdTree<f32, u32, Eytzinger, VecOfArrays<f32, u32, 2, 16>, 2, 16>;
+
+        let mut tree = TestTree::default();
+        for item in 0..1_023u32 {
+            let t = -1.0 + 2.0 * item as f32 / 1_022.0;
+            tree.add(&[t, t], item).unwrap();
+        }
+
+        let stored_leaf = tree.find_leaf_for_item(511).unwrap().0;
+        let routed_leaf = tree.get_leaf_idx(&[0.0, 0.0]);
+        assert_eq!(routed_leaf, stored_leaf);
+
+        let results = tree
+            .query(&[0.0, 0.0])
+            .within::<SquaredEuclidean<f32>>(0.0)
+            .execute();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].item, 511);
+        assert_eq!(results[0].distance, 0.0);
+    }
+
+    #[test]
+    fn zero_radius_inclusive_finds_point_after_monotonic_donnelly_growth() {
+        type TestTree = KdTree<f32, u32, Donnelly<4>, VecOfArrays<f32, u32, 2, 16>, 2, 16>;
+
+        let mut tree = TestTree::default();
+        for item in 0..1_023u32 {
+            let t = -1.0 + 2.0 * item as f32 / 1_022.0;
+            tree.add(&[t, t], item).unwrap();
+        }
+
+        let stored_leaf = tree.find_leaf_for_item(511).unwrap().0;
+        let routed_leaf = tree.get_leaf_idx(&[0.0, 0.0]);
+        assert_eq!(routed_leaf, stored_leaf);
+
+        let results = tree
+            .query(&[0.0, 0.0])
+            .within::<SquaredEuclidean<f32>>(0.0)
+            .execute();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].item, 511);
+        assert_eq!(results[0].distance, 0.0);
     }
 
     #[test]

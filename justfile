@@ -29,20 +29,22 @@ test-fast-lib FILTER:
 test-fast-v6-nearest-one-large-f32:
     cargo test --profile fast-tests --lib v6_query_nearest_one_large_f32
 
-fuzz-kd-tree:
-    RUST_TEST_THREADS=1 cargo test --release --features fuzz --test kd_tree_fuzz -- --ignored --nocapture
-
 fuzz-kd-tree-v6:
-    RUST_TEST_THREADS=1 cargo test --release --features fuzz --test kd_tree_fuzz_v6 -- --ignored --nocapture
+    rm -f kd_tree_fuzz_v6_report.txt
+    RUST_TEST_THREADS=1 KIDDO_FUZZ_V6_RUN_NON_SIMD=1 KIDDO_FUZZ_V6_RUN_SIMD=0 cargo test --profile fast-tests --features fuzz --test kd_tree_fuzz_v6 -- --include-ignored --nocapture
+    RUST_TEST_THREADS=1 KIDDO_FUZZ_V6_RUN_NON_SIMD=0 KIDDO_FUZZ_V6_RUN_SIMD=1 cargo test --profile fast-tests --features "fuzz simd" --test kd_tree_fuzz_v6 -- --include-ignored --nocapture
 
 fuzz-kd-tree-v6-non-simd:
-    RUST_TEST_THREADS=1 KIDDO_FUZZ_V6_RUN_NON_SIMD=1 KIDDO_FUZZ_V6_RUN_SIMD=0 cargo test --release --features fuzz --test kd_tree_fuzz_v6 -- --ignored --nocapture
+    rm -f kd_tree_fuzz_v6_report.txt
+    RUST_TEST_THREADS=1 KIDDO_FUZZ_V6_RUN_NON_SIMD=1 KIDDO_FUZZ_V6_RUN_SIMD=0 cargo test --profile fast-tests --features fuzz --test kd_tree_fuzz_v6 -- --include-ignored --nocapture
 
 fuzz-kd-tree-v6-simd:
-    RUST_TEST_THREADS=1 KIDDO_FUZZ_V6_RUN_NON_SIMD=0 KIDDO_FUZZ_V6_RUN_SIMD=1 cargo test --release --features "fuzz simd" --test kd_tree_fuzz_v6 -- --ignored --nocapture
+    rm -f kd_tree_fuzz_v6_report.txt
+    RUST_TEST_THREADS=1 KIDDO_FUZZ_V6_RUN_NON_SIMD=0 KIDDO_FUZZ_V6_RUN_SIMD=1 cargo test --profile fast-tests --features "fuzz simd" --test kd_tree_fuzz_v6 -- --include-ignored --nocapture
 
 fuzz-kd-tree-v6-simd-fast:
-    RUST_TEST_THREADS=1 KIDDO_FUZZ_V6_RUN_NON_SIMD=0 KIDDO_FUZZ_V6_RUN_SIMD=1 KIDDO_FUZZ_V6_SIMD_FAST=1 cargo test --profile fast-tests --features "fuzz simd" --test kd_tree_fuzz_v6 -- --ignored --nocapture
+    rm -f kd_tree_fuzz_v6_report.txt
+    RUST_TEST_THREADS=1 KIDDO_FUZZ_V6_RUN_NON_SIMD=0 KIDDO_FUZZ_V6_RUN_SIMD=1 KIDDO_FUZZ_V6_SIMD_FAST=1 cargo test --profile fast-tests --features "fuzz simd" --test kd_tree_fuzz_v6 -- --include-ignored --nocapture
 
 fuzz-case-repro REPRO:
     cargo run --features "fuzz simd" --example fuzz-case-repro -- {{REPRO}}
