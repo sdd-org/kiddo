@@ -19,6 +19,8 @@ use crate::stem_strategy::donnelly::simd_full::{
 };
 use crate::{Axis, BestQueryResultItem, Content, LeafStrategy, QueryResultItem, StemStrategy};
 
+use super::batch::{BatchQueryBuilder, BatchQuerySink};
+
 use super::periodic::{periodic_nearest_one_result, periodic_nearest_results};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1541,6 +1543,9 @@ where
 {
     /// Reserves space for the expected number of materialized radius-query results.
     ///
+    /// See [`WithResultCapacityQueryBuilder`] for the equivalent used by batch
+    /// queries.
+    ///
     /// A good estimate avoids growth reallocations without limiting the number
     /// of results returned. Overestimating can reserve substantially more memory
     /// than the query needs, so omit the hint when no reasonable estimate is
@@ -1922,6 +1927,63 @@ pub trait ExclusiveBoundariesQueryBuilder {
 
     #[doc(hidden)]
     fn exclusive_boundaries(self) -> Self::Output;
+}
+
+#[doc(hidden)]
+pub trait WithResultCapacityQueryBuilder: Sized {
+    #[doc(hidden)]
+    fn with_result_capacity(self, result_capacity: usize) -> Self;
+}
+
+impl<
+        'a,
+        Tree,
+        A,
+        T,
+        SS,
+        LS,
+        D,
+        Space,
+        Pj,
+        const SORTED: bool,
+        const EXCLUSIVE: bool,
+        const K: usize,
+        const B: usize,
+    > WithResultCapacityQueryBuilder
+    for QueryBuilder<'a, Tree, A, T, SS, LS, D, WithinState, Space, Pj, SORTED, EXCLUSIVE, K, B>
+where
+    D: BuilderMetric<A, K>,
+{
+    #[inline]
+    fn with_result_capacity(self, result_capacity: usize) -> Self {
+        QueryBuilder::with_result_capacity(self, result_capacity)
+    }
+}
+
+impl<
+        'a,
+        Tree,
+        A,
+        T,
+        SS,
+        LS,
+        D,
+        Family,
+        Space,
+        Pj,
+        const SORTED: bool,
+        const EXCLUSIVE: bool,
+        const K: usize,
+        const B: usize,
+    > BatchQuerySink<'a, A, K>
+    for QueryBuilder<'a, Tree, A, T, SS, LS, D, Family, Space, Pj, SORTED, EXCLUSIVE, K, B>
+where
+    D: BuilderMetric<A, K>,
+{
+    #[inline(always)]
+    fn set_query_point(&mut self, query: &'a [A; K]) {
+        self.query = query;
+    }
 }
 
 impl<
@@ -2348,6 +2410,53 @@ where
         }
     }
 
+    /// Starts a fluent batch query against this tree.
+    ///
+    /// A batch query is configured exactly like a single-point query, but runs
+    /// every point in `queries` and returns one result per point, indexed by
+    /// position in `queries`.
+    ///
+    /// The execution strategy — ordering, threading, and how work is grouped —
+    /// is deliberately unspecified and may change between releases; see the
+    /// [`batch`](crate::batch) module documentation for the exact guarantees,
+    /// and [`Executor`](crate::batch::Executor) for the available policies.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use kiddo::dist::SquaredEuclidean;
+    /// use kiddo::leaf_strategy::FlatVec;
+    /// use kiddo::{Eytzinger, KdTree};
+    /// use std::num::NonZeroUsize;
+    ///
+    /// type Tree = KdTree<f64, u32, Eytzinger, FlatVec<f64, u32, 2, 4>, 2, 4>;
+    ///
+    /// let entries = [
+    ///     (10_u32, [0.0, 0.0]),
+    ///     (11_u32, [1.0, 1.0]),
+    ///     (12_u32, [0.2, 0.1]),
+    /// ];
+    /// let tree = Tree::new_from_entries(&entries).unwrap();
+    ///
+    /// let queries = [[0.1, 0.1], [0.9, 0.9], [0.25, 0.15]];
+    ///
+    /// let results = tree
+    ///     .query_batch(&queries)
+    ///     .nearest_n::<SquaredEuclidean<f64>>(NonZeroUsize::new(2).unwrap())
+    ///     .execute();
+    ///
+    /// assert_eq!(results.len(), 3);
+    /// assert_eq!(results[0][0].item, 12);
+    /// assert_eq!(results[1][0].item, 11);
+    /// ```
+    #[inline]
+    pub fn query_batch<'a>(
+        &'a self,
+        queries: &'a [[A; K]],
+    ) -> BatchQueryBuilder<'a, RootQueryBuilder<'a, Self, A, T, SS, LS, K, B>, A, K> {
+        BatchQueryBuilder::new(queries.first().map(|query| self.query(query)), queries)
+    }
+
     /// Creates reusable scratch storage for scratch-aware query builder paths.
     ///
     /// Pass the returned value to [`QueryBuilder::with_scratch`] to avoid the
@@ -2426,6 +2535,24 @@ where
             radius: (),
             _phantom: PhantomData,
         }
+    }
+
+    /// Starts a fluent batch query against this archived tree.
+    ///
+    /// See [`KdTree::query_batch`] for the full batch-query guide, and the
+    /// [`batch`](crate::batch) module documentation for what batch execution
+    /// does and does not guarantee.
+    #[inline]
+    pub fn query_batch<'a>(
+        &'a self,
+        queries: &'a [[A; K]],
+    ) -> BatchQueryBuilder<
+        'a,
+        RootQueryBuilder<'a, Self, A, T, SS, rkyv_08::Archived<LS>, K, B>,
+        A,
+        K,
+    > {
+        BatchQueryBuilder::new(queries.first().map(|query| self.query(query)), queries)
     }
 
     /// Creates reusable scratch storage for scratch-aware query builder paths.

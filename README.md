@@ -173,6 +173,31 @@ let neighbours = kdtree
 assert_eq!(neighbours.len(), 2);
 ```
 
+## Batch Queries
+
+When many query points are known up front, run them as one batch. A batch query is configured exactly like a single-point query and returns one result per query point, indexed by position in the input slice:
+
+```rust
+use kiddo::{ImmutableKdTree, SquaredEuclidean};
+
+let entries = vec![[0f64, 0f64], [1f64, 1f64], [2f64, 2f64]];
+let kdtree = ImmutableKdTree::new_from_slice(&entries).unwrap();
+
+let queries = [[0.1f64, 0.1], [1.9, 1.9]];
+
+let results = kdtree
+    .query_batch(&queries)
+    .nearest_one::<SquaredEuclidean<f64>>()
+    .execute();
+
+assert_eq!(results[0].item, 0);
+assert_eq!(results[1].item, 2);
+```
+
+Enable the `parallel` feature to let Kiddo spread a batch across multiple threads. Results stay indexed by query position no matter how the work was scheduled, and `for_each` is available for allocation-free streaming.
+
+How a batch is scheduled — the order query points are executed in, which thread runs each one, and how work is grouped — is deliberately unspecified, so that batch execution can keep getting faster without breaking callers. The `kiddo::batch` module documents exactly what is and is not guaranteed.
+
 ## Optional Features
 
 Kiddo exposes a number of optional crate features:
@@ -186,6 +211,8 @@ Kiddo exposes a number of optional crate features:
 - `rkyv_08` enables zero-copy serialization and deserialization via [`rkyv`](https://docs.rs/rkyv/latest/rkyv/) 0.8.x. This is particularly useful for prebuilt immutable trees that you want to load very quickly, especially in conjunction with memory-mapped files.
 
 - `simd` **(NIGHTLY)** enables handwritten SIMD and prefetch intrinsics for additional performance where available. This requires a nightly Rust toolchain.
+
+- `parallel` lets batch queries spread their work across multiple threads via [`rayon`](https://docs.rs/rayon/latest/rayon/). Batch queries compile and run either way; without this feature they execute on the calling thread.
 
 - `huge_pages` enables Linux-specific huge-page advice helpers for owned and archived tree storage.
 

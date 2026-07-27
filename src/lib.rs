@@ -154,6 +154,34 @@
 //!
 //! See the [examples documentation](https://github.com/sdd/kiddo/tree/master/examples) for some more in-depth examples.
 //!
+//! ## Batch Queries
+//!
+//! When many query points are known up front, run them as one batch. A batch
+//! query is configured exactly like a single-point query and returns one result
+//! per query point, indexed by position in the input slice:
+//!
+//! ```rust
+//! use kiddo::{ImmutableKdTree, SquaredEuclidean};
+//!
+//! let entries = vec![[0f64, 0f64], [1f64, 1f64], [2f64, 2f64]];
+//! let kdtree = ImmutableKdTree::new_from_slice(&entries).unwrap();
+//!
+//! let queries = [[0.1f64, 0.1], [1.9, 1.9]];
+//!
+//! let results = kdtree
+//!     .query_batch(&queries)
+//!     .nearest_one::<SquaredEuclidean<f64>>()
+//!     .execute();
+//!
+//! assert_eq!(results[0].item, 0);
+//! assert_eq!(results[1].item, 2);
+//! ```
+//!
+//! Enabling the `parallel` feature lets Kiddo spread a batch across multiple
+//! threads. How that work is scheduled — ordering, threading, and grouping — is
+//! deliberately unspecified so it can keep improving without breaking callers;
+//! see the [`batch`] module for exactly what is and is not guaranteed.
+//!
 //! ## Optional Features
 //!
 //! Kiddo exposes a number of optional crate features:
@@ -175,6 +203,11 @@
 //! - `simd` **(NIGHTLY)** enables handwritten SIMD and prefetch intrinsics for
 //!   additional performance where available. This requires a nightly Rust
 //!   toolchain.
+//!
+//! - `parallel` lets batch queries spread their work across multiple threads
+//!   via [`rayon`](https://docs.rs/rayon/latest/rayon/). Batch queries compile
+//!   and run either way; without this feature they execute on the calling
+//!   thread. See the [`batch`] module.
 //!
 //! - `huge_pages` enables Linux-specific huge-page advice helpers for owned and
 //!   archived tree storage.
@@ -215,6 +248,13 @@ pub mod kd_tree;
 #[doc(hidden)]
 pub type KdTree<A, T, SS, LS, const K: usize, const B: usize> = kd_tree::KdTree<A, T, SS, LS, K, B>;
 pub use kd_tree::{KdTreeBuilder, QueryScratch, DEFAULT_PARALLEL_CONSTRUCTION_THRESHOLD};
+
+/// Batch query execution: running many query points against one tree per call.
+pub mod batch {
+    pub use crate::kd_tree::query::batch::{
+        BatchGroups, BatchQueryBuilder, BatchResults, Executor, GroupIter,
+    };
+}
 
 /// Distance metrics
 pub mod dist;
