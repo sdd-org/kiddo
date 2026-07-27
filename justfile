@@ -387,30 +387,6 @@ bench-v6-within-radius-projection RESULT_KEY=benchmark_result_key OUTPUT_DIR='./
         "$output_dir/bench_result-v6-within-radius-projection-${result_key}.json" \
         profile_v6_within_radius_projection
 
-bench-v6-within-radius-point-projection RESULT_KEY OUTPUT_DIR='./focused-results' FEATURES='simd,test_utils,logging_off' QUERIES='1000' MIN_LOG2_POINTS='16' MAX_LOG2_POINTS='27' RADIUS='0.05':
-    #!/usr/bin/env bash
-    set -euo pipefail
-    result_key={{quote(RESULT_KEY)}}
-    output_dir={{quote(OUTPUT_DIR)}}
-    if [[ ! "$result_key" =~ ^[A-Za-z0-9][A-Za-z0-9._+:-]*$ ]]; then
-        echo "RESULT_KEY must contain only letters, digits, '.', '_', '+', ':', or '-'" >&2
-        exit 2
-    fi
-    mkdir -p "$output_dir"
-    RUSTC_WRAPPER= \
-        KIDDO_PROFILE_QUERIES={{quote(QUERIES)}} \
-        KIDDO_PROFILE_MIN_LOG2_POINTS={{quote(MIN_LOG2_POINTS)}} \
-        KIDDO_PROFILE_MAX_LOG2_POINTS={{quote(MAX_LOG2_POINTS)}} \
-        KIDDO_PROFILE_RADIUS={{quote(RADIUS)}} \
-        RUSTFLAGS='-C target-cpu=native' \
-        cargo criterion \
-            --bench profile_v6_within_radius_point_projection \
-            --features {{quote(FEATURES)}}
-    cargo run --quiet --manifest-path tools/criterion-export/Cargo.toml -- \
-        target/criterion \
-        "$output_dir/bench_result-v6-within-radius-point-projection-${result_key}.json" \
-        profile_v6_within_radius_point_projection
-
 bench-neighbourhood-published RESULT_KEY=benchmark_result_key OUTPUT_DIR='./focused-results' FEATURES='simd,test_utils,logging_off' POINTS='100000000' QUERIES='20000' RUNS='1' EPSILONS='0.02,0.05,0.1,0.2':
     #!/usr/bin/env bash
     set -euo pipefail
