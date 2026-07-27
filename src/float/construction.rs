@@ -25,6 +25,11 @@ where
     ///
     /// assert_eq!(tree.size(), 1);
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if more than `B` items are added at exactly the same point. Mutable v5 trees use
+    /// fixed-size leaf buckets, and identical points cannot be separated by a spatial split.
     #[inline]
     pub fn add(&mut self, query: &[A; K], item: T) {
         unsafe {
@@ -52,16 +57,21 @@ where
             let mut leaf_idx = stem_idx - IDX::leaf_offset();
             let mut leaf_node = self.leaves.get_unchecked_mut(leaf_idx.az::<usize>());
 
-            if leaf_node.size == B.az::<IDX>() {
-                stem_idx = self.split(leaf_idx, split_dim, parent_idx, is_left_child);
+            while leaf_node.size == B.az::<IDX>() {
+                stem_idx = self.split(leaf_idx, split_dim, parent_idx, is_left_child, query);
                 let node = self.stems.get_unchecked_mut(stem_idx.az::<usize>());
 
-                leaf_idx = (if *query.get_unchecked(split_dim) < node.split_val {
+                let child_idx = if *query.get_unchecked(split_dim) < node.split_val {
+                    is_left_child = true;
                     node.left
                 } else {
+                    is_left_child = false;
                     node.right
-                } - IDX::leaf_offset());
+                };
 
+                parent_idx = stem_idx;
+                split_dim = (split_dim + 1).rem(K);
+                leaf_idx = child_idx - IDX::leaf_offset();
                 leaf_node = self.leaves.get_unchecked_mut(leaf_idx.az::<usize>());
             }
 
@@ -150,6 +160,7 @@ where
         split_dim: usize,
         parent_idx: IDX,
         was_parents_left: bool,
+        query: &[A; K],
     ) -> IDX {
         let orig = self.leaves.get_unchecked_mut(leaf_idx.az::<usize>());
         let mut pivot_idx = (B / 2).az::<IDX>();
@@ -211,6 +222,7 @@ where
                 );
 
                 pivot_idx = orig_pivot_idx;
+                let mut all_equal = false;
                 while *orig
                     .content_points
                     .get_unchecked(pivot_idx.az::<usize>())
@@ -220,15 +232,48 @@ where
                     pivot_idx = pivot_idx + IDX::one();
 
                     if pivot_idx.az::<usize>() == B {
-                        panic!("Too many items with the same position on one axis. Bucket size must be increased to at least 1 more than the number of items with the same position on one axis.");
+                        all_equal = true;
+                        break;
                     }
                 }
-            }
 
-            split_val = *orig
-                .content_points
-                .get_unchecked(pivot_idx.az::<usize>())
-                .get_unchecked(split_dim);
+                if all_equal {
+                    let query_val = *query.get_unchecked(split_dim);
+
+                    if query_val > split_val {
+                        // Keep the full original leaf on the left and create an empty right leaf
+                        // for the new point.
+                        split_val = query_val;
+                    } else {
+                        if query_val == split_val
+                            && orig.content_points.iter().all(|point| point == query)
+                        {
+                            panic!(
+                                "Cannot insert another item at {query:?}: this leaf already contains \
+                                 {B} items at exactly the same point. Kiddo v5's fixed-size leaf \
+                                 buckets cannot spatially split points whose coordinates are \
+                                 identical on every axis. Increase the bucket size `B` above the \
+                                 maximum duplicate count, deduplicate the input, or bulk-build a \
+                                 Kiddo v6 `ImmutableKdTree` with soft leaf buckets."
+                            );
+                        }
+
+                        // Put the full original leaf on the right. If the new point has the same
+                        // coordinate, add() will continue to the next split dimension.
+                        pivot_idx = IDX::zero();
+                    }
+                } else {
+                    split_val = *orig
+                        .content_points
+                        .get_unchecked(pivot_idx.az::<usize>())
+                        .get_unchecked(split_dim);
+                }
+            } else {
+                split_val = *orig
+                    .content_points
+                    .get_unchecked(pivot_idx.az::<usize>())
+                    .get_unchecked(split_dim);
+            }
         }
 
         let mut right = LeafNode::new();
