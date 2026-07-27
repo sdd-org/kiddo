@@ -42,6 +42,7 @@ logging_off = [
 ]
 no_inline = []
 las = ["dep:las"]
+parallel = ["dep:rayon"]
 result_collection_stats = []
 serde = ["dep:serde", "serde/derive", "fixed/serde", "aligned-vec/serde"]
 simd = []

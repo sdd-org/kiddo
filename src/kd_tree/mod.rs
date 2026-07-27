@@ -19,7 +19,7 @@ mod builder;
 mod construction;
 mod iter;
 pub(crate) mod orchestrator;
-mod query;
+pub(crate) mod query;
 pub(crate) mod query_context;
 pub(crate) mod query_stack;
 pub(crate) mod query_stack_simd;

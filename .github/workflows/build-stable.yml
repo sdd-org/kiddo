@@ -51,7 +51,7 @@ jobs:
         run: bash .github/scripts/prepare-example-artifacts.sh
 
       - name: Run Clippy
-        run: cargo clippy --features=serde,rkyv_08,test_utils --no-deps
+        run: cargo clippy --features=parallel,serde,rkyv_08,test_utils --no-deps
 
       - name: Install cargo-hack
         uses: baptiste0928/cargo-install@v3
@@ -95,8 +95,8 @@ jobs:
 
       - name: Cargo nextest
         run: |
-          cargo nextest run --workspace --features=serde,rkyv_08,test_utils
+          cargo nextest run --workspace --features=parallel,serde,rkyv_08,test_utils
 
       - name: Cargo test (Doctests)
         run: |
-          cargo test --workspace --doc --features=serde,rkyv_08,test_utils
+          cargo test --workspace --doc --features=parallel,serde,rkyv_08,test_utils

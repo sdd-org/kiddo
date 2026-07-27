@@ -1,4 +1,5 @@
 mod approx_nearest_one;
+pub mod batch;
 mod best_n_within;
 pub mod builder;
 mod periodic;
