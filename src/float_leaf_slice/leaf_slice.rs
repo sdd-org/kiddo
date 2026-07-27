@@ -54,7 +54,8 @@ where
             let qd = [query[dim]; C];
 
             (0..C).step_by(1).for_each(|idx| {
-                acc[idx] += D::dist1(self.content_points[dim][idx], qd[idx]);
+                acc[idx] =
+                    D::accumulate(acc[idx], D::dist1(self.content_points[dim][idx], qd[idx]));
             });
         });
 
@@ -180,6 +181,8 @@ where
     }
 
     #[inline]
+    // `slice::as_chunks` is unavailable at the crate's Rust 1.85 MSRV.
+    #[allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
     fn as_full_chunks<const C: usize>(&self) -> LeafFixedSliceIterator<'_, A, T, K, C> {
         let points_iterators = self.content_points.map(|i| i.chunks_exact(C));
         let items_iterator = self.content_items.chunks_exact(C);
@@ -206,7 +209,7 @@ where
         for idx in 0..remainder_items.len() {
             let mut dist = A::zero();
             (0..K).step_by(1).for_each(|dim| {
-                dist += D::dist1(remainder_points[dim][idx], query[dim]);
+                dist = D::accumulate(dist, D::dist1(remainder_points[dim][idx], query[dim]));
             });
 
             // TODO: make branchless
@@ -484,7 +487,7 @@ where
 #[cfg(test)]
 mod test {
     use crate::float_leaf_slice::leaf_slice::{LeafFixedSlice, LeafSlice, LeafSliceFloat};
-    use crate::{BestNeighbour, NearestNeighbour, SquaredEuclidean};
+    use crate::{BestNeighbour, Chebyshev, NearestNeighbour, SquaredEuclidean};
     use std::collections::BinaryHeap;
 
     #[test]
@@ -508,6 +511,23 @@ mod test {
 
         assert_eq!(best_dist, 0f64);
         assert_eq!(best_item, 1u32);
+    }
+
+    #[test]
+    fn leaf_fixed_slice_nearest_one_uses_metric_accumulator() {
+        let content_points = [[0.0f64, 10.0], [0.0f64, 10.0]];
+        let content_items = [0u32, 1u32];
+        let slice = LeafFixedSlice {
+            content_points: [&content_points[0], &content_points[1]],
+            content_items: &content_items,
+        };
+        let mut best_dist = f64::INFINITY;
+        let mut best_item = u32::MAX;
+
+        slice.nearest_one::<Chebyshev>(&[9.0, 9.0], &mut best_dist, &mut best_item);
+
+        assert_eq!(best_dist, 1.0);
+        assert_eq!(best_item, 1);
     }
 
     #[test]
