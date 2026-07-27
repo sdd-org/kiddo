@@ -180,6 +180,8 @@ where
     }
 
     #[inline]
+    // `slice::as_chunks` is unavailable at the crate's Rust 1.85 MSRV.
+    #[allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
     fn as_full_chunks<const C: usize>(&self) -> LeafFixedSliceIterator<'_, A, T, K, C> {
         let points_iterators = self.content_points.map(|i| i.chunks_exact(C));
         let items_iterator = self.content_items.chunks_exact(C);
