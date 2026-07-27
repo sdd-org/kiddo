@@ -1,5 +1,11 @@
 # Kiddo Changelog
 
+## [6.0.0-alpha.5] - 2026-07-27
+
+### 🐛 Bug Fixes
+
+- Preserve mutable leaf split associations ([@sdd](https://github.com/sdd))
+
 ## [6.0.0-alpha.4] - 2026-07-27
 
 ### ✨ Features
