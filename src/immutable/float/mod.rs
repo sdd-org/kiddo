@@ -26,5 +26,8 @@ pub mod kdtree;
 #[doc(hidden)]
 pub mod query;
 
+#[cfg(feature = "rkyv")]
+mod rkyv_07_aligned_vec;
+
 #[cfg(feature = "rkyv_08")]
 mod rkyv_aligned_vec;
