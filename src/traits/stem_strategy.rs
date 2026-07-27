@@ -5,6 +5,8 @@ use crate::kd_tree::query_stack::{ScalarStackContext, StackTrait};
 use crate::stem_strategy::donnelly::simd_full::{BacktrackBlock3, BacktrackBlock4};
 use crate::{Axis, Content};
 
+const MAX_MUTABLE_STEM_LEVEL_SLACK: usize = 4;
+
 /// Trait that needs to be implemented by any potential stem ordering
 /// algorithm used by a KdTree.
 ///
@@ -142,6 +144,26 @@ pub trait StemStrategy: Clone + Sync + Send + 'static {
     /// Get the stem indices where the left and right children would be located.
     /// Returns (left_child_stem_idx, right_child_stem_idx).
     fn child_indices<A: Axis<Coord = A>>(&self) -> (usize, usize);
+
+    /// Whether a mutable split at the current terminal would make this stem
+    /// layout impractically sparse.
+    ///
+    /// The default bounds path depth relative to a compact tree and can be
+    /// overridden by strategies with a more precise layout-specific check.
+    #[doc(hidden)]
+    fn mutable_split_requires_rebuild(&self, leaf_count_after_split: usize) -> bool {
+        let compact_terminal_level = leaf_count_after_split
+            .checked_next_power_of_two()
+            .map_or(usize::MAX, |count| count.ilog2() as usize);
+        let layout_padding = Self::BLOCK_SIZE.saturating_sub(1);
+        let maximum_level = compact_terminal_level
+            .saturating_add(layout_padding)
+            .saturating_add(MAX_MUTABLE_STEM_LEVEL_SLACK);
+        let prospective_terminal_level = (self.level().max(0) as usize).saturating_add(1);
+
+        prospective_terminal_level > maximum_level
+            || prospective_terminal_level >= u32::BITS as usize
+    }
 
     /// Calculate the stem node count for a given leaf node count.
     #[cfg_attr(coverage_nightly, coverage(off))]

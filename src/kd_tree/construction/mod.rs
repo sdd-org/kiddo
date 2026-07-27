@@ -33,7 +33,8 @@ where
 {
     /// Adds a point and associated item to the tree.
     ///
-    /// If the target leaf is full, it will be split before insertion.
+    /// If the target leaf is full, it will be split before insertion. A stem
+    /// strategy may first rebuild a pathologically unbalanced mutable layout.
     pub fn add(&mut self, point: &[A; K], item: T) -> Result<(), ConstructionError> {
         // Find the target leaf
         let (stem_strat, parent_stem_idx, is_right_child) = self.find_leaf_with_context(point);
@@ -52,6 +53,10 @@ where
 
         // println!("Leaf {leaf_idx} is full, splitting. {self}");
 
+        if stem_strat.mutable_split_requires_rebuild(self.leaves.leaf_count().saturating_add(1)) {
+            return self.rebuild_with_added_entry(point, item);
+        }
+
         // Leaf is full, need to split
         let (pivot_val, split_dim, new_leaf_idx) =
             self.split_leaf(leaf_idx, stem_strat, parent_stem_idx, is_right_child)?;
@@ -65,6 +70,25 @@ where
 
         self.leaves.add_to_leaf(leaf_idx, point, item);
         self.size += 1;
+        Ok(())
+    }
+
+    fn rebuild_with_added_entry(
+        &mut self,
+        point: &[A; K],
+        item: T,
+    ) -> Result<(), ConstructionError> {
+        let mut entries = Vec::with_capacity(self.size + 1);
+        entries.extend(self.iter());
+        entries.push((item, *point));
+
+        let rebuilt = Self::new_from_source_with(
+            &entries,
+            |entry, dim| entry.1[dim],
+            |_, entry| Ok(entry.0),
+        )?;
+        *self = rebuilt;
+
         Ok(())
     }
 
@@ -655,8 +679,6 @@ where
             )
         };
 
-        crate::leaf_view::assert_leaf_scratch_capacity(max_leaf_len);
-
         let tree = Self {
             stems,
             leaves,
@@ -704,8 +726,6 @@ where
             LS::Mutability::initial_stem_leaf_resolution::<A, SS, K>(0, leaves.leaf_count());
 
         let max_leaf_len = item_count;
-        crate::leaf_view::assert_leaf_scratch_capacity(max_leaf_len);
-
         let tree = Self {
             stems: avec![A::max_value(); 0],
             leaves,

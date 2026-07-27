@@ -30,6 +30,8 @@ use crate::stem_strategy::prefetch::{prefetch_t0, prefetch_t1};
 use crate::{Axis, StemStrategy};
 use std::ptr::NonNull;
 
+const MAX_MUTABLE_STEM_SPARSITY_FACTOR: usize = 16;
+
 /// Prefetch policy for an Eytzinger traversal slot.
 #[derive(Clone, Debug, PartialOrd, Ord, Eq, PartialEq)]
 pub enum PrefetchAction {
@@ -171,6 +173,18 @@ impl<const PF1: isize, const PF2: isize> StemStrategy for EytzingerFlexPf<PF1, P
         let left = (self.stem_idx << 1) as usize;
         let right = left | 1;
         (left, right)
+    }
+
+    fn mutable_split_requires_rebuild(&self, leaf_count_after_split: usize) -> bool {
+        let compact_terminal_limit = leaf_count_after_split
+            .checked_next_power_of_two()
+            .unwrap_or(usize::MAX)
+            .saturating_mul(2);
+        let sparse_terminal_limit =
+            compact_terminal_limit.saturating_mul(MAX_MUTABLE_STEM_SPARSITY_FACTOR);
+        let right_child_idx = (self.stem_idx as usize).saturating_mul(2).saturating_add(1);
+
+        right_child_idx >= sparse_terminal_limit || right_child_idx > u32::MAX as usize
     }
 
     fn get_stem_node_count_from_leaf_node_count(leaf_node_count: usize) -> usize {

@@ -1,0 +1,109 @@
+name: Fuzz / v6
+
+on:
+  workflow_dispatch:
+    inputs:
+      cases:
+        description: Number of generated tree cases for the exact-query fuzz tests
+        required: false
+        default: "8"
+        type: string
+      query_count:
+        description: Queries per generated tree case
+        required: false
+        default: "100"
+        type: string
+      min_pow:
+        description: Minimum generated tree size as a power of two
+        required: false
+        default: "10"
+        type: string
+      max_pow:
+        description: Maximum generated tree size as a power of two
+        required: false
+        default: "20"
+        type: string
+      threads:
+        description: Query worker threads (large tree builds remain serial)
+        required: false
+        default: "4"
+        type: string
+      approx_cases:
+        description: Number of generated cases for the approximate-query quality sweep
+        required: false
+        default: "4"
+        type: string
+      approx_query_count:
+        description: Queries per approximate-query quality case
+        required: false
+        default: "128"
+        type: string
+      run_simd:
+        description: Run the SIMD matrix after the non-SIMD matrix
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fuzz-v6:
+    name: v6 fuzz suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      KIDDO_FUZZ_CASES: ${{ inputs.cases }}
+      KIDDO_FUZZ_QUERY_COUNT: ${{ inputs.query_count }}
+      KIDDO_FUZZ_MIN_POW: ${{ inputs.min_pow }}
+      KIDDO_FUZZ_MAX_POW: ${{ inputs.max_pow }}
+      KIDDO_FUZZ_THREADS: ${{ inputs.threads }}
+      KIDDO_FUZZ_APPROX_CASES: ${{ inputs.approx_cases }}
+      KIDDO_FUZZ_APPROX_QUERY_COUNT: ${{ inputs.approx_query_count }}
+      RUST_TEST_THREADS: "1"
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          show-progress: false
+
+      - name: Cache Cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: fuzz-v6-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            fuzz-v6-${{ runner.os }}-
+
+      - name: Install stable Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - name: Remove stale fuzz report
+        run: rm -f kd_tree_fuzz_v6_report.txt
+
+      - name: Run non-SIMD fuzz suite
+        run: just fuzz-kd-tree-v6-non-simd
+
+      - name: Run SIMD fuzz suite
+        if: inputs.run_simd
+        run: just fuzz-kd-tree-v6-simd
+
+      - name: Upload fuzz failure report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: kd-tree-fuzz-v6-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: kd_tree_fuzz_v6_report.txt
+          if-no-files-found: ignore

@@ -57,16 +57,6 @@ impl<O> LeafScratch<O> {
 }
 
 #[inline]
-pub(crate) fn assert_leaf_scratch_capacity(len: usize) {
-    assert!(
-        len <= LEAF_SCRATCH_CAPACITY,
-        "leaf scratch capacity exceeded: required={} capacity={}",
-        len,
-        LEAF_SCRATCH_CAPACITY
-    );
-}
-
-#[inline]
 unsafe fn leaf_scratch_slice_mut<O>(
     scratch: &mut [MaybeUninit<O>; LEAF_SCRATCH_CAPACITY],
     len: usize,
@@ -78,8 +68,6 @@ unsafe fn leaf_scratch_slice_mut<O>(
 #[doc(hidden)]
 pub trait TlsLeafScratch: Axis<Coord = Self> + 'static {
     fn with_tls_leaf_scratch<R>(len: usize, f: impl FnOnce(&mut [Self], &mut [Self]) -> R) -> R;
-
-    fn assert_tls_leaf_scratch_capacity(len: usize);
 }
 
 macro_rules! impl_tls_leaf_scratch {
@@ -95,6 +83,12 @@ macro_rules! impl_tls_leaf_scratch {
                 len: usize,
                 f: impl FnOnce(&mut [Self], &mut [Self]) -> R,
             ) -> R {
+                if len > LEAF_SCRATCH_CAPACITY {
+                    let mut acc = vec![<$t as Axis>::zero(); len];
+                    let mut coord_wide = vec![<$t as Axis>::zero(); len];
+                    return f(&mut acc, &mut coord_wide);
+                }
+
                 $tls_name.with(|scratch| {
                     let scratch = unsafe { &mut *scratch.get() };
                     let acc = unsafe { leaf_scratch_slice_mut(&mut scratch.acc, len) };
@@ -102,11 +96,6 @@ macro_rules! impl_tls_leaf_scratch {
                         unsafe { leaf_scratch_slice_mut(&mut scratch.coord_wide, len) };
                     f(acc, coord_wide)
                 })
-            }
-
-            #[inline]
-            fn assert_tls_leaf_scratch_capacity(len: usize) {
-                assert_leaf_scratch_capacity(len);
             }
         }
     };
@@ -227,7 +216,6 @@ impl<'a, AX: Axis<Coord = AX>, T: Content, const K: usize, const B: usize>
         }
 
         let n = self.len();
-        D::Output::assert_tls_leaf_scratch_capacity(n);
 
         D::Output::with_tls_leaf_scratch(n, |acc, coord_wide| {
             if n == 0 {
@@ -308,7 +296,6 @@ impl<'a, AX: Axis<Coord = AX>, T: Content, const K: usize, const B: usize>
         AX: 'static,
     {
         let n = self.len();
-        D::Output::assert_tls_leaf_scratch_capacity(n);
 
         D::Output::with_tls_leaf_scratch(n, |acc, coord_wide| {
             acc.fill(D::Output::zero());
@@ -720,14 +707,6 @@ mod tests {
     }
 
     #[test]
-    fn assert_leaf_scratch_capacity_panics_when_exceeded() {
-        assert!(std::panic::catch_unwind(|| assert_leaf_scratch_capacity(
-            LEAF_SCRATCH_CAPACITY + 1
-        ))
-        .is_err());
-    }
-
-    #[test]
     fn try_identity_widen_axis_only_accepts_float_identity() {
         let f32_axis = [1.0f32, 2.5, 9.0];
         let f64_axis = [1.0f64, 2.5, 9.0];
@@ -934,5 +913,22 @@ mod tests {
 
         assert_eq!(result.0, vec![1.0, 2.0, 3.0, 4.0]);
         assert_eq!(result.1, vec![10.0, 20.0, 30.0, 40.0]);
+    }
+
+    #[test]
+    fn tls_leaf_scratch_uses_heap_fallback_above_fixed_capacity() {
+        let len = LEAF_SCRATCH_CAPACITY + 1;
+        let result = <f32 as TlsLeafScratch>::with_tls_leaf_scratch(len, |acc, coord_wide| {
+            acc[len - 1] = 7.0;
+            coord_wide[len - 1] = 11.0;
+            (
+                acc.len(),
+                coord_wide.len(),
+                acc[len - 1],
+                coord_wide[len - 1],
+            )
+        });
+
+        assert_eq!(result, (len, len, 7.0, 11.0));
     }
 }
