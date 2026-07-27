@@ -1,5 +1,44 @@
 # Kiddo Changelog
 
+## [5.3.3] - 2026-07-27
+
+### Ci
+
+- Don't run comitlint for dependabot PRs
+- Add v5 eytzinger profile benchmarks
+- Split v5 nightly debug and release tests
+- Allow nightly chunks lint at MSRV
+- Stop ignoring the pinned v5 lockfile
+
+### 🐛 Bug Fixes
+
+- Correct v5 unsorted nearest-n parity reporting
+- Preserve stem alignment in rkyv conversion
+- Use metric accumulation for immutable nearest one
+- Allow mutable splits past constant axes
+
+### 🧪 Testing
+
+- Add v5 release parity benchmark reporting
+
+### 🧹 Chore
+
+- Bump LoliGothick/clippy-check, Signed-off-by:dependabot[bot] <support@github.com>
+- Bump rand deps
+- Bump criterion deps
+- Bump LoliGothick/clippy-check, Signed-off-by:dependabot[bot] <support@github.com>
+- Bump codecov/codecov-action from 5 to 7, Signed-off-by:dependabot[bot] <support@github.com>
+- Bump actions/checkout from 6 to 7, Signed-off-by:dependabot[bot] <support@github.com>
+- Bump LoliGothick/clippy-check, Signed-off-by:dependabot[bot] <support@github.com>
+- Bump actions/cache from 5 to 6, Signed-off-by:dependabot[bot] <support@github.com>
+- Bump LoliGothick/clippy-check, Signed-off-by:dependabot[bot] <support@github.com>
+- Bump LoliGothick/clippy-check, Signed-off-by:dependabot[bot] <support@github.com>
+- Bump LoliGothick/clippy-check, Signed-off-by:dependabot[bot] <support@github.com>
+- Pin v5 lockfile for msrv
+- Bump actions/upload-artifact from 4 to 7, Signed-off-by:dependabot[bot] <support@github.com>
+- Bump actions/setup-python from 5 to 7, Signed-off-by:dependabot[bot] <support@github.com>
+- Bump actions/download-artifact from 4 to 8, Signed-off-by:dependabot[bot] <support@github.com>
+
 ## [5.3.2] - 2026-06-02
 
 ### Ci
