@@ -47,6 +47,8 @@
 //!
 pub use crate::float::kdtree::Axis;
 use crate::float_leaf_slice::leaf_slice::{LeafSlice, LeafSliceFloat, LeafSliceFloatChunk};
+#[cfg(feature = "rkyv")]
+use crate::immutable::float::rkyv_07_aligned_vec::EncodeAVec as EncodeAVec07;
 #[cfg(feature = "rkyv_08")]
 use crate::immutable::float::rkyv_aligned_vec::EncodeAVec;
 #[cfg(feature = "modified_van_emde_boas")]
@@ -115,7 +117,8 @@ pub struct ImmutableKdTree<A: Copy + Default, T: Copy + Default, const K: usize,
 #[cfg(feature = "rkyv")]
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct ImmutableKdTreeRK<A: Copy + Default, T: Copy + Default, const K: usize, const B: usize> {
-    pub(crate) stems: Vec<A>,
+    #[with(EncodeAVec07<A>)]
+    pub(crate) stems: AVec<A>,
     pub(crate) leaf_points: [Vec<A>; K],
     pub(crate) leaf_items: Vec<T>,
     pub(crate) leaf_extents: Vec<(u32, u32)>,
@@ -158,9 +161,6 @@ where
             max_stem_level,
         } = orig;
 
-        let (ptr, _, length, capacity) = stems.into_raw_parts();
-        let stems = unsafe { Vec::from_raw_parts(ptr, length, capacity) };
-
         ImmutableKdTreeRK {
             stems,
             leaf_points,
@@ -168,6 +168,61 @@ where
             leaf_extents,
             max_stem_level,
         }
+    }
+}
+
+#[cfg(all(test, feature = "rkyv"))]
+mod rkyv_tests {
+    use super::{ImmutableKdTree, ImmutableKdTreeRK};
+    use aligned_vec::CACHELINE_ALIGN;
+    use rkyv::Deserialize;
+
+    #[test]
+    fn conversion_preserves_aligned_stems_allocation() {
+        let points: Vec<[f64; 3]> = (0..2000)
+            .map(|i| [i as f64, (i * 3 % 977) as f64, (i * 7 % 613) as f64])
+            .collect();
+        let tree: ImmutableKdTree<f64, u32, 3, 32> = ImmutableKdTree::new_from_slice(&points);
+        let aligned_stems_ptr = tree.stems.as_ptr();
+        let tree_rk: ImmutableKdTreeRK<f64, u32, 3, 32> = tree.into();
+
+        assert_eq!(tree_rk.stems.as_ptr(), aligned_stems_ptr);
+        assert_eq!(tree_rk.stems.alignment(), CACHELINE_ALIGN);
+    }
+
+    #[test]
+    fn avec_adapter_preserves_archive_format_and_roundtrips() {
+        #[derive(rkyv::Archive, rkyv::Serialize)]
+        struct LegacyImmutableKdTreeRK {
+            stems: Vec<f64>,
+            leaf_points: [Vec<f64>; 3],
+            leaf_items: Vec<u32>,
+            leaf_extents: Vec<(u32, u32)>,
+            max_stem_level: i32,
+        }
+
+        let points: Vec<[f64; 3]> = (0..2000)
+            .map(|i| [i as f64, (i * 3 % 977) as f64, (i * 7 % 613) as f64])
+            .collect();
+        let tree: ImmutableKdTree<f64, u32, 3, 32> = ImmutableKdTree::new_from_slice(&points);
+        let legacy = LegacyImmutableKdTreeRK {
+            stems: tree.stems.to_vec(),
+            leaf_points: tree.leaf_points.clone(),
+            leaf_items: tree.leaf_items.clone(),
+            leaf_extents: tree.leaf_extents.clone(),
+            max_stem_level: tree.max_stem_level,
+        };
+        let tree_rk: ImmutableKdTreeRK<f64, u32, 3, 32> = tree.into();
+
+        let legacy_bytes = rkyv::to_bytes::<_, 256>(&legacy).unwrap();
+        let bytes = rkyv::to_bytes::<_, 256>(&tree_rk).unwrap();
+        assert_eq!(bytes.as_slice(), legacy_bytes.as_slice());
+
+        let archived = unsafe { rkyv::archived_root::<ImmutableKdTreeRK<f64, u32, 3, 32>>(&bytes) };
+        let deserialized: ImmutableKdTreeRK<f64, u32, 3, 32> =
+            archived.deserialize(&mut rkyv::Infallible).unwrap();
+        assert_eq!(deserialized.stems.as_slice(), tree_rk.stems.as_slice());
+        assert_eq!(deserialized.stems.alignment(), CACHELINE_ALIGN);
     }
 }
 
