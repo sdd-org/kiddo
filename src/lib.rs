@@ -8,7 +8,7 @@
 #![warn(missing_docs)]
 #![warn(rustdoc::broken_intra_doc_links)]
 #![warn(rustdoc::private_intra_doc_links)]
-#![doc(html_root_url = "https://docs.rs/kiddo/6.0.0-alpha.3")]
+#![doc(html_root_url = "https://docs.rs/kiddo/6.0.0-alpha.4")]
 #![doc(issue_tracker_base_url = "https://github.com/sdd/kiddo/issues/")]
 #![allow(clippy::pointers_in_nomem_asm_block)]
 #![allow(clippy::too_many_arguments)]
@@ -105,7 +105,7 @@
 //! Add `kiddo` to `Cargo.toml`
 //! ```toml
 //! [dependencies]
-//! kiddo = "6.0.0-alpha.3"
+//! kiddo = "6.0.0-alpha.4"
 //! ```
 //!
 //! ## Usage

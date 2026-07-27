@@ -10,18 +10,15 @@
 
 - Specialize within-radius result projection ([@sdd](https://github.com/sdd))
 
-
 ### 🐛 Bug Fixes
 
 - Handle padded stems in parallel construction ([@sdd](https://github.com/sdd))
-
 
 ### ♻️ Refactor
 
 - Within_unsorted to a visitor ([@sdd](https://github.com/sdd))
 
 - Switch from propagating points as indexes to actual values ([@sdd](https://github.com/sdd))
-
 
 ### 🧪 Testing
 
@@ -30,7 +27,6 @@
 - Add v6 release parity benchmark suites ([@sdd](https://github.com/sdd))
 
 - Add point projection benchmark ([@sdd](https://github.com/sdd))
-
 
 ### 🤖 CI
 
@@ -51,7 +47,6 @@
 - Add ISA-specific stem benchmark reporting ([@sdd](https://github.com/sdd))
 
 - Add tree construction benchmarks ([@sdd](https://github.com/sdd))
-
 
 ### 🧹 Chore
 
