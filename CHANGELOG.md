@@ -1,5 +1,128 @@
 # Kiddo Changelog
 
+## [5.4.0] - 2026-07-27
+
+### Ci
+
+- Update CI workflow triggers to include PR and workflow_dispatch
+- Permit coverage to run for PRs as well
+- Fix release-plz and add commitlint
+- Backport workflow and repo config updates
+- Backport build and coverage workflow updates
+- Don't run comitlint for dependabot PRs
+- Add v5 eytzinger profile benchmarks
+- Split v5 nightly debug and release tests
+- Allow nightly chunks lint at MSRV
+- Stop ignoring the pinned v5 lockfile
+
+### Deps
+
+- Remove doc-comment dependency and use doc attribute that was added in Rust 1.54 instead
+- Bump cmov to 0.4 as all other versions were yanked
+
+### ♻️ Refactor
+
+- Remove within_unsorted_iter_owned in favour of modifying within_unsorted_iter
+- Inclusive radius matching and leaf note remainder loops
+- In-loop accumulation for max-based metrics
+- Unify distance accumulation logic with `D::accumulate`
+- Remove `D::IS_MAX_BASED`, unify heap logic, doc & test
+- Make metric property tests reusable
+- Inclusive radius matching and leaf note remainder loops
+- Remove `D::IS_MAX_BASED`, unify heap logic, doc & test
+- Add compile-time validations and doc aliases for Minkowski metrics
+- Remove `D::IS_MAX_BASED`, unify heap logic, doc & test
+- Rename methods
+
+### ✨ Features
+
+- Add Chebyshev distance metric and test coverage
+- Add `D::accumulate` and `D::IS_MAX_BASED`
+- Add fixed Chebyshev distance metric
+- Add Chebyshev distance metric and test coverage
+- Add `D::accumulate` and `D::IS_MAX_BASED`
+- Add fixed Chebyshev distance metric
+- Add Minkowski and MinkowskiF64 distance metrics with tests
+- Add `D::accumulate` and `D::IS_MAX_BASED`
+- Add fixed Chebyshev distance metric
+- Add `inclusive` flag to distance-based queries
+
+### 🐛 Bug Fixes
+
+- Correct slice access in remainder processing and remove unsafe, Signed-off-by:Markus Zoppelt <markus.zoppelt@helsing.ai>
+- Use try_from() with error for leaf_items.len()
+- Update to use transform function
+- Fix over-pruning for L_inf
+- Use saturating arithmetic for fixed-point distances
+- Use saturating arithmetic for fixed-point distances
+- Prevent UB with compile-time check when bucket size = 1, Fixes:https://github.com/sdd/kiddo/issues/295
+- Add msrv, use algernative to f64::fract
+- Correct v5 unsorted nearest-n parity reporting
+- Preserve stem alignment in rkyv conversion
+- Use metric accumulation for immutable nearest one
+- Allow mutable splits past constant axes
+
+### 💄 Styling
+
+- Remove unnecessary parentheses
+- Fix formatting
+- Formatting and clean up unneeded md file
+
+### 📝 Documentation
+
+- Update Cargo.toml, changelog and docs for 5.2.3
+- Update changelog, readme, and Cargo.toml for 5.2.4 release
+- Add doc comments to *_exclusive methods explaining inclusive param
+
+### 🧪 Testing
+
+- Add regression test for remainder slice access bug, Signed-off-by:Markus Zoppelt <markus.zoppelt@helsing.ai>
+- Add coverage for Manhattan and Squared Euclidean distance metrics
+- Add integration tests for Chebyshev, Manhattan, and Squared Euclidean distance metrics
+- Add integration `nearest_n` tests (Minkowski, MinkowskiF64) with parameterised power
+- Add v5 release parity benchmark reporting
+
+### 🧹 Chore
+
+- Use `doc` attribute instead of `doc_comment!`
+- Update actions/checkout action to v6
+- Update codspeedhq/action action to v4
+- Update ad-m/github-push-action action to v1
+- Update rust crate rstest to 0.26
+- Update rust crate codspeed-criterion-compat to v4
+- Update changelog
+- Change test comment & lint
+- Add default implementation of `accumulate` to `DistanceMetric` trait
+- Saturating add for fixed metrics
+- Remove outdated docstring test information
+- Replace `FxdU16::lit("2")` with `TWO`
+- Add default implementation of `accumulate` to `DistanceMetric` trait
+- Saturating add for fixed metrics
+- Replace `FxdU16::lit("2")` with `TWO`
+- Cargo fmt
+- Fix rebase mistakes
+- Add default implementation of `accumulate` to `DistanceMetric` trait
+- Saturating add for fixed metrics
+- Fix rebase mistakes
+- Bump cmov dep 0.4 -> 0.5 and prep for 5.3.0 release
+- Release v5.3.2
+- Bump LoliGothick/clippy-check, Signed-off-by:dependabot[bot] <support@github.com>
+- Bump rand deps
+- Bump criterion deps
+- Bump LoliGothick/clippy-check, Signed-off-by:dependabot[bot] <support@github.com>
+- Bump codecov/codecov-action from 5 to 7, Signed-off-by:dependabot[bot] <support@github.com>
+- Bump actions/checkout from 6 to 7, Signed-off-by:dependabot[bot] <support@github.com>
+- Bump LoliGothick/clippy-check, Signed-off-by:dependabot[bot] <support@github.com>
+- Bump actions/cache from 5 to 6, Signed-off-by:dependabot[bot] <support@github.com>
+- Bump LoliGothick/clippy-check, Signed-off-by:dependabot[bot] <support@github.com>
+- Bump LoliGothick/clippy-check, Signed-off-by:dependabot[bot] <support@github.com>
+- Bump LoliGothick/clippy-check, Signed-off-by:dependabot[bot] <support@github.com>
+- Pin v5 lockfile for msrv
+- Bump actions/upload-artifact from 4 to 7, Signed-off-by:dependabot[bot] <support@github.com>
+- Bump actions/setup-python from 5 to 7, Signed-off-by:dependabot[bot] <support@github.com>
+- Bump actions/download-artifact from 4 to 8, Signed-off-by:dependabot[bot] <support@github.com>
+- Release v5.3.3
+
 ## [5.3.3] - 2026-07-27
 
 ### Ci
