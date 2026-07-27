@@ -314,12 +314,6 @@ harness = false
 required-features = ["test_utils"]
 
 [[bench]]
-name = "profile_v6_within_radius_point_projection"
-path = "benches/profile_v6_within_radius_point_projection.rs"
-harness = false
-required-features = ["test_utils"]
-
-[[bench]]
 name = "profile_neighbourhood_published"
 path = "benches/profile_neighbourhood_published.rs"
 harness = false
