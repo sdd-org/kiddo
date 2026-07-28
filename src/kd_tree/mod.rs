@@ -31,9 +31,14 @@ use nonmax::NonMaxUsize;
 #[doc(hidden)]
 pub use crate::traits::kd_tree::{KdTreeAccessor, StemLeafResolution};
 pub use builder::KdTreeBuilder;
-pub use construction::DEFAULT_PARALLEL_CONSTRUCTION_THRESHOLD;
+pub use construction::DefaultConstruction;
+#[cfg(feature = "multi-threaded")]
 #[doc(hidden)]
-pub use construction::{ParallelConstruction, SerialConstruction};
+pub use construction::ParallelConstruction;
+#[doc(hidden)]
+pub use construction::SerialConstruction;
+#[cfg(feature = "multi-threaded")]
+pub use construction::DEFAULT_PARALLEL_CONSTRUCTION_THRESHOLD;
 pub use iter::{KdTreeIter, WithinUnsortedIter};
 #[doc(hidden)]
 pub use orchestrator::KdTreeQueryOps;

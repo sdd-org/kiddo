@@ -173,6 +173,7 @@ fn unsplittable_immutable_hard_bucket_returns_error() {
     ));
 }
 
+#[cfg(feature = "multi-threaded")]
 #[test]
 fn mutable_split_preserves_point_item_associations_when_pivot_scan_retries() {
     type TestTree = KdTree<f32, u32, Eytzinger, VecOfArrays<f32, u32, 2, 16>, 2, 16>;
@@ -251,6 +252,7 @@ fn parallel_construction_threshold_is_inclusive() {
     assert_eq!(DEFAULT_PARALLEL_CONSTRUCTION_THRESHOLD, 262_144);
 }
 
+#[cfg(feature = "multi-threaded")]
 #[test]
 fn parallel_soft_construction_matches_sequential_construction() {
     type FlatTree = KdTree<f32, u32, Eytzinger, FlatVec<f32, u32, 2, 32>, 2, 32>;
@@ -312,6 +314,7 @@ fn parallel_soft_construction_matches_sequential_construction() {
     assert_parallel_matches!(ArenaTree);
 }
 
+#[cfg(feature = "multi-threaded")]
 #[test]
 fn parallel_soft_construction_handles_block_strategy_root_padding() {
     type TestTree = KdTree<f64, u32, Donnelly<3>, FlatVec<f64, u32, 2, 4>, 2, 4>;
@@ -356,6 +359,7 @@ fn parallel_soft_construction_handles_block_strategy_root_padding() {
     }
 }
 
+#[cfg(feature = "multi-threaded")]
 #[test]
 fn parallel_constructor_preserves_hard_bucket_construction() {
     type TestTree = KdTree<f32, u32, Eytzinger, VecOfArrays<f32, u32, 2, 32>, 2, 32>;
@@ -376,6 +380,7 @@ fn parallel_constructor_preserves_hard_bucket_construction() {
     );
 }
 
+#[cfg(feature = "multi-threaded")]
 #[test]
 fn builder_supports_parallel_entries_sources_and_no_items() {
     type ItemTree = KdTree<f32, u32, Eytzinger, FlatVec<f32, u32, 2, 32>, 2, 32>;

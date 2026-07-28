@@ -33,7 +33,7 @@ use std::collections::BinaryHeap;
 use std::num::NonZeroUsize;
 use std::ops::{Deref, Index};
 
-#[cfg(feature = "parallel")]
+#[cfg(feature = "multi-threaded")]
 use rayon::prelude::*;
 
 use super::builder::{
@@ -54,6 +54,11 @@ use crate::results::query_result_item::QueryResultItem;
 /// meaning of the hints, and the machinery used to honour them, may change
 /// between releases.
 ///
+/// Multi-threaded execution requires the `multi-threaded` crate feature, which
+/// is enabled by default. Without it `parallel` and
+/// `with_min_queries_per_task` are not compiled, and [`new`](Self::new) is
+/// equivalent to [`serial`](Self::serial).
+///
 /// To run a batch on a specific Rayon thread pool, use Rayon's own scoping:
 ///
 /// ```ignore
@@ -63,21 +68,25 @@ use crate::results::query_result_item::QueryResultItem;
 /// # Example
 ///
 /// ```
+/// # #[cfg(feature = "multi-threaded")] {
 /// use kiddo::batch::Executor;
 /// use std::num::NonZeroUsize;
 ///
 /// let executor = Executor::parallel()
 ///     .with_min_queries_per_task(NonZeroUsize::new(256).unwrap());
+/// # }
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Executor {
     kind: ExecutorKind,
+    #[cfg(feature = "multi-threaded")]
     min_queries_per_task: Option<NonZeroUsize>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ExecutorKind {
     Serial,
+    #[cfg(feature = "multi-threaded")]
     Parallel,
 }
 
@@ -91,17 +100,19 @@ impl Default for Executor {
 impl Executor {
     /// Creates the default executor.
     ///
-    /// The default is parallel execution when the `parallel` feature is
-    /// enabled, and serial execution otherwise.
+    /// The default is `parallel` with the `multi-threaded`
+    /// feature enabled — which it is unless a caller turns default features off
+    /// — and [`serial`](Self::serial) without it.
     #[inline]
     pub fn new() -> Self {
-        Self {
-            kind: if cfg!(feature = "parallel") {
-                ExecutorKind::Parallel
-            } else {
-                ExecutorKind::Serial
-            },
-            min_queries_per_task: None,
+        #[cfg(feature = "multi-threaded")]
+        {
+            Self::parallel()
+        }
+
+        #[cfg(not(feature = "multi-threaded"))]
+        {
+            Self::serial()
         }
     }
 
@@ -112,15 +123,15 @@ impl Executor {
     pub fn serial() -> Self {
         Self {
             kind: ExecutorKind::Serial,
+            #[cfg(feature = "multi-threaded")]
             min_queries_per_task: None,
         }
     }
 
     /// Creates an executor that may spread queries across multiple threads.
     ///
-    /// Falls back to serial execution when the `parallel` feature is disabled,
-    /// so that enabling or disabling the feature never changes which code
-    /// compiles.
+    /// Requires the `multi-threaded` feature.
+    #[cfg(feature = "multi-threaded")]
     #[inline]
     pub fn parallel() -> Self {
         Self {
@@ -134,19 +145,22 @@ impl Executor {
     /// This is advisory. It exists so that callers with unusually cheap or
     /// unusually expensive queries can nudge the scheduler, and it may be
     /// ignored entirely.
+    ///
+    /// Requires the `multi-threaded` feature.
+    #[cfg(feature = "multi-threaded")]
     #[inline]
     pub fn with_min_queries_per_task(mut self, min_queries_per_task: NonZeroUsize) -> Self {
         self.min_queries_per_task = Some(min_queries_per_task);
         self
     }
 
-    #[cfg(feature = "parallel")]
+    #[cfg(feature = "multi-threaded")]
     #[inline]
     fn is_parallel(&self) -> bool {
         matches!(self.kind, ExecutorKind::Parallel)
     }
 
-    #[cfg(feature = "parallel")]
+    #[cfg(feature = "multi-threaded")]
     #[inline]
     fn min_len(&self) -> usize {
         self.min_queries_per_task.map_or(1, NonZeroUsize::get)
@@ -456,7 +470,7 @@ pub trait BatchQuerySink<'a, A, const K: usize>: Copy {
 /// assert_eq!(results[1].item, 11);
 /// ```
 ///
-/// See the [module documentation](self) for exactly which properties of batch
+/// See the [module documentation](crate::batch) for exactly which properties of batch
 /// execution are guaranteed and which are free to change.
 pub struct BatchQueryBuilder<'a, Qb, A, const K: usize> {
     /// The configured single-point query, cloned per query point at execution
@@ -701,7 +715,7 @@ where
             query_builder.execute()
         };
 
-        #[cfg(feature = "parallel")]
+        #[cfg(feature = "multi-threaded")]
         if self.executor.is_parallel() {
             let results = self
                 .queries
@@ -770,7 +784,7 @@ where
             visitor(index, query_builder.execute());
         };
 
-        #[cfg(feature = "parallel")]
+        #[cfg(feature = "multi-threaded")]
         if self.executor.is_parallel() {
             self.queries
                 .par_iter()
@@ -813,11 +827,25 @@ mod tests {
         (Tree::new_from_slice(&content).unwrap(), queries)
     }
 
+    /// Every executor available in this build. `Executor::parallel` only
+    /// exists with the `multi-threaded` feature.
+    fn executors() -> Vec<Executor> {
+        #[cfg(feature = "multi-threaded")]
+        {
+            vec![Executor::serial(), Executor::parallel(), Executor::new()]
+        }
+
+        #[cfg(not(feature = "multi-threaded"))]
+        {
+            vec![Executor::serial(), Executor::new()]
+        }
+    }
+
     #[test]
     fn nearest_one_batch_matches_single_point_queries() {
         let (tree, queries) = tree_and_queries(2048, 257);
 
-        for executor in [Executor::serial(), Executor::parallel(), Executor::new()] {
+        for executor in executors() {
             let batch = tree
                 .query_batch(&queries)
                 .nearest_one::<SquaredEuclidean<f64>>()
@@ -843,7 +871,7 @@ mod tests {
         let (tree, queries) = tree_and_queries(2048, 129);
         let max_qty = NonZeroUsize::new(7).unwrap();
 
-        for executor in [Executor::serial(), Executor::parallel()] {
+        for executor in executors() {
             let batch = tree
                 .query_batch(&queries)
                 .nearest_n::<SquaredEuclidean<f64>>(max_qty)
@@ -1090,7 +1118,7 @@ mod tests {
     fn for_each_visits_every_query_exactly_once_with_its_own_index() {
         let (tree, queries) = tree_and_queries(2048, 513);
 
-        for executor in [Executor::serial(), Executor::parallel()] {
+        for executor in executors() {
             let seen: Mutex<Vec<Option<u32>>> = Mutex::new(vec![None; queries.len()]);
 
             tree.query_batch(&queries)
@@ -1171,6 +1199,7 @@ mod tests {
         assert!(tree.query_batch(&empty).is_empty());
     }
 
+    #[cfg(feature = "multi-threaded")]
     #[test]
     fn min_queries_per_task_hint_does_not_change_results() {
         let (tree, queries) = tree_and_queries(1024, 200);
@@ -1221,7 +1250,7 @@ mod tests {
     }
 }
 
-#[cfg(all(test, feature = "parallel"))]
+#[cfg(all(test, feature = "multi-threaded"))]
 mod parallel_tests {
     use std::collections::HashSet;
     use std::sync::Mutex;

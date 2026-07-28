@@ -10,10 +10,12 @@ use crate::{Axis, Content, KdTree, StemStrategy};
 
 use super::builder::KdTreeBuilder;
 
+#[cfg(feature = "multi-threaded")]
 mod parallel;
 mod serial;
 mod shared;
 
+#[cfg(feature = "multi-threaded")]
 pub use parallel::ParallelConstruction;
 pub use serial::SerialConstruction;
 pub(in crate::kd_tree) use shared::validate_auto_generated_items;
@@ -21,7 +23,25 @@ use shared::{
     construction_index_fits_u32, ConstructionIndex, ConstructionLeafScratch, SoftConstructionMode,
 };
 
+/// The construction policy [`KdTree::builder`] starts from.
+///
+/// This is [`ParallelConstruction`] with the `multi-threaded` feature enabled,
+/// and [`SerialConstruction`] without it.
+#[cfg(feature = "multi-threaded")]
+pub type DefaultConstruction = ParallelConstruction;
+
+/// The construction policy [`KdTree::builder`] starts from.
+///
+/// This is `ParallelConstruction` with the `multi-threaded` feature enabled,
+/// and [`SerialConstruction`] without it.
+#[cfg(not(feature = "multi-threaded"))]
+pub type DefaultConstruction = SerialConstruction;
+
 /// Point-count threshold used by the default adaptive construction policy.
+///
+/// Requires the `multi-threaded` feature; without it construction is always
+/// serial and there is no threshold to cross.
+#[cfg(feature = "multi-threaded")]
 pub const DEFAULT_PARALLEL_CONSTRUCTION_THRESHOLD: usize = 262_144;
 
 impl<A, T, SS, LS, const K: usize, const B: usize> KdTree<A, T, SS, LS, K, B>
@@ -294,7 +314,7 @@ where
     /// source length cannot be represented by `T`.
     ///
     /// Construction is serial below
-    /// [`DEFAULT_PARALLEL_CONSTRUCTION_THRESHOLD`] points and parallel at or
+    /// `DEFAULT_PARALLEL_CONSTRUCTION_THRESHOLD` points and parallel at or
     /// above it. Use [`KdTree::builder`] to select a different threshold or
     /// force either construction mode.
     ///
@@ -334,14 +354,17 @@ where
 
     /// Creates a `KdTree` from a slice of points using parallel construction.
     ///
+    /// Requires the `multi-threaded` feature.
+    ///
     /// This compatibility convenience constructor uses the same thresholded
     /// policy as [`KdTree::new_from_slice`]. Use
     /// [`KdTreeBuilder::with_parallel_construction`] to force the parallel
     /// algorithm below the default threshold.
     ///
     /// This method runs on the current Rayon thread pool. Use
-    /// [`rayon::ThreadPool::install`] when a caller needs to select a specific
+    /// `rayon::ThreadPool::install` when a caller needs to select a specific
     /// thread count.
+    #[cfg(feature = "multi-threaded")]
     pub fn new_from_slice_parallel(source: &[[A; K]]) -> Result<Self, ConstructionError>
     where
         A: Send + Sync,
@@ -437,6 +460,9 @@ where
     /// policy as [`KdTree::new_from_source`]. Coordinate access must be
     /// thread-safe because partitioning may invoke `axis_at` concurrently.
     /// Item construction remains sequential.
+    ///
+    /// Requires the `multi-threaded` feature.
+    #[cfg(feature = "multi-threaded")]
     pub fn new_from_source_parallel<X, FA, FI>(
         source: &[X],
         axis_at: FA,
@@ -490,6 +516,9 @@ where
 
     /// Creates a `KdTree` from item/point pairs using the default thresholded
     /// parallel construction policy.
+    ///
+    /// Requires the `multi-threaded` feature.
+    #[cfg(feature = "multi-threaded")]
     pub fn new_from_entries_parallel(source: &[(T, [A; K])]) -> Result<Self, ConstructionError>
     where
         A: Send + Sync,
@@ -535,6 +564,7 @@ where
         }
     }
 
+    #[cfg(feature = "multi-threaded")]
     pub(in crate::kd_tree) fn new_from_source_with_parallel_policy<X, FA, FI>(
         source: &[X],
         axis_at: FA,
@@ -782,6 +812,9 @@ where
 
     /// Creates a `KdTree` with no stored items using the default thresholded
     /// parallel construction policy.
+    ///
+    /// Requires the `multi-threaded` feature.
+    #[cfg(feature = "multi-threaded")]
     pub fn new_from_slice_no_items_parallel(source: &[[A; K]]) -> Result<Self, ConstructionError>
     where
         A: Send + Sync,

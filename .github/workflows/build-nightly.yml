@@ -58,12 +58,12 @@ jobs:
         if: github.actor != 'dependabot[bot]'
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          options: --features fixed,parallel,rkyv_08,serde --no-deps
+          options: --features fixed,rkyv_08,serde --no-deps
           name: Clippy nightly
 
       - name: Clippy (Nightly)
         if: github.actor == 'dependabot[bot]'
-        run: cargo clippy --features fixed,parallel,rkyv_08,serde --no-deps
+        run: cargo clippy --features fixed,rkyv_08,serde --no-deps
 
       - name: Install cargo-hack
         uses: baptiste0928/cargo-install@v3
@@ -122,11 +122,11 @@ jobs:
 
       - name: Cargo nextest (dev build)
         run: |
-          cargo nextest run --workspace --features "csv,f16,las,parallel,serde,simd,rkyv_08,test_utils"
+          cargo nextest run --workspace --features "csv,f16,las,serde,simd,rkyv_08,test_utils"
 
       - name: Cargo test (Doctests)
         run: |
-          cargo test --workspace --doc --features "csv,f16,las,parallel,serde,simd,rkyv_08,test_utils"
+          cargo test --workspace --doc --features "csv,f16,las,serde,simd,rkyv_08,test_utils"
 
   test-nightly-release:
     name: Test (Nightly / Release)
@@ -176,7 +176,7 @@ jobs:
 
       - name: Cargo nextest (release build)
         run: |
-          cargo nextest run --workspace --features "csv,f16,las,parallel,serde,simd,rkyv_08,test_utils" --release
+          cargo nextest run --workspace --features "csv,f16,las,serde,simd,rkyv_08,test_utils" --release
 
   test-nightly:
     name: Test (Nightly)

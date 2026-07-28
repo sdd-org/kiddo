@@ -24,7 +24,7 @@ all-features = true
 [features]
 cargo_asm = ["dep:rand", "dep:rand_chacha"]
 csv = ["dep:csv"]
-default = ["fixed"]
+default = ["fixed", "multi-threaded"]
 buffered_result_collection = ["dep:smallvec"]
 huge_pages = ["dep:libc"]
 leaf_view_chunked = []
@@ -42,7 +42,7 @@ logging_off = [
 ]
 no_inline = []
 las = ["dep:las"]
-parallel = ["dep:rayon"]
+multi-threaded = ["dep:rayon"]
 result_collection_stats = []
 serde = ["dep:serde", "serde/derive", "fixed/serde", "aligned-vec/serde"]
 simd = []
@@ -111,6 +111,7 @@ optional = true
 
 [dependencies.rayon]
 version = "1"
+optional = true
 
 [dependencies.rkyv_08]
 package = "rkyv"
@@ -157,7 +158,6 @@ radians = "0.3"
 rand = "0.10"
 rand_09 = { package = "rand", version = "0.9", features = ["small_rng"] }
 rand_distr = "0.6"
-rayon = "1"
 reqwest = { version = "0.13", default-features = false, features = [
   "blocking",
   "rustls",
