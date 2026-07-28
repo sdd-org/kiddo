@@ -177,8 +177,8 @@
 //! assert_eq!(results[1].item, 2);
 //! ```
 //!
-//! Enabling the `parallel` feature lets Kiddo spread a batch across multiple
-//! threads. How that work is scheduled — ordering, threading, and grouping — is
+//! Batches spread across threads by default, via the `multi-threaded` feature.
+//! How that work is scheduled — ordering, threading, and grouping — is
 //! deliberately unspecified so it can keep improving without breaking callers;
 //! see the [`batch`] module for exactly what is and is not guaranteed.
 //!
@@ -204,10 +204,20 @@
 //!   additional performance where available. This requires a nightly Rust
 //!   toolchain.
 //!
-//! - `parallel` lets batch queries spread their work across multiple threads
-//!   via [`rayon`](https://docs.rs/rayon/latest/rayon/). Batch queries compile
-//!   and run either way; without this feature they execute on the calling
-//!   thread. See the [`batch`] module.
+//! - `multi-threaded` **(default)** lets tree construction and batch queries
+//!   use multiple threads, via the current
+//!   [`rayon`](https://docs.rs/rayon/latest/rayon/) thread pool, and is what
+//!   pulls `rayon` in as a dependency.
+//!
+//!   Disabling it drops that dependency and configures the threaded APIs out
+//!   rather than quietly downgrading them: `ParallelConstruction`,
+//!   `KdTreeBuilder::with_parallel_construction`,
+//!   the `*_parallel` constructors, `Executor::parallel` and
+//!   `Executor::with_min_queries_per_task` no longer exist, so code that used
+//!   them fails to compile instead of silently running on one thread. Whatever
+//!   still compiles keeps working and produces identical trees and results.
+//!   Use it for WASM, embedded, or single-core targets, or wherever an extra
+//!   dependency is not worth it.
 //!
 //! - `huge_pages` enables Linux-specific huge-page advice helpers for owned and
 //!   archived tree storage.
@@ -247,7 +257,9 @@ mod custom_serde;
 pub mod kd_tree;
 #[doc(hidden)]
 pub type KdTree<A, T, SS, LS, const K: usize, const B: usize> = kd_tree::KdTree<A, T, SS, LS, K, B>;
-pub use kd_tree::{KdTreeBuilder, QueryScratch, DEFAULT_PARALLEL_CONSTRUCTION_THRESHOLD};
+#[cfg(feature = "multi-threaded")]
+pub use kd_tree::DEFAULT_PARALLEL_CONSTRUCTION_THRESHOLD;
+pub use kd_tree::{KdTreeBuilder, QueryScratch};
 
 /// Batch query execution: running many query points against one tree per call.
 pub mod batch {

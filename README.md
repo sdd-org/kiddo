@@ -194,7 +194,7 @@ assert_eq!(results[0].item, 0);
 assert_eq!(results[1].item, 2);
 ```
 
-Enable the `parallel` feature to let Kiddo spread a batch across multiple threads. Results stay indexed by query position no matter how the work was scheduled, and `for_each` is available for allocation-free streaming.
+Batches spread across multiple threads by default, via the `multi-threaded` feature. Results stay indexed by query position no matter how the work was scheduled, and `for_each` is available for allocation-free streaming.
 
 How a batch is scheduled — the order query points are executed in, which thread runs each one, and how work is grouped — is deliberately unspecified, so that batch execution can keep getting faster without breaking callers. The `kiddo::batch` module documents exactly what is and is not guaranteed.
 
@@ -212,7 +212,9 @@ Kiddo exposes a number of optional crate features:
 
 - `simd` **(NIGHTLY)** enables handwritten SIMD and prefetch intrinsics for additional performance where available. This requires a nightly Rust toolchain.
 
-- `parallel` lets batch queries spread their work across multiple threads via [`rayon`](https://docs.rs/rayon/latest/rayon/). Batch queries compile and run either way; without this feature they execute on the calling thread.
+- `multi-threaded` **(default)** lets tree construction and batch queries use multiple threads, via the current [`rayon`](https://docs.rs/rayon/latest/rayon/) thread pool, and is what pulls `rayon` in as a dependency.
+
+  Disabling it drops that dependency and configures the threaded APIs out rather than quietly downgrading them: `ParallelConstruction`, `KdTreeBuilder::with_parallel_construction`, the `*_parallel` constructors, `Executor::parallel()` and `Executor::with_min_queries_per_task()` no longer exist, so code that used them fails to compile instead of silently running on one thread. Whatever still compiles keeps working and produces identical trees and results. Use it for WASM, embedded, or single-core targets, or wherever an extra dependency is not worth it.
 
 - `huge_pages` enables Linux-specific huge-page advice helpers for owned and archived tree storage.
 

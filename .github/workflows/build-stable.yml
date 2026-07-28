@@ -51,7 +51,7 @@ jobs:
         run: bash .github/scripts/prepare-example-artifacts.sh
 
       - name: Run Clippy
-        run: cargo clippy --features=parallel,serde,rkyv_08,test_utils --no-deps
+        run: cargo clippy --features=serde,rkyv_08,test_utils --no-deps
 
       - name: Install cargo-hack
         uses: baptiste0928/cargo-install@v3
@@ -61,6 +61,12 @@ jobs:
 
       - name: Cargo Hack (check all stable targets and features)
         run: cargo hack check --workspace --each-feature --all-targets --exclude-features simd
+
+      # `--all-targets` unifies features via the dev-dependency on kiddo itself,
+      # which re-enables `multi-threaded`. Check the lib alone so the serial
+      # construction and batch-query fallbacks stay compiled.
+      - name: Check single-threaded fallback paths
+        run: cargo check --lib --no-default-features --features=fixed
 
   test-stable:
     name: Test (Stable)
@@ -95,8 +101,8 @@ jobs:
 
       - name: Cargo nextest
         run: |
-          cargo nextest run --workspace --features=parallel,serde,rkyv_08,test_utils
+          cargo nextest run --workspace --features=serde,rkyv_08,test_utils
 
       - name: Cargo test (Doctests)
         run: |
-          cargo test --workspace --doc --features=parallel,serde,rkyv_08,test_utils
+          cargo test --workspace --doc --features=serde,rkyv_08,test_utils

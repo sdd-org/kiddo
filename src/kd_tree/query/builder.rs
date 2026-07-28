@@ -1543,8 +1543,8 @@ where
 {
     /// Reserves space for the expected number of materialized radius-query results.
     ///
-    /// See [`WithResultCapacityQueryBuilder`] for the equivalent used by batch
-    /// queries.
+    /// Batch queries expose the same option through
+    /// [`BatchQueryBuilder::with_result_capacity`](crate::batch::BatchQueryBuilder::with_result_capacity).
     ///
     /// A good estimate avoids growth reallocations without limiting the number
     /// of results returned. Overestimating can reserve substantially more memory

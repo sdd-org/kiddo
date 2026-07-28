@@ -2,21 +2,26 @@ use crate::kd_tree::ConstructionError;
 use crate::traits::leaf_strategy::ConstructibleLeafStrategy;
 use crate::{Axis, Content, KdTree, StemStrategy};
 
-use super::construction::{
-    validate_auto_generated_items, ParallelConstruction, SerialConstruction,
-    DEFAULT_PARALLEL_CONSTRUCTION_THRESHOLD,
-};
+use super::construction::{validate_auto_generated_items, DefaultConstruction, SerialConstruction};
+#[cfg(feature = "multi-threaded")]
+use super::construction::{ParallelConstruction, DEFAULT_PARALLEL_CONSTRUCTION_THRESHOLD};
 
 /// Configures how a [`KdTree`] is constructed.
 ///
-/// The builder defaults to parallel construction at or above
-/// [`DEFAULT_PARALLEL_CONSTRUCTION_THRESHOLD`] points, using the current Rayon
-/// thread pool. Callers can use [`rayon::ThreadPool::install`] to control its
-/// thread count, or [`KdTreeBuilder::with_serial_construction`] to opt out.
+/// With the default `multi-threaded` feature the builder starts from parallel
+/// construction at or above `DEFAULT_PARALLEL_CONSTRUCTION_THRESHOLD` points,
+/// using the current Rayon thread pool. Callers can use
+/// `rayon::ThreadPool::install` to control its thread count, or
+/// [`KdTreeBuilder::with_serial_construction`] to opt out.
+///
+/// Without that feature the parallel policy does not exist: the builder starts
+/// from [`SerialConstruction`], and `with_parallel_construction` and its
+/// threshold variant are not compiled. See [`DefaultConstruction`].
 ///
 /// # Examples
 ///
 /// ```rust
+/// # #[cfg(feature = "multi-threaded")] {
 /// use kiddo::leaf_strategy::FlatVec;
 /// use kiddo::{Eytzinger, KdTree};
 ///
@@ -25,13 +30,17 @@ use super::construction::{
 /// let points = vec![[0.0, 1.0, 2.0], [3.0, 4.0, 5.0]];
 /// let tree = Tree::builder()
 ///     .with_parallel_construction_threshold(1_000)
-///     .build_from_slice(&points)?;
+///     .build_from_slice(&points)
+///     .unwrap();
 ///
 /// assert_eq!(tree.size(), 2);
-/// # Ok::<(), kiddo::kd_tree::ConstructionError>(())
+/// # }
 /// ```
 #[must_use = "a construction builder does nothing until a build method is called"]
-pub struct KdTreeBuilder<A, T, SS, LS, const K: usize, const B: usize, P = ParallelConstruction> {
+pub struct KdTreeBuilder<A, T, SS, LS, const K: usize, const B: usize, P = DefaultConstruction> {
+    // Only the parallel build path reads the policy; the serial one is a ZST
+    // marker, so without `multi-threaded` this field is never loaded.
+    #[cfg_attr(not(feature = "multi-threaded"), allow(dead_code))]
     pub(in crate::kd_tree) policy: P,
     pub(in crate::kd_tree) _phantom: std::marker::PhantomData<(A, T, SS, LS)>,
 }
@@ -49,6 +58,9 @@ impl<A, T, SS, LS, const K: usize, const B: usize, P> KdTreeBuilder<A, T, SS, LS
     ///
     /// Hard-bucket strategies currently retain their serial construction
     /// algorithm.
+    ///
+    /// Requires the `multi-threaded` feature.
+    #[cfg(feature = "multi-threaded")]
     pub fn with_parallel_construction(
         self,
     ) -> KdTreeBuilder<A, T, SS, LS, K, B, ParallelConstruction> {
@@ -63,6 +75,9 @@ impl<A, T, SS, LS, const K: usize, const B: usize, P> KdTreeBuilder<A, T, SS, LS
     ///
     /// The threshold also controls recursive Rayon join granularity.
     /// A threshold of zero is treated as forced parallel construction.
+    ///
+    /// Requires the `multi-threaded` feature.
+    #[cfg(feature = "multi-threaded")]
     pub fn with_parallel_construction_threshold(
         self,
         item_count: usize,
@@ -163,6 +178,7 @@ where
     }
 }
 
+#[cfg(feature = "multi-threaded")]
 impl<A, T, SS, LS, const K: usize, const B: usize> Default
     for KdTreeBuilder<A, T, SS, LS, K, B, ParallelConstruction>
 {
@@ -174,6 +190,7 @@ impl<A, T, SS, LS, const K: usize, const B: usize> Default
     }
 }
 
+#[cfg(feature = "multi-threaded")]
 impl<A, T, SS, LS, const K: usize, const B: usize>
     KdTreeBuilder<A, T, SS, LS, K, B, ParallelConstruction>
 where
@@ -242,6 +259,7 @@ where
     }
 }
 
+#[cfg(feature = "multi-threaded")]
 impl<A, SS, LS, const K: usize, const B: usize>
     KdTreeBuilder<A, (), SS, LS, K, B, ParallelConstruction>
 where
