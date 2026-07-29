@@ -169,6 +169,20 @@ impl<const PF1: isize, const PF2: isize> StemStrategy for EytzingerFlexPf<PF1, P
         }
     }
 
+    #[inline(always)]
+    fn branch_relative<A: Axis<Coord = A>, const K: usize>(&mut self, is_right: bool) -> Self {
+        let far = if is_right {
+            let mut right = self.branch::<A, K>();
+            std::mem::swap(self, &mut right);
+            right
+        } else {
+            self.branch::<A, K>()
+        };
+
+        Self::prefetch_descendants::<A>(self.stem_idx, self.stems_ptr);
+        far
+    }
+
     fn child_indices<A: Axis<Coord = A>>(&self) -> (usize, usize) {
         let left = (self.stem_idx << 1) as usize;
         let right = left | 1;
@@ -200,22 +214,19 @@ impl<const PF1: isize, const PF2: isize> StemStrategy for EytzingerFlexPf<PF1, P
 }
 
 impl<const PF1: isize, const PF2: isize> EytzingerFlexPf<PF1, PF2> {
-    #[allow(missing_docs)]
     #[inline(always)]
-    pub fn step_pure<A: Axis>(stem_idx: u32, is_right_child: bool, stems_ptr: NonNull<u8>) -> u32 {
-        let result = stem_idx.wrapping_shl(1) | is_right_child as u32;
-
+    fn prefetch_descendants<A: Axis>(stem_idx: u32, stems_ptr: NonNull<u8>) {
         match PF1 {
             0 => unsafe {
                 let nxt_ptr = stems_ptr
                     .as_ptr()
-                    .add((result.wrapping_shl(1) as usize) * A::VALUE_WIDTH_BYTES);
+                    .add((stem_idx.wrapping_shl(1) as usize) * A::VALUE_WIDTH_BYTES);
                 prefetch_t0(nxt_ptr);
             },
             1 => unsafe {
                 let nxt_ptr = stems_ptr
                     .as_ptr()
-                    .add((result.wrapping_shl(1) as usize) * A::VALUE_WIDTH_BYTES);
+                    .add((stem_idx.wrapping_shl(1) as usize) * A::VALUE_WIDTH_BYTES);
                 prefetch_t1(nxt_ptr);
             },
             _ => {}
@@ -225,17 +236,25 @@ impl<const PF1: isize, const PF2: isize> EytzingerFlexPf<PF1, PF2> {
             0 => unsafe {
                 let far_ptr = stems_ptr
                     .as_ptr()
-                    .add((result.wrapping_shl(4) as usize) * A::VALUE_WIDTH_BYTES);
+                    .add((stem_idx.wrapping_shl(4) as usize) * A::VALUE_WIDTH_BYTES);
                 prefetch_t0(far_ptr);
             },
             1 => unsafe {
                 let far_ptr = stems_ptr
                     .as_ptr()
-                    .add((result.wrapping_shl(4) as usize) * A::VALUE_WIDTH_BYTES);
+                    .add((stem_idx.wrapping_shl(4) as usize) * A::VALUE_WIDTH_BYTES);
                 prefetch_t1(far_ptr);
             },
             _ => {}
         };
+    }
+
+    #[allow(missing_docs)]
+    #[inline(always)]
+    pub fn step_pure<A: Axis>(stem_idx: u32, is_right_child: bool, stems_ptr: NonNull<u8>) -> u32 {
+        let result = stem_idx.wrapping_shl(1) | is_right_child as u32;
+
+        Self::prefetch_descendants::<A>(result, stems_ptr);
 
         result
     }
@@ -246,4 +265,27 @@ impl<const PF1: isize, const PF2: isize> EytzingerFlexPf<PF1, PF2> {
 #[inline(never)]
 pub fn calc_child_idx(curr_idx: u32, is_right_child: bool, stems_ptr: NonNull<u8>) -> u32 {
     EytzingerFlexPf::<0, 1>::step_pure::<f64>(curr_idx, is_right_child, stems_ptr)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn branch_relative_selects_near_child_and_returns_far_child() {
+        let stems = vec![0.0f64; 1024];
+        let stems_ptr = NonNull::new(stems.as_ptr().cast_mut().cast()).unwrap();
+
+        for is_right in [false, true] {
+            let mut state = Eytzinger::new(stems_ptr);
+            let far = state.branch_relative::<f64, 3>(is_right);
+
+            assert_eq!(state.stem_idx(), if is_right { 3 } else { 2 });
+            assert_eq!(far.stem_idx(), if is_right { 2 } else { 3 });
+            assert_eq!(state.level(), 1);
+            assert_eq!(far.level(), 1);
+            assert_eq!(state.dim::<3>(), 1);
+            assert_eq!(far.dim::<3>(), 1);
+        }
+    }
 }
