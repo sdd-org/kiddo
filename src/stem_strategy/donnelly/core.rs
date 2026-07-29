@@ -12,17 +12,17 @@ pub(crate) struct DonnellyCore<const BH: usize> {
     dim: usize,
     level: i32,
     minor_level: u32,
-    leaf_idx: usize,
+    leaf_idx: u32,
     stems_ptr: NonNull<u8>,
 }
 
 #[doc(hidden)]
+#[derive(Clone, Copy, Debug)]
 pub struct DonnellyCoreDeferred {
-    stem_idx: u32,
-    dim: usize,
-    level: i32,
-    minor_level: u32,
-    leaf_idx: usize,
+    /// `leaf_idx` in bits 0..32, `stem_idx` in bits 32..64.
+    indices: u64,
+    /// `dim` in bits 0..16, `level` in bits 16..24, `minor_level` in bits 24..32.
+    meta: u32,
 }
 
 // SAFETY: NonNull<u8> is not Send or Sync, preventing DonnellyCore from being automatically
@@ -40,7 +40,10 @@ impl<const BH: usize> StemStrategy for DonnellyCore<BH> {
     type Stack<A> = crate::kd_tree::query_stack::QueryStack<A, Self>;
 
     fn new(stems_ptr: NonNull<u8>) -> Self {
-        // debug_assert!(CL > VB); // item wider than cache line would break layout
+        assert!(
+            BH <= u8::MAX as usize,
+            "Donnelly block height must fit in packed deferred state"
+        );
 
         Self {
             stem_idx: Self::ROOT_IDX as u32,
@@ -57,29 +60,34 @@ impl<const BH: usize> StemStrategy for DonnellyCore<BH> {
         self.stem_idx as usize
     }
     fn deferred_state(&self) -> Self::DeferredState {
+        debug_assert!(self.dim <= u16::MAX as usize);
+        debug_assert!((0..u32::BITS as i32).contains(&self.level));
+        debug_assert!(self.minor_level <= u8::MAX as u32);
+
         DonnellyCoreDeferred {
-            stem_idx: self.stem_idx,
-            dim: self.dim,
-            level: self.level,
-            minor_level: self.minor_level,
-            leaf_idx: self.leaf_idx,
+            indices: u64::from(self.leaf_idx) | (u64::from(self.stem_idx) << 32),
+            meta: self.dim as u32 | ((self.level as u32) << 16) | (self.minor_level << 24),
         }
     }
     fn rehydrate_deferred_state(&mut self, state: Self::DeferredState) {
-        self.stem_idx = state.stem_idx;
-        self.dim = state.dim;
-        self.level = state.level;
-        self.minor_level = state.minor_level;
-        self.leaf_idx = state.leaf_idx;
+        self.leaf_idx = state.indices as u32;
+        self.stem_idx = (state.indices >> 32) as u32;
+        self.dim = (state.meta & u16::MAX as u32) as usize;
+        self.level = ((state.meta >> 16) & u8::MAX as u32) as i32;
+        self.minor_level = state.meta >> 24;
     }
 
     #[inline(always)]
     fn leaf_idx(&self) -> usize {
-        self.leaf_idx
+        self.leaf_idx as usize
     }
 
     #[inline(always)]
     fn dim<const K: usize>(&self) -> usize {
+        assert!(
+            K <= u16::MAX as usize + 1,
+            "Donnelly arithmetic queries require dimensions to fit in u16"
+        );
         self.dim
     }
 
@@ -96,10 +104,14 @@ impl<const BH: usize> StemStrategy for DonnellyCore<BH> {
 
         self.level = self.level.wrapping_add(1);
 
-        let wrap_dim_mask = 0usize.wrapping_sub((self.dim == (K - 1)) as usize);
-        self.dim = self.dim.wrapping_add(1) & !wrap_dim_mask;
+        if K == BH {
+            self.dim = lvl as usize;
+        } else {
+            let wrap_dim_mask = 0usize.wrapping_sub((self.dim == (K - 1)) as usize);
+            self.dim = self.dim.wrapping_add(1) & !wrap_dim_mask;
+        }
 
-        self.leaf_idx = self.leaf_idx.wrapping_shl(1) | is_right as usize;
+        self.leaf_idx = self.leaf_idx.wrapping_shl(1) | is_right as u32;
     }
 
     /// Used when running loop-unrolled
@@ -116,10 +128,14 @@ impl<const BH: usize> StemStrategy for DonnellyCore<BH> {
 
         self.level = self.level.wrapping_add(1);
 
-        let wrap_dim_mask = 0usize.wrapping_sub((self.dim == (K - 1)) as usize);
-        self.dim = self.dim.wrapping_add(1) & !wrap_dim_mask;
+        if K == BH {
+            self.dim = lvl as usize;
+        } else {
+            let wrap_dim_mask = 0usize.wrapping_sub((self.dim == (K - 1)) as usize);
+            self.dim = self.dim.wrapping_add(1) & !wrap_dim_mask;
+        }
 
-        self.leaf_idx = self.leaf_idx.wrapping_shl(1) | is_right as usize;
+        self.leaf_idx = self.leaf_idx.wrapping_shl(1) | is_right as u32;
     }
 
     #[inline(always)]
@@ -133,8 +149,12 @@ impl<const BH: usize> StemStrategy for DonnellyCore<BH> {
 
         self.level = self.level.wrapping_add(1);
 
-        let wrap_dim_mask = 0usize.wrapping_sub((self.dim == (K - 1)) as usize);
-        self.dim = self.dim.wrapping_add(1) & !wrap_dim_mask;
+        if K == BH {
+            self.dim = self.minor_level as usize;
+        } else {
+            let wrap_dim_mask = 0usize.wrapping_sub((self.dim == (K - 1)) as usize);
+            self.dim = self.dim.wrapping_add(1) & !wrap_dim_mask;
+        }
 
         self.leaf_idx = self.leaf_idx.wrapping_shl(1);
 
@@ -142,6 +162,43 @@ impl<const BH: usize> StemStrategy for DonnellyCore<BH> {
         Self {
             stem_idx: right,
             leaf_idx: self.leaf_idx | 1,
+            ..*self
+        }
+    }
+
+    #[inline(always)]
+    fn branch_relative<A: Axis<Coord = A>, const K: usize>(&mut self, is_right: bool) -> Self {
+        let (left_idx, right_idx, minor_level) =
+            Self::both_children_predictable(self.stem_idx, self.minor_level);
+
+        self.level = self.level.wrapping_add(1);
+        self.minor_level = minor_level;
+        if K == BH {
+            self.dim = minor_level as usize;
+        } else {
+            let wrap_dim_mask = 0usize.wrapping_sub((self.dim == (K - 1)) as usize);
+            self.dim = self.dim.wrapping_add(1) & !wrap_dim_mask;
+        }
+
+        let (near_idx, far_idx) = if is_right {
+            (right_idx, left_idx)
+        } else {
+            (left_idx, right_idx)
+        };
+        let left_leaf_idx = self.leaf_idx.wrapping_shl(1);
+        let right_leaf_idx = left_leaf_idx | 1;
+        let (near_leaf_idx, far_leaf_idx) = if is_right {
+            (right_leaf_idx, left_leaf_idx)
+        } else {
+            (left_leaf_idx, right_leaf_idx)
+        };
+
+        self.stem_idx = near_idx;
+        self.leaf_idx = near_leaf_idx;
+
+        Self {
+            stem_idx: far_idx,
+            leaf_idx: far_leaf_idx,
             ..*self
         }
     }
@@ -201,7 +258,7 @@ impl<const BH: usize> DonnellyCore<BH> {
         let wrap_dim_mask = 0usize.wrapping_sub((self.dim == (K - 1)) as usize);
         self.dim = (self.dim + 1) & !wrap_dim_mask;
 
-        self.leaf_idx = self.leaf_idx.wrapping_shl(block_size) | (child_idx as usize);
+        self.leaf_idx = self.leaf_idx.wrapping_shl(block_size) | child_idx as u32;
     }
 
     /// Used when running loop-unrolled
@@ -226,10 +283,14 @@ impl<const BH: usize> DonnellyCore<BH> {
 
         self.level = self.level.wrapping_add(1);
 
-        let wrap_dim_mask = 0usize.wrapping_sub((self.dim == (K - 1)) as usize);
-        self.dim = self.dim.wrapping_add(1) & !wrap_dim_mask;
+        if K == BH {
+            self.dim = lvl as usize;
+        } else {
+            let wrap_dim_mask = 0usize.wrapping_sub((self.dim == (K - 1)) as usize);
+            self.dim = self.dim.wrapping_add(1) & !wrap_dim_mask;
+        }
 
-        self.leaf_idx = self.leaf_idx.wrapping_shl(1) | is_right as usize;
+        self.leaf_idx = self.leaf_idx.wrapping_shl(1) | is_right as u32;
     }
 
     #[inline(always)]
@@ -425,6 +486,35 @@ impl<const BH: usize> DonnellyCore<BH> {
 
         (left, right)
     }
+
+    /// Compute both children with a predictable block-boundary branch.
+    ///
+    /// Exact traversal visits block phases in a fixed cycle, so this avoids
+    /// evaluating both the same-line and next-line recurrences at every level.
+    #[inline(always)]
+    pub(crate) fn both_children_predictable(curr_idx: u32, minor_level: u32) -> (u32, u32, u32) {
+        let line_base = curr_idx & Self::line_mask_inv();
+        let local_idx = curr_idx & Self::line_mask();
+        let next_minor_level = minor_level + 1;
+
+        if next_minor_level == BH as u32 {
+            let path_prefix = local_idx.wrapping_sub(minor_level).wrapping_sub(1);
+            let left_idx = line_base
+                .wrapping_add(1)
+                .wrapping_add(path_prefix.wrapping_shl(1))
+                .wrapping_shl(BH as u32);
+            (
+                left_idx,
+                left_idx.wrapping_add(1u32.wrapping_shl(BH as u32)),
+                0,
+            )
+        } else {
+            let left_idx = line_base
+                .wrapping_add(1)
+                .wrapping_add(local_idx.wrapping_shl(1));
+            (left_idx, left_idx.wrapping_add(1), next_minor_level)
+        }
+    }
 }
 
 /// Exposed pure function for use with cargo-asm
@@ -463,6 +553,76 @@ mod tests {
     use super::*;
     use aligned_vec::avec;
     use rstest::rstest;
+
+    fn assert_branch_relative_matches_default<const BH: usize, const K: usize>() {
+        for seed in 0usize..32 {
+            let mut state = DonnellyCore::<BH>::new_no_ptr();
+            for level in 0usize..20 {
+                for is_right in [false, true] {
+                    let mut expected_near = state;
+                    let mut expected_far = expected_near.branch::<f64, K>();
+                    if is_right {
+                        std::mem::swap(&mut expected_near, &mut expected_far);
+                    }
+
+                    let mut actual_near = state;
+                    let actual_far = actual_near.branch_relative::<f64, K>(is_right);
+
+                    assert_eq!(actual_near.stem_idx, expected_near.stem_idx);
+                    assert_eq!(actual_near.leaf_idx, expected_near.leaf_idx);
+                    assert_eq!(actual_near.dim, expected_near.dim);
+                    assert_eq!(actual_near.level, expected_near.level);
+                    assert_eq!(actual_near.minor_level, expected_near.minor_level);
+                    assert_eq!(actual_far.stem_idx, expected_far.stem_idx);
+                    assert_eq!(actual_far.leaf_idx, expected_far.leaf_idx);
+                    assert_eq!(actual_far.dim, expected_far.dim);
+                    assert_eq!(actual_far.level, expected_far.level);
+                    assert_eq!(actual_far.minor_level, expected_far.minor_level);
+                }
+
+                let is_right = (seed.wrapping_mul(17) + level.wrapping_mul(29)) & 4 != 0;
+                state.traverse::<f64, K>(is_right);
+            }
+        }
+    }
+
+    #[test]
+    fn branch_relative_matches_default_across_block_boundaries() {
+        assert_branch_relative_matches_default::<3, 3>();
+        assert_branch_relative_matches_default::<3, 5>();
+        assert_branch_relative_matches_default::<4, 3>();
+        assert_branch_relative_matches_default::<4, 4>();
+    }
+
+    fn assert_compact_deferred_state_round_trips<const BH: usize>() {
+        assert_eq!(std::mem::size_of::<DonnellyCoreDeferred>(), 16);
+        assert_eq!(std::mem::size_of::<DonnellyCore<BH>>(), 32);
+
+        for seed in 0usize..32 {
+            let mut state = DonnellyCore::<BH>::new_no_ptr();
+            for level in 0usize..20 {
+                let expected = state;
+                let saved = state.deferred_state();
+
+                let mut restored = DonnellyCore::<BH>::new_no_ptr();
+                restored.rehydrate_deferred_state(saved);
+                assert_eq!(restored.stem_idx, expected.stem_idx);
+                assert_eq!(restored.leaf_idx, expected.leaf_idx);
+                assert_eq!(restored.dim, expected.dim);
+                assert_eq!(restored.level, expected.level);
+                assert_eq!(restored.minor_level, expected.minor_level);
+
+                let is_right = (seed.wrapping_mul(17) + level.wrapping_mul(29)) & 4 != 0;
+                state.traverse::<f64, 3>(is_right);
+            }
+        }
+    }
+
+    #[test]
+    fn compact_deferred_state_round_trips_for_supported_block_heights() {
+        assert_compact_deferred_state_round_trips::<3>();
+        assert_compact_deferred_state_round_trips::<4>();
+    }
 
     #[rstest]
     #[case(vec![], 0)]
