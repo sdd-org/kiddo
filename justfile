@@ -966,3 +966,51 @@ uprof-donnelly:
         -w /home/scotty/projects/kiddo \
         -o ./uprof-output-eytz \
         target/release/examples/immutable-large-ann-donnelly-deserialize-and-query
+
+profile-v6-donnelly-vs-eytz-exact RESULT_KEY=benchmark_result_key RESULTS_DIR='./profile-results' MIN_LOG2='16' MAX_LOG2='29' QUERIES='4096' WARMUP='2' MEASUREMENT='5' SAMPLE_SIZE='30':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    result_key={{quote(RESULT_KEY)}}
+    results_dir={{quote(RESULTS_DIR)}}
+    if [[ ! "$result_key" =~ ^[A-Za-z0-9][A-Za-z0-9._+:-]*$ ]]; then
+        echo "RESULT_KEY must contain only letters, digits, '.', '_', '+', ':', or '-'" >&2
+        exit 2
+    fi
+    mkdir -p "$results_dir"
+    criterion_root="${CARGO_TARGET_DIR:-target}/criterion"
+    RUSTC_WRAPPER= \
+        KIDDO_STEM_BENCH_MODE=scalar \
+        KIDDO_STEM_STRATEGIES=eytzinger,donnelly \
+        KIDDO_PROFILE_QUERIES={{quote(QUERIES)}} \
+        KIDDO_PROFILE_MIN_LOG2_POINTS={{quote(MIN_LOG2)}} \
+        KIDDO_PROFILE_MAX_LOG2_POINTS={{quote(MAX_LOG2)}} \
+        RUSTFLAGS='-C target-cpu=native' \
+        cargo bench \
+            --bench profile_v6_stem_strategies \
+            --features simd,test_utils,logging_off \
+            -- \
+            profile_v6_stem_strategies \
+            --warm-up-time {{quote(WARMUP)}} \
+            --measurement-time {{quote(MEASUREMENT)}} \
+            --sample-size {{quote(SAMPLE_SIZE)}} \
+            --noplot
+    cargo run --quiet --manifest-path tools/criterion-export/Cargo.toml -- \
+        "$criterion_root" \
+        "$results_dir/bench_result-v6-stem-exact-best-${result_key}.json" \
+        profile_v6_stem_strategies_f32 \
+        profile_v6_stem_strategies_f64
+
+chart-profile-v6-donnelly-vs-eytz-exact RESULT_KEY RESULTS_DIR='./profile-results' OUTPUT_DIR='./profile-charts' HTML_NAME='donnelly-vs-eytz-exact.html' PYTHON='python3':
+    {{quote(PYTHON)}} scripts/chart_donnelly_eytz_exact.py \
+        {{quote(RESULTS_DIR)}}/bench_result-v6-stem-exact-best-{{quote(RESULT_KEY)}}.json \
+        {{quote(OUTPUT_DIR)}} \
+        --html-name {{quote(HTML_NAME)}}
+
+view-profile-v6-donnelly-vs-eytz-exact RESULT_KEY RESULTS_DIR='./profile-results' OUTPUT_DIR='./profile-charts' HTML_NAME='donnelly-vs-eytz-exact.html' PYTHON='python3':
+    just chart-profile-v6-donnelly-vs-eytz-exact \
+        {{quote(RESULT_KEY)}} \
+        {{quote(RESULTS_DIR)}} \
+        {{quote(OUTPUT_DIR)}} \
+        {{quote(HTML_NAME)}} \
+        {{quote(PYTHON)}}
+    xdg-open {{quote(OUTPUT_DIR)}}/{{quote(HTML_NAME)}}

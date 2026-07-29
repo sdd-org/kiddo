@@ -67,6 +67,13 @@ fn read_mode_env() -> StemBenchMode {
     }
 }
 
+fn strategy_enabled(label: &str) -> bool {
+    let Ok(filter) = std::env::var("KIDDO_STEM_STRATEGIES") else {
+        return true;
+    };
+    filter.split(',').any(|candidate| candidate.trim() == label)
+}
+
 fn build_points_f64(point_count: usize) -> Vec<[f64; K]> {
     let mut rng = ChaCha8Rng::seed_from_u64(POINT_SEED);
     (0..point_count).map(|_| rng.random::<[f64; K]>()).collect()
@@ -126,6 +133,10 @@ fn bench_f64_strategy<SS: StemStrategy>(
     points: &[[f64; K]],
     queries: &[[f64; K]],
 ) {
+    if !strategy_enabled(label) {
+        return;
+    }
+
     let tree: F64Tree<SS> = KdTree::new_from_slice(points).unwrap();
     group.bench_function(BenchmarkId::new(label, point_count), |b| {
         b.iter(|| black_box(run_queries_f64(&tree, queries)))
@@ -139,6 +150,10 @@ fn bench_f32_strategy<SS: StemStrategy>(
     points: &[[f32; K]],
     queries: &[[f32; K]],
 ) {
+    if !strategy_enabled(label) {
+        return;
+    }
+
     let tree: F32Tree<SS> = KdTree::new_from_slice(points).unwrap();
     group.bench_function(BenchmarkId::new(label, point_count), |b| {
         b.iter(|| black_box(run_queries_f32(&tree, queries)))

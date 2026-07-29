@@ -149,7 +149,7 @@ fn collect_legacy_json(
             .unwrap_or(&path)
             .to_string_lossy()
             .replace('\\', "/");
-        if relative.contains("/base/") {
+        if relative.contains("/base/") || relative.contains("/change/") {
             continue;
         }
         let benchmark = relative
