@@ -219,7 +219,8 @@ where
         D: DistanceMetric<A, Output = O>,
         SS::Stack<O>: StackTrait<O, SS> + Default,
     {
-        if self.stem_leaf_resolution().uses_arithmetic() && SS::BLOCK_SIZE == 1 {
+        if self.stem_leaf_resolution().uses_arithmetic() && SS::SUPPORTS_ARITHMETIC_LEAF_RESOLUTION
+        {
             self.arithmetic_query::<QC, O, D>(query_ctx, process_leaf);
             return;
         }
@@ -245,7 +246,8 @@ where
         D: DistanceMetric<A, Output = O>,
         SS::Stack<O>: StackTrait<O, SS>,
     {
-        if self.stem_leaf_resolution().uses_arithmetic() && SS::BLOCK_SIZE == 1 {
+        if self.stem_leaf_resolution().uses_arithmetic() && SS::SUPPORTS_ARITHMETIC_LEAF_RESOLUTION
+        {
             self.arithmetic_query_with_scratch::<QC, O, D>(query_ctx, stack, process_leaf);
             return;
         }
@@ -533,63 +535,76 @@ where
         O: Axis<Coord = O> + BacktrackBlock3 + BacktrackBlock4,
         D: DistanceMetric<A, Output = O>,
     {
-        while stem_strat.level() <= self.max_stem_level() {
-            #[cfg(feature = "result_collection_stats")]
-            crate::results::result_collection_stats::record_query_scalar_traverse_step();
+        macro_rules! descend_one {
+            () => {{
+                #[cfg(feature = "result_collection_stats")]
+                crate::results::result_collection_stats::record_query_scalar_traverse_step();
 
-            #[cfg(feature = "result_collection_stats")]
-            {
-                let rd_from_off = D::rect_dist_from_off(off);
-                crate::results::result_collection_stats::record_query_scalar_rd_off_check(O::cmp(
-                    rd_from_off,
-                    rd,
-                ));
-            }
+                #[cfg(feature = "result_collection_stats")]
+                {
+                    let rd_from_off = D::rect_dist_from_off(off);
+                    crate::results::result_collection_stats::record_query_scalar_rd_off_check(
+                        O::cmp(rd_from_off, rd),
+                    );
+                }
 
-            let dim = stem_strat.dim::<K>();
-            let pivot = unsafe { *self.stems().get_unchecked(stem_strat.stem_idx()) };
-            if pivot < A::max_value() {
-                let query_elem = unsafe { *query.get_unchecked(dim) };
-                let is_right_child = query_elem >= pivot;
-                let far_ctx = stem_strat.branch_relative::<A, K>(is_right_child);
+                let dim = stem_strat.dim::<K>();
+                let pivot = unsafe { *self.stems().get_unchecked(stem_strat.stem_idx()) };
+                if pivot < A::max_value() {
+                    let query_elem = unsafe { *query.get_unchecked(dim) };
+                    let is_right_child = query_elem >= pivot;
+                    let far_ctx = stem_strat.branch_relative::<A, K>(is_right_child);
 
-                let pivot_wide = D::widen_coord(pivot);
-                let query_elem_wide = unsafe { *query_wide.get_unchecked(dim) };
-                let new_off = O::saturating_dist(query_elem_wide, pivot_wide);
-                let old_off = unsafe { *off.get_unchecked(dim) };
-                let rd_far = D::rect_dist_after_update(rd, off, dim, new_off);
-                let far_is_candidate = if CHECK_BOUND {
-                    O::cmp(rd_far, query_ctx.max_dist()) != std::cmp::Ordering::Greater
-                } else {
-                    true
-                };
+                    let pivot_wide = D::widen_coord(pivot);
+                    let query_elem_wide = unsafe { *query_wide.get_unchecked(dim) };
+                    let new_off = O::saturating_dist(query_elem_wide, pivot_wide);
+                    let old_off = unsafe { *off.get_unchecked(dim) };
+                    let rd_far = D::rect_dist_after_update(rd, off, dim, new_off);
+                    let far_is_candidate = if CHECK_BOUND {
+                        O::cmp(rd_far, query_ctx.max_dist()) != std::cmp::Ordering::Greater
+                    } else {
+                        true
+                    };
 
-                if far_is_candidate {
+                    if far_is_candidate {
+                        #[cfg(feature = "result_collection_stats")]
+                        crate::results::result_collection_stats::record_query_scalar_far_child_candidate();
+                        restore_stack
+                            .push_unchecked_inline(ScalarContinuationRestore::with_far(old_off));
+                        far_stack.push_unchecked_inline(ScalarContinuationFar {
+                            stem_state: far_ctx.deferred_state(),
+                            far_off: new_off,
+                            rd: rd_far,
+                        });
+                    } else {
+                        #[cfg(feature = "result_collection_stats")]
+                        crate::results::result_collection_stats::record_query_scalar_far_child_reject();
+                        restore_stack
+                            .push_unchecked_inline(ScalarContinuationRestore::restore_only(old_off));
+                    }
                     #[cfg(feature = "result_collection_stats")]
-                    crate::results::result_collection_stats::record_query_scalar_far_child_candidate();
-                    restore_stack
-                        .push_unchecked_inline(ScalarContinuationRestore::with_far(old_off));
-                    far_stack.push_unchecked_inline(ScalarContinuationFar {
-                        stem_state: far_ctx.deferred_state(),
-                        far_off: new_off,
-                        rd: rd_far,
-                    });
+                    crate::results::result_collection_stats::record_query_scalar_continuation_frame_push();
                 } else {
-                    #[cfg(feature = "result_collection_stats")]
-                    crate::results::result_collection_stats::record_query_scalar_far_child_reject();
+                    let old_off = unsafe { *off.get_unchecked(dim) };
                     restore_stack
                         .push_unchecked_inline(ScalarContinuationRestore::restore_only(old_off));
+                    #[cfg(feature = "result_collection_stats")]
+                    crate::results::result_collection_stats::record_query_scalar_continuation_frame_push();
+                    stem_strat.traverse::<A, K>(false);
                 }
-                #[cfg(feature = "result_collection_stats")]
-                crate::results::result_collection_stats::record_query_scalar_continuation_frame_push();
-            } else {
-                let old_off = unsafe { *off.get_unchecked(dim) };
-                restore_stack
-                    .push_unchecked_inline(ScalarContinuationRestore::restore_only(old_off));
-                #[cfg(feature = "result_collection_stats")]
-                crate::results::result_collection_stats::record_query_scalar_continuation_frame_push();
-                stem_strat.traverse::<A, K>(false);
+            }};
+        }
+
+        if SS::BLOCK_SIZE == 3 {
+            while stem_strat.level() + 2 <= self.max_stem_level() {
+                descend_one!();
+                descend_one!();
+                descend_one!();
             }
+        }
+
+        while stem_strat.level() <= self.max_stem_level() {
+            descend_one!();
         }
 
         let leaf_idx = stem_strat.leaf_idx();

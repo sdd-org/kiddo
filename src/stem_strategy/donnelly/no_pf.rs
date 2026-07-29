@@ -16,6 +16,7 @@ pub struct DonnellyNoPf<const BH: usize> {
 impl<const BH: usize> StemStrategy for DonnellyNoPf<BH> {
     const ROOT_IDX: usize = 0;
     const BLOCK_SIZE: usize = BH;
+    const SUPPORTS_ARITHMETIC_LEAF_RESOLUTION: bool = true;
 
     type DeferredState = DonnellyCoreDeferred;
     type StackContext<A> = crate::kd_tree::query_stack::QueryStackContext<A, Self::DeferredState>;
@@ -78,6 +79,13 @@ impl<const BH: usize> StemStrategy for DonnellyNoPf<BH> {
     fn branch<A: Axis<Coord = A>, const K: usize>(&mut self) -> Self {
         Self {
             core: self.core.branch::<A, K>(),
+        }
+    }
+
+    #[inline(always)]
+    fn branch_relative<A: Axis<Coord = A>, const K: usize>(&mut self, is_right: bool) -> Self {
+        Self {
+            core: self.core.branch_relative::<A, K>(is_right),
         }
     }
 

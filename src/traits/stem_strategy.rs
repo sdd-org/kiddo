@@ -20,6 +20,14 @@ pub trait StemStrategy: Clone + Sync + Send + 'static {
     /// The default is 1, which means that the strategy is not block-based.
     const BLOCK_SIZE: usize = 1;
 
+    /// Whether this strategy maintains the arithmetic leaf-path index required
+    /// by immutable trees' inline continuation-stack query path.
+    ///
+    /// Level-at-a-time layouts preserve the historical behavior by default.
+    /// Block layouts may opt in when their scalar branching operations maintain
+    /// an equivalent arithmetic leaf index.
+    const SUPPORTS_ARITHMETIC_LEAF_RESOLUTION: bool = Self::BLOCK_SIZE == 1;
+
     /// Compact state persisted on scalar backtracking stacks.
     ///
     /// Scalar strategies can use this to store only the state needed to resume a deferred branch.

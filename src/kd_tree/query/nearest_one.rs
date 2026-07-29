@@ -120,7 +120,7 @@ where
         SS::Stack<D::Output>: StackTrait<D::Output, SS> + Default + 'static,
         SS: 'static,
     {
-        if SS::BLOCK_SIZE != 1 {
+        if !SS::SUPPORTS_ARITHMETIC_LEAF_RESOLUTION {
             return self.nearest_one_mapped::<D>(query);
         }
 
