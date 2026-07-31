@@ -801,22 +801,6 @@ const AVX2_LINE_SIZE_F32: usize = 8;
 const SSE_LINE_SIZE_F32: usize = 4;
 
 #[inline(always)]
-unsafe fn scan_best_values_f32<T: Content>(
-    dist_values: &[f32],
-    items: *const T,
-    base: usize,
-    best_dist: &mut f32,
-    best_item: &mut T,
-) {
-    for (lane, &dist) in dist_values.iter().enumerate() {
-        if dist < *best_dist {
-            *best_dist = dist;
-            *best_item = std::ptr::read_unaligned(items.add(base + lane));
-        }
-    }
-}
-
-#[inline(always)]
 unsafe fn update_best_chunk_avx512_raw_f32<T: Content>(
     d0: __m512,
     d1: __m512,
@@ -827,30 +811,42 @@ unsafe fn update_best_chunk_avx512_raw_f32<T: Content>(
     best_dist: &mut f32,
     best_item: &mut T,
 ) {
-    let mut values0 = [0.0f32; LINE_SIZE_F32];
-    let mut values1 = [0.0f32; LINE_SIZE_F32];
-    let mut values2 = [0.0f32; LINE_SIZE_F32];
-    let mut values3 = [0.0f32; LINE_SIZE_F32];
-    _mm512_storeu_ps(values0.as_mut_ptr(), d0);
-    _mm512_storeu_ps(values1.as_mut_ptr(), d1);
-    _mm512_storeu_ps(values2.as_mut_ptr(), d2);
-    _mm512_storeu_ps(values3.as_mut_ptr(), d3);
-    scan_best_values_f32(&values0, items, base, best_dist, best_item);
-    scan_best_values_f32(&values1, items, base + LINE_SIZE_F32, best_dist, best_item);
-    scan_best_values_f32(
-        &values2,
-        items,
-        base + 2 * LINE_SIZE_F32,
-        best_dist,
-        best_item,
-    );
-    scan_best_values_f32(
-        &values3,
-        items,
-        base + 3 * LINE_SIZE_F32,
-        best_dist,
-        best_item,
-    );
+    let current_best = *best_dist;
+    let bb = _mm512_set1_ps(current_best);
+    let m0 = _mm512_cmp_ps_mask(d0, bb, _CMP_LT_OQ);
+    let m1 = _mm512_cmp_ps_mask(d1, bb, _CMP_LT_OQ);
+    let m2 = _mm512_cmp_ps_mask(d2, bb, _CMP_LT_OQ);
+    let m3 = _mm512_cmp_ps_mask(d3, bb, _CMP_LT_OQ);
+
+    if (m0 | m1 | m2 | m3) == 0 {
+        return;
+    }
+
+    // Reduce only lanes that can improve the incumbent.  Besides avoiding
+    // unnecessary work on non-candidates, this gives NaNs the same ordered
+    // comparison semantics as the scalar fallback: they cannot win.
+    let inf = _mm512_set1_ps(f32::INFINITY);
+    let candidate0 = _mm512_mask_blend_ps(m0, inf, d0);
+    let candidate1 = _mm512_mask_blend_ps(m1, inf, d1);
+    let candidate2 = _mm512_mask_blend_ps(m2, inf, d2);
+    let candidate3 = _mm512_mask_blend_ps(m3, inf, d3);
+    let min01 = _mm512_min_ps(candidate0, candidate1);
+    let min23 = _mm512_min_ps(candidate2, candidate3);
+    let min0123 = _mm512_min_ps(min01, min23);
+    let chunk_min = reduce_min_avx512_f32(min0123);
+
+    let min_bcast = _mm512_set1_ps(chunk_min);
+    let eq0 = _mm512_cmp_ps_mask(d0, min_bcast, _CMP_EQ_OQ);
+    let eq1 = _mm512_cmp_ps_mask(d1, min_bcast, _CMP_EQ_OQ);
+    let eq2 = _mm512_cmp_ps_mask(d2, min_bcast, _CMP_EQ_OQ);
+    let eq3 = _mm512_cmp_ps_mask(d3, min_bcast, _CMP_EQ_OQ);
+    let combined =
+        (eq0 as u64) | ((eq1 as u64) << 16) | ((eq2 as u64) << 32) | ((eq3 as u64) << 48);
+    core::hint::assert_unchecked(combined != 0);
+    let idx = combined.trailing_zeros() as usize;
+
+    *best_dist = chunk_min;
+    *best_item = std::ptr::read_unaligned(items.add(base + idx));
 }
 
 #[inline(always)]
@@ -861,9 +857,23 @@ unsafe fn update_best_line_avx512_raw_f32<T: Content>(
     best_dist: &mut f32,
     best_item: &mut T,
 ) {
-    let mut values = [0.0f32; LINE_SIZE_F32];
-    _mm512_storeu_ps(values.as_mut_ptr(), d0);
-    scan_best_values_f32(&values, items, base, best_dist, best_item);
+    let current_best = *best_dist;
+    let bb = _mm512_set1_ps(current_best);
+    let m0 = _mm512_cmp_ps_mask(d0, bb, _CMP_LT_OQ);
+
+    if m0 == 0 {
+        return;
+    }
+
+    let inf = _mm512_set1_ps(f32::INFINITY);
+    let chunk_min = reduce_min_avx512_f32(_mm512_mask_blend_ps(m0, inf, d0));
+    let min_bcast = _mm512_set1_ps(chunk_min);
+    let eq0 = _mm512_cmp_ps_mask(d0, min_bcast, _CMP_EQ_OQ);
+    core::hint::assert_unchecked(eq0 != 0);
+    let idx = eq0.trailing_zeros() as usize;
+
+    *best_dist = chunk_min;
+    *best_item = std::ptr::read_unaligned(items.add(base + idx));
 }
 
 #[inline(always)]
@@ -874,9 +884,24 @@ unsafe fn update_best_line_avx2_raw_f32<T: Content>(
     best_dist: &mut f32,
     best_item: &mut T,
 ) {
-    let mut values = [0.0f32; AVX2_LINE_SIZE_F32];
-    _mm256_storeu_ps(values.as_mut_ptr(), d0);
-    scan_best_values_f32(&values, items, base, best_dist, best_item);
+    let current_best = *best_dist;
+    let bb = _mm256_set1_ps(current_best);
+    let cmp = _mm256_cmp_ps(d0, bb, _CMP_LT_OQ);
+    let m0 = _mm256_movemask_ps(cmp) as u32;
+
+    if m0 == 0 {
+        return;
+    }
+
+    let inf = _mm256_set1_ps(f32::INFINITY);
+    let chunk_min = reduce_min_avx2_f32(_mm256_blendv_ps(inf, d0, cmp));
+    let min_bcast = _mm256_set1_ps(chunk_min);
+    let eq0 = _mm256_movemask_ps(_mm256_cmp_ps(d0, min_bcast, _CMP_EQ_OQ)) as u32;
+    core::hint::assert_unchecked(eq0 != 0);
+    let idx = eq0.trailing_zeros() as usize;
+
+    *best_dist = chunk_min;
+    *best_item = std::ptr::read_unaligned(items.add(base + idx));
 }
 
 #[inline(always)]
@@ -887,9 +912,46 @@ unsafe fn update_best_line_avx128_raw_f32<T: Content>(
     best_dist: &mut f32,
     best_item: &mut T,
 ) {
-    let mut values = [0.0f32; SSE_LINE_SIZE_F32];
-    _mm_storeu_ps(values.as_mut_ptr(), d0);
-    scan_best_values_f32(&values, items, base, best_dist, best_item);
+    let current_best = *best_dist;
+    let bb = _mm_set1_ps(current_best);
+    let cmp = _mm_cmplt_ps(d0, bb);
+    let m0 = _mm_movemask_ps(cmp) as u32;
+
+    if m0 == 0 {
+        return;
+    }
+
+    let inf = _mm_set1_ps(f32::INFINITY);
+    let chunk_min = reduce_min_avx128_f32(_mm_blendv_ps(inf, d0, cmp));
+    let min_bcast = _mm_set1_ps(chunk_min);
+    let eq0 = _mm_movemask_ps(_mm_cmpeq_ps(d0, min_bcast)) as u32;
+    core::hint::assert_unchecked(eq0 != 0);
+    let idx = eq0.trailing_zeros() as usize;
+
+    *best_dist = chunk_min;
+    *best_item = std::ptr::read_unaligned(items.add(base + idx));
+}
+
+#[inline(always)]
+unsafe fn reduce_min_avx512_f32(values: __m512) -> f32 {
+    let hi256 = _mm512_extractf32x8_ps(values, 1);
+    let lo256 = _mm512_castps512_ps256(values);
+    reduce_min_avx2_f32(_mm256_min_ps(lo256, hi256))
+}
+
+#[inline(always)]
+unsafe fn reduce_min_avx2_f32(values: __m256) -> f32 {
+    let hi128 = _mm256_extractf128_ps(values, 1);
+    let lo128 = _mm256_castps256_ps128(values);
+    reduce_min_avx128_f32(_mm_min_ps(lo128, hi128))
+}
+
+#[inline(always)]
+unsafe fn reduce_min_avx128_f32(values: __m128) -> f32 {
+    let hi64 = _mm_movehl_ps(values, values);
+    let min2 = _mm_min_ps(values, hi64);
+    let other = _mm_shuffle_ps(min2, min2, 0b01_01_01_01);
+    _mm_cvtss_f32(_mm_min_ss(min2, other))
 }
 
 #[inline(always)]
@@ -1076,4 +1138,113 @@ pub(crate) unsafe fn nearest_one_avx512_unchecked_f32<L, T, const K: usize, cons
         best_dist,
         best_item,
     );
+}
+
+#[cfg(all(feature = "cargo_asm", feature = "simd", target_arch = "x86_64"))]
+#[allow(dead_code)]
+#[doc(hidden)]
+#[inline(never)]
+#[unsafe(no_mangle)]
+pub fn v6_nearest_one_f32_leaf_cargo_asm_hook(
+    points: [*const f32; 3],
+    items: *const usize,
+    len: usize,
+    query: &[f32; 3],
+    best_dist: &mut f32,
+    best_item: &mut usize,
+) {
+    unsafe {
+        nearest_one_avx512_raw_unchecked_f32::<
+            <crate::dist::SquaredEuclidean<f32> as crate::dist::DistanceMetricAvx512<f32>>::Avx512F32Ops,
+            usize,
+            3,
+        >(points, items, len, query, best_dist, best_item);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::nearest_one_avx512_raw_unchecked_f32;
+    use crate::dist::{DistanceMetricAvx512, SquaredEuclidean};
+
+    type SquaredF32Ops = <SquaredEuclidean<f32> as DistanceMetricAvx512<f32>>::Avx512F32Ops;
+
+    fn assert_matches_scalar(values: Vec<f32>, expected_idx: usize) {
+        let items: Vec<usize> = (0..values.len()).map(|idx| 10_000 + idx).collect();
+        let query = [0.0f32];
+        let mut best_dist = f32::INFINITY;
+        let mut best_item = usize::MAX;
+
+        unsafe {
+            nearest_one_avx512_raw_unchecked_f32::<SquaredF32Ops, usize, 1>(
+                [values.as_ptr()],
+                items.as_ptr(),
+                values.len(),
+                &query,
+                &mut best_dist,
+                &mut best_item,
+            );
+        }
+
+        let (scalar_idx, scalar_dist) = values
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, &value)| {
+                let dist = value * value;
+                (dist.is_finite()).then_some((idx, dist))
+            })
+            .min_by(|(left_idx, left_dist), (right_idx, right_dist)| {
+                left_dist
+                    .partial_cmp(right_dist)
+                    .unwrap()
+                    .then_with(|| left_idx.cmp(right_idx))
+            })
+            .unwrap();
+
+        assert_eq!(scalar_idx, expected_idx);
+        assert_eq!(best_item, items[scalar_idx]);
+        assert_eq!(best_dist, scalar_dist);
+    }
+
+    #[test]
+    fn f32_avx512_leaf_minimum_matches_scalar_across_vector_boundaries() {
+        for len in [1, 3, 4, 7, 8, 15, 16, 17, 31, 32, 63, 64, 65, 127] {
+            let expected_idx = len / 2;
+            let mut values: Vec<f32> = (0..len).map(|idx| idx as f32 + 2.0).collect();
+            values[expected_idx] = 0.25;
+            assert_matches_scalar(values, expected_idx);
+        }
+    }
+
+    #[test]
+    fn f32_avx512_leaf_minimum_ignores_nans_and_preserves_first_tie() {
+        let mut values: Vec<f32> = (0..65).map(|idx| idx as f32 + 2.0).collect();
+        values[0] = f32::NAN;
+        values[17] = -0.5;
+        values[48] = 0.5;
+        assert_matches_scalar(values, 17);
+    }
+
+    #[test]
+    fn f32_avx512_leaf_minimum_keeps_an_equal_incumbent() {
+        let values: Vec<f32> = (0..64).map(|idx| idx as f32 + 1.0).collect();
+        let items: Vec<usize> = (0..values.len()).collect();
+        let query = [0.0f32];
+        let mut best_dist = 1.0;
+        let mut best_item = 123_456;
+
+        unsafe {
+            nearest_one_avx512_raw_unchecked_f32::<SquaredF32Ops, usize, 1>(
+                [values.as_ptr()],
+                items.as_ptr(),
+                values.len(),
+                &query,
+                &mut best_dist,
+                &mut best_item,
+            );
+        }
+
+        assert_eq!(best_dist, 1.0);
+        assert_eq!(best_item, 123_456);
+    }
 }
