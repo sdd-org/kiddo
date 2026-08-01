@@ -21,12 +21,15 @@
 //!   strategies.
 //! - [`DonnellySimdDescent`] performs block-at-once SIMD child selection during
 //!   descent, but still uses scalar backtracking and pruning.
+//! - [`DonnellyCyclicSimdDescent`] performs the same SIMD child selection with
+//!   per-depth query lanes, preserving the ordinary cyclic axis cadence.
 //! - [`DonnellySimdFull`] takes the same block-at-once descent idea and also
 //!   uses SIMD-aware backtracking and pruning.
 //!
 //! Internally, these variants share `core` for scalar Donnelly indexing/state
 //! and `simd_full` for the reusable SIMD comparison and backtrack machinery.
 
+pub(crate) mod cyclic_simd_descent;
 mod no_pf;
 mod scalar;
 mod simd_descent;
@@ -38,6 +41,8 @@ pub mod core;
 #[doc(hidden)]
 pub mod simd_full;
 
+#[doc(inline)]
+pub use cyclic_simd_descent::DonnellyCyclicSimdDescent;
 #[doc(inline)]
 pub use no_pf::DonnellyNoPf;
 #[doc(inline)]

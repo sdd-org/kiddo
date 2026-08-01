@@ -67,6 +67,23 @@ pub trait Axis:
 
     /// Returns the maximum of two coordinate values.
     fn max(a: Self::Coord, b: Self::Coord) -> Self::Coord;
+
+    /// Select a path through a Donnelly block whose split dimension advances
+    /// at every level. Implemented only by floating-point axes used by the
+    /// experimental AVX-512 cyclic-SIMD strategy.
+    #[doc(hidden)]
+    #[inline(always)]
+    fn compare_cyclic_block<const BH: usize, const K: usize>(
+        _stems: &[Self],
+        _query: &[Self; K],
+        _block_base_idx: usize,
+        _start_dim: usize,
+    ) -> u8 {
+        unimplemented!(
+            "axis {} does not support cyclic SIMD block comparison",
+            std::any::type_name::<Self>()
+        )
+    }
 }
 
 /// Macro to implement AxisUnified for floating-point types.
@@ -133,6 +150,21 @@ macro_rules! impl_axis_float {
             #[inline(always)]
             fn max(a: Self::Coord, b: Self::Coord) -> Self::Coord {
                 a.max(b)
+            }
+
+            #[inline(always)]
+            fn compare_cyclic_block<const BH: usize, const K: usize>(
+                stems: &[Self],
+                query: &[Self; K],
+                block_base_idx: usize,
+                start_dim: usize,
+            ) -> u8 {
+                <Self as crate::stem_strategy::donnelly::cyclic_simd_descent::CyclicBlockCompare>::compare_cyclic_block::<BH, K>(
+                    stems,
+                    query,
+                    block_base_idx,
+                    start_dim,
+                )
             }
         }
     };
