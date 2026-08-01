@@ -11,7 +11,8 @@ pub use donnelly::simd_full::{CompareBlock3, CompareBlock4, SimdPrune, SimdSelec
 pub use donnelly::Donnelly;
 #[doc(hidden)]
 pub use donnelly::{
-    DonnellyNoPf, DonnellySimdDescent, DonnellySimdFull, DonnellyUnrolled, DonnellyUnrolledBlockDim,
+    DonnellyCyclicSimdDescent, DonnellyNoPf, DonnellySimdDescent, DonnellySimdFull,
+    DonnellyUnrolled, DonnellyUnrolledBlockDim,
 };
 
 #[doc(hidden)]
