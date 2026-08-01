@@ -33,7 +33,6 @@ use super::cyclic_simd_descent::prepare_query_lanes;
 struct CyclicChildSelection<O> {
     child_idx: u8,
     remaining_mask: u16,
-    remaining_min_rd: O,
     child_off: [O; 4],
 }
 
@@ -133,19 +132,9 @@ where
         }
     }
     let remaining_mask = candidate_mask & !(1u16 << best);
-    let mut remaining_min_rd = O::max_value();
-    let mut live = remaining_mask;
-    while live != 0 {
-        let child = live.trailing_zeros() as usize;
-        live &= live - 1;
-        if O::cmp(rd_values[child], remaining_min_rd) == std::cmp::Ordering::Less {
-            remaining_min_rd = rd_values[child];
-        }
-    }
     Some(CyclicChildSelection {
         child_idx: best as u8,
         remaining_mask,
-        remaining_min_rd,
         child_off: off_values[best],
     })
 }
@@ -168,7 +157,7 @@ unsafe fn cyclic_axis_offsets_f64(
     let query = _mm512_set1_pd(query);
     let query_right = _mm512_cmp_pd_mask(query, pivots, _CMP_GE_OQ);
     let opposite = right_mask ^ query_right;
-    let diff = _mm512_max_pd(_mm512_sub_pd(query, pivots), _mm512_sub_pd(pivots, query));
+    let diff = _mm512_andnot_pd(_mm512_set1_pd(-0.0), _mm512_sub_pd(query, pivots));
     let off = _mm512_mask_mov_pd(_mm512_set1_pd(parent_off), opposite, diff);
     let real_pivot = _mm512_cmp_pd_mask(pivots, _mm512_set1_pd(f64::INFINITY), _CMP_LT_OQ);
     (off, (!right_mask) | real_pivot)
@@ -190,7 +179,6 @@ unsafe fn select_cyclic_block3_f64<Ops: Avx512F64LeafOps>(
     max_dist: f64,
     prune_equal: bool,
     child_off: *mut f64,
-    remaining_min_rd: *mut f64,
 ) -> u32 {
     use std::arch::x86_64::*;
 
@@ -221,21 +209,13 @@ unsafe fn select_cyclic_block3_f64<Ops: Avx512F64LeafOps>(
     } else {
         candidates.trailing_zeros() as u8
     };
-    let chosen_mask = 1u8 << child;
     let lane = _mm512_set1_epi64(i64::from(child));
     *child_off = _mm_cvtsd_f64(_mm512_castpd512_pd128(_mm512_permutexvar_pd(lane, off_x)));
     *child_off.add(1) = _mm_cvtsd_f64(_mm512_castpd512_pd128(_mm512_permutexvar_pd(lane, off_y)));
     *child_off.add(2) = _mm_cvtsd_f64(_mm512_castpd512_pd128(_mm512_permutexvar_pd(lane, off_z)));
     *child_off.add(3) = 0.0;
 
-    let remaining = candidates & !chosen_mask;
-    *remaining_min_rd = if !CYCLIC_FULL_CACHE_REMAINING_MIN_RD {
-        0.0
-    } else if remaining == 0 {
-        f64::INFINITY
-    } else {
-        _mm512_mask_reduce_min_pd(remaining, rd)
-    };
+    let remaining = candidates & candidates.wrapping_sub(1);
     u32::from(child) | (u32::from(remaining) << 8)
 }
 
@@ -257,7 +237,7 @@ unsafe fn cyclic_axis_offsets_f32(
     let query = _mm512_set1_ps(query);
     let query_right = _mm512_cmp_ps_mask(query, pivots, _CMP_GE_OQ);
     let opposite = right_mask ^ query_right;
-    let diff = _mm512_max_ps(_mm512_sub_ps(query, pivots), _mm512_sub_ps(pivots, query));
+    let diff = _mm512_andnot_ps(_mm512_set1_ps(-0.0), _mm512_sub_ps(query, pivots));
     let off = _mm512_mask_mov_ps(_mm512_set1_ps(parent_off), opposite, diff);
     let real_pivot = _mm512_cmp_ps_mask(pivots, _mm512_set1_ps(f32::INFINITY), _CMP_LT_OQ);
     (off, (!right_mask) | real_pivot)
@@ -279,7 +259,6 @@ unsafe fn select_cyclic_block4_f32<Ops: Avx512F32LeafOps>(
     max_dist: f32,
     prune_equal: bool,
     child_off: *mut f32,
-    remaining_min_rd: *mut f32,
 ) -> u32 {
     use std::arch::x86_64::*;
 
@@ -321,21 +300,13 @@ unsafe fn select_cyclic_block4_f32<Ops: Avx512F32LeafOps>(
     } else {
         candidates.trailing_zeros() as u8
     };
-    let chosen_mask = 1u16 << child;
     let lane = _mm512_set1_epi32(i32::from(child));
     *child_off = _mm_cvtss_f32(_mm512_castps512_ps128(_mm512_permutexvar_ps(lane, off_x)));
     *child_off.add(1) = _mm_cvtss_f32(_mm512_castps512_ps128(_mm512_permutexvar_ps(lane, off_y)));
     *child_off.add(2) = _mm_cvtss_f32(_mm512_castps512_ps128(_mm512_permutexvar_ps(lane, off_z)));
     *child_off.add(3) = _mm_cvtss_f32(_mm512_castps512_ps128(_mm512_permutexvar_ps(lane, off_w)));
 
-    let remaining = candidates & !chosen_mask;
-    *remaining_min_rd = if !CYCLIC_FULL_CACHE_REMAINING_MIN_RD {
-        0.0
-    } else if remaining == 0 {
-        f32::INFINITY
-    } else {
-        _mm512_mask_reduce_min_ps(remaining, rd)
-    };
+    let remaining = candidates & candidates.wrapping_sub(1);
     u32::from(child) | (u32::from(remaining) << 8)
 }
 
@@ -372,7 +343,6 @@ where
                 != TypeId::of::<UnsupportedAvx512F64LeafOps>()
         {
             let mut child_off = [O::zero(); 4];
-            let mut remaining_min_rd = O::max_value();
             let packed = select_cyclic_block3_f64::<<D as DistanceMetricAvx512<A>>::Avx512F64Ops>(
                 stems.as_ptr().cast(),
                 block_base_idx,
@@ -382,12 +352,10 @@ where
                 *(&max_dist as *const O).cast::<f64>(),
                 prune_equal,
                 child_off.as_mut_ptr().cast(),
-                (&mut remaining_min_rd as *mut O).cast(),
             );
             return (packed != u32::MAX).then_some(CyclicChildSelection {
                 child_idx: packed as u8,
                 remaining_mask: (packed >> 8) as u16,
-                remaining_min_rd,
                 child_off,
             });
         }
@@ -399,7 +367,6 @@ where
                 != TypeId::of::<UnsupportedAvx512F32LeafOps>()
         {
             let mut child_off = [O::zero(); 4];
-            let mut remaining_min_rd = O::max_value();
             let packed = select_cyclic_block4_f32::<<D as DistanceMetricAvx512<A>>::Avx512F32Ops>(
                 stems.as_ptr().cast(),
                 block_base_idx,
@@ -409,12 +376,10 @@ where
                 *(&max_dist as *const O).cast::<f32>(),
                 prune_equal,
                 child_off.as_mut_ptr().cast(),
-                (&mut remaining_min_rd as *mut O).cast(),
             );
             return (packed != u32::MAX).then_some(CyclicChildSelection {
                 child_idx: packed as u8,
                 remaining_mask: (packed >> 8) as u16,
-                remaining_min_rd,
                 child_off,
             });
         }
@@ -429,44 +394,6 @@ where
         max_dist,
         prune_equal,
     )
-}
-
-#[inline(always)]
-fn select_single_cyclic_child<A, O, D, const K: usize, const BH: usize>(
-    stems: &[A],
-    block_base_idx: usize,
-    query: &[A; K],
-    parent_off: &[O; 4],
-    pending_mask: u16,
-    max_dist: O,
-    prune_equal: bool,
-) -> Option<CyclicChildSelection<O>>
-where
-    A: Axis<Coord = A>,
-    O: Axis<Coord = O>,
-    D: DistanceMetric<A, Output = O>,
-{
-    debug_assert!(pending_mask.is_power_of_two());
-    let child_idx = pending_mask.trailing_zeros() as u8;
-    let (child_off, rd) = selected_cyclic_child_offsets::<A, O, D, K, BH>(
-        stems,
-        block_base_idx,
-        query,
-        parent_off,
-        child_idx,
-    )?;
-    let ordering = O::cmp(rd, max_dist);
-    if ordering == std::cmp::Ordering::Greater
-        || (prune_equal && ordering == std::cmp::Ordering::Equal)
-    {
-        return None;
-    }
-    Some(CyclicChildSelection {
-        child_idx,
-        remaining_mask: 0,
-        remaining_min_rd: O::max_value(),
-        child_off,
-    })
 }
 
 /// Cyclic-axis SIMD descent plus native block-level pruning and backtracking.
@@ -484,7 +411,6 @@ pub struct DonnellyCyclicSimdFull<const BH: usize> {
 // Kept as compile-time tuning switches while the experimental strategy is
 // characterised. LLVM removes the unused reduction paths completely.
 const CYCLIC_FULL_SELECT_MIN_RD_CHILD: bool = false;
-const CYCLIC_FULL_CACHE_REMAINING_MIN_RD: bool = false;
 
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
@@ -581,27 +507,18 @@ fn cyclic_simd_full_arithmetic_query<
     macro_rules! descend_near_to_leaf {
         ($root:expr, $root_off:expr) => {{
             let mut current = $root;
-            let mut current_off = $root_off;
+            let current_off = $root_off;
             loop {
                 let near_child =
                     A::compare_cyclic_block::<BH, K>(stems, &query, current.stem_idx(), 0);
                 let pending_mask = full_mask & !(1u16 << near_child);
-                stack.push(CyclicSimdFullQueryStackContext::pending(
-                    current.deferred_state(),
-                    pending_mask,
-                    current_off,
-                    O::zero(),
-                ));
-
-                let (next_off, _) = selected_cyclic_child_offsets::<A, O, D, K, BH>(
-                    stems,
-                    current.stem_idx(),
-                    &query,
-                    &current_off,
-                    near_child,
-                )
-                .expect("the query-selected path cannot enter padded right space");
-                current_off = next_off;
+                unsafe {
+                    stack.push_inline_unchecked(CyclicSimdFullQueryStackContext::pending(
+                        current.deferred_state(),
+                        pending_mask,
+                        current_off,
+                    ));
+                }
                 current.traverse_block::<K>(near_child, BH as u32);
                 if current.level() > tree.max_stem_level() {
                     break current.leaf_idx();
@@ -613,62 +530,31 @@ fn cyclic_simd_full_arithmetic_query<
     let first_leaf = descend_near_to_leaf!(root, root_off);
     process_leaf(first_leaf, &query_wide, query_ctx);
 
-    while let Some(frame) = stack.pop() {
-        let CyclicSimdFullQueryStackContext::Pending {
-            base_state,
-            pending_mask,
-            off: parent_off,
-            min_rd,
-        } = frame
-        else {
-            unreachable!("native cyclic SIMD-full traversal only pushes pending block frames")
-        };
+    while let Some(frame) = unsafe { stack.pop_inline_unchecked() } {
+        let (base_state, pending_mask, parent_off) = unsafe { frame.into_pending_unchecked() };
         let mut base = DonnellyCore::<BH>::new(stems_ptr);
         base.rehydrate_deferred_state(base_state);
         let max_dist = query_ctx.max_dist();
-        if O::cmp(min_rd, O::zero()) != std::cmp::Ordering::Equal {
-            let min_ordering = O::cmp(min_rd, max_dist);
-            if min_ordering == std::cmp::Ordering::Greater
-                || (query_ctx.prune_on_equal_max_dist()
-                    && min_ordering == std::cmp::Ordering::Equal)
-            {
-                continue;
-            }
-        }
-
-        // Launching a full vector kernel for one live child cannot amortise its
-        // setup. All wider masks stay SIMD, including the final tree block.
-        let selection = if pending_mask.is_power_of_two() {
-            select_single_cyclic_child::<A, O, D, K, BH>(
-                stems,
-                base.stem_idx(),
-                &query,
-                &parent_off,
-                pending_mask,
-                max_dist,
-                query_ctx.prune_on_equal_max_dist(),
-            )
-        } else {
-            select_cyclic_child::<A, O, D, K, BH>(
-                stems,
-                base.stem_idx(),
-                &query,
-                &parent_off,
-                pending_mask,
-                max_dist,
-                query_ctx.prune_on_equal_max_dist(),
-            )
-        };
+        let selection = select_cyclic_child::<A, O, D, K, BH>(
+            stems,
+            base.stem_idx(),
+            &query,
+            &parent_off,
+            pending_mask,
+            max_dist,
+            query_ctx.prune_on_equal_max_dist(),
+        );
         let Some(selection) = selection else {
             continue;
         };
         if selection.remaining_mask != 0 {
-            stack.push(CyclicSimdFullQueryStackContext::pending(
-                base_state,
-                selection.remaining_mask,
-                parent_off,
-                selection.remaining_min_rd,
-            ));
+            unsafe {
+                stack.push_inline_unchecked(CyclicSimdFullQueryStackContext::pending(
+                    base_state,
+                    selection.remaining_mask,
+                    parent_off,
+                ));
+            }
         }
 
         base.traverse_block::<K>(selection.child_idx, BH as u32);
@@ -1067,7 +953,6 @@ mod tests {
         for dim in 0..4 {
             assert!((actual.child_off[dim] - expected_selected.0[dim]).abs() <= 1.0e-14);
         }
-        assert_eq!(actual.remaining_min_rd, 0.0);
     }
 
     #[test]
@@ -1130,6 +1015,5 @@ mod tests {
         for dim in 0..4 {
             assert!((actual.child_off[dim] - expected_selected.0[dim]).abs() <= 1.0e-6);
         }
-        assert_eq!(actual.remaining_min_rd, 0.0);
     }
 }
