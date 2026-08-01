@@ -28,6 +28,45 @@ pub trait SimdPrune: Axis<Coord = Self> + sealed::Sealed {
     /// * `max_dist` - Maximum distance threshold
     /// * `sibling_mask` - Pre-computed mask of valid siblings
     fn simd_prune_block3(rd_values: &[Self; 8], max_dist: Self, sibling_mask: u8) -> u8;
+
+    /// Compare 16 Block4 child distances against `max_dist`.
+    #[inline(always)]
+    fn simd_prune_block4(rd_values: &[Self; 16], max_dist: Self, sibling_mask: u16) -> u16 {
+        let mut mask = 0u16;
+        let mut lane = 0usize;
+        while lane < 16 {
+            if rd_values[lane] <= max_dist {
+                mask |= 1u16 << lane;
+            }
+            lane += 1;
+        }
+        mask & sibling_mask
+    }
+
+    /// Select the live Block4 child with the smallest rectangle distance.
+    #[inline(always)]
+    fn simd_select_best_child_block4(rd_values: &[Self; 16], candidate_mask: u16) -> Option<u8> {
+        if candidate_mask == 0 {
+            return None;
+        }
+
+        let mut remaining = candidate_mask;
+        let first = remaining.trailing_zeros() as usize;
+        let mut best_idx = first;
+        let mut best_rd = rd_values[first];
+        remaining &= remaining - 1;
+
+        while remaining != 0 {
+            let idx = remaining.trailing_zeros() as usize;
+            if Self::cmp(rd_values[idx], best_rd) == std::cmp::Ordering::Less {
+                best_idx = idx;
+                best_rd = rd_values[idx];
+            }
+            remaining &= remaining - 1;
+        }
+
+        Some(best_idx as u8)
+    }
 }
 
 /// Select the child with the smallest lower-bound distance among the live Block3 lanes.
@@ -152,6 +191,32 @@ impl SimdPrune for f64 {
             autovec_fallback!(8, u8, rd_values, max_dist, sibling_mask)
         }
     }
+
+    #[inline(always)]
+    fn simd_prune_block4(rd_values: &[f64; 16], max_dist: f64, sibling_mask: u16) -> u16 {
+        #[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"))]
+        unsafe {
+            use std::arch::x86_64::*;
+
+            let max_dist = _mm512_set1_pd(max_dist);
+            let low = _mm512_loadu_pd(rd_values.as_ptr());
+            let high = _mm512_loadu_pd(rd_values.as_ptr().add(8));
+            let low_mask = _mm512_cmp_pd_mask(low, max_dist, _CMP_LE_OQ) as u16;
+            let high_mask = _mm512_cmp_pd_mask(high, max_dist, _CMP_LE_OQ) as u16;
+            (low_mask | (high_mask << 8)) & sibling_mask
+        }
+
+        #[cfg(not(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f")))]
+        {
+            let mut mask = 0u16;
+            for (lane, &rd) in rd_values.iter().enumerate() {
+                if rd <= max_dist {
+                    mask |= 1u16 << lane;
+                }
+            }
+            mask & sibling_mask
+        }
+    }
 }
 
 impl SimdSelectBestChildBlock3 for f64 {
@@ -234,6 +299,68 @@ impl SimdPrune for f32 {
         )))]
         {
             autovec_fallback!(8, u8, rd_values, max_dist, sibling_mask)
+        }
+    }
+
+    #[inline(always)]
+    fn simd_prune_block4(rd_values: &[f32; 16], max_dist: f32, sibling_mask: u16) -> u16 {
+        #[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"))]
+        unsafe {
+            use std::arch::x86_64::*;
+
+            let rd = _mm512_loadu_ps(rd_values.as_ptr());
+            let max_dist = _mm512_set1_ps(max_dist);
+            _mm512_cmp_ps_mask(rd, max_dist, _CMP_LE_OQ) & sibling_mask
+        }
+
+        #[cfg(not(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f")))]
+        {
+            let mut mask = 0u16;
+            for (lane, &rd) in rd_values.iter().enumerate() {
+                if rd <= max_dist {
+                    mask |= 1u16 << lane;
+                }
+            }
+            mask & sibling_mask
+        }
+    }
+
+    #[inline(always)]
+    fn simd_select_best_child_block4(rd_values: &[f32; 16], candidate_mask: u16) -> Option<u8> {
+        #[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"))]
+        unsafe {
+            use std::arch::x86_64::*;
+
+            if candidate_mask == 0 {
+                return None;
+            }
+
+            let rd = _mm512_loadu_ps(rd_values.as_ptr());
+            let masked = _mm512_mask_mov_ps(_mm512_set1_ps(f32::INFINITY), candidate_mask, rd);
+            let min = _mm512_reduce_min_ps(masked);
+            let minima = _mm512_cmp_ps_mask(masked, _mm512_set1_ps(min), _CMP_EQ_OQ);
+            Some((minima & candidate_mask).trailing_zeros() as u8)
+        }
+
+        #[cfg(not(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f")))]
+        {
+            if candidate_mask == 0 {
+                return None;
+            }
+
+            let mut remaining = candidate_mask;
+            let mut best_idx = remaining.trailing_zeros() as usize;
+            let mut best_rd = rd_values[best_idx];
+            remaining &= remaining - 1;
+            while remaining != 0 {
+                let idx = remaining.trailing_zeros() as usize;
+                if rd_values[idx] < best_rd {
+                    best_idx = idx;
+                    best_rd = rd_values[idx];
+                }
+                remaining &= remaining - 1;
+            }
+            Some(best_idx as u8)
         }
     }
 }

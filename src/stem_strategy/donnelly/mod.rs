@@ -23,6 +23,8 @@
 //!   descent, but still uses scalar backtracking and pruning.
 //! - [`DonnellyCyclicSimdDescent`] performs the same SIMD child selection with
 //!   per-depth query lanes, preserving the ordinary cyclic axis cadence.
+//! - [`DonnellyCyclicSimdFull`] builds on cyclic SIMD descent with native
+//!   block-level SIMD pruning and backtracking.
 //! - [`DonnellySimdFull`] takes the same block-at-once descent idea and also
 //!   uses SIMD-aware backtracking and pruning.
 //!
@@ -30,6 +32,7 @@
 //! and `simd_full` for the reusable SIMD comparison and backtrack machinery.
 
 pub(crate) mod cyclic_simd_descent;
+mod cyclic_simd_full;
 mod no_pf;
 mod scalar;
 mod simd_descent;
@@ -42,7 +45,9 @@ pub mod core;
 pub mod simd_full;
 
 #[doc(inline)]
-pub use cyclic_simd_descent::{DonnellyCyclicSimdDescent, DonnellyCyclicSimdFull};
+pub use cyclic_simd_descent::DonnellyCyclicSimdDescent;
+#[doc(inline)]
+pub use cyclic_simd_full::DonnellyCyclicSimdFull;
 #[doc(inline)]
 pub use no_pf::DonnellyNoPf;
 #[doc(inline)]

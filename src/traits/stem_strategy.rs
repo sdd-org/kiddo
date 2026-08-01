@@ -539,7 +539,11 @@ pub trait StemStrategy: Clone + Sync + Send + 'static {
             + crate::kd_tree::KdTreeQueryOps<A, T, Self, LS, K2, B>,
         A: Axis<Coord = A>,
         T: Content,
-        O: Axis<Coord = O> + BacktrackBlock3 + BacktrackBlock4,
+        O: Axis<Coord = O>
+            + crate::stem_strategy::SimdPrune
+            + crate::stem_strategy::SimdSelectBestChildBlock3
+            + BacktrackBlock3
+            + BacktrackBlock4,
         D: crate::dist::DistanceMetric<A, Output = O>,
         QC: crate::kd_tree::query_context::QueryContext<A, O, K2>,
         LS: crate::LeafStrategy<A, T, Self, K2, B>,

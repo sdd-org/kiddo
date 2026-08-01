@@ -13,7 +13,7 @@ use kiddo::stem_strategy::{
 #[cfg(feature = "simd")]
 use kiddo::BestQueryResultItem;
 #[cfg(feature = "simd")]
-use kiddo::SquaredEuclidean;
+use kiddo::{Chebyshev, Manhattan, Minkowski, SquaredEuclidean};
 #[cfg(feature = "simd")]
 use rand::rngs::StdRng;
 #[cfg(feature = "simd")]
@@ -104,6 +104,90 @@ fn cyclic_simd_handles_f64_k4_with_two_root_padding_levels() {
         assert_eq!(result.distance, 0.0);
         assert_eq!(result.item, expected_item);
     }
+}
+
+#[test]
+#[cfg(feature = "simd")]
+fn cyclic_simd_full_native_f64_k3_metrics_match_linear_search() {
+    const K: usize = 3;
+    const B: usize = 8;
+    let mut rng = StdRng::seed_from_u64(CONTENT_SEED);
+    let points: Vec<[f64; K]> = (0..777)
+        .map(|_| std::array::from_fn(|_| rng.random_range(-1.0..1.0)))
+        .collect();
+    let tree: KdTree<f64, usize, DonnellyCyclicSimdFull<3>, FlatVec<f64, usize, K, B>, K, B> =
+        KdTree::new_from_slice(&points).unwrap();
+    assert_eq!((tree.max_stem_level() + 1) % 3, 0);
+
+    macro_rules! assert_metric {
+        ($metric:ty) => {{
+            let mut query_rng = StdRng::seed_from_u64(QUERY_SEED);
+            for _ in 0..256 {
+                let query = std::array::from_fn(|_| query_rng.random_range(-1.0..1.0));
+                let expected = points
+                    .iter()
+                    .enumerate()
+                    .map(|(item, point)| {
+                        (
+                            <$metric as DistanceMetricScalar<f64>>::dist_raw(&query, point),
+                            item,
+                        )
+                    })
+                    .min_by(|lhs, rhs| lhs.0.partial_cmp(&rhs.0).unwrap())
+                    .unwrap();
+                let actual = tree.query(&query).nearest_one::<$metric>().execute();
+                assert_float_relative_eq!(actual.distance, expected.0, REL_EPS_F64);
+                assert_eq!(actual.item, expected.1);
+            }
+        }};
+    }
+
+    assert_metric!(SquaredEuclidean<f64>);
+    assert_metric!(Manhattan<f64>);
+    assert_metric!(Chebyshev<f64>);
+    assert_metric!(Minkowski<3, f64>);
+}
+
+#[test]
+#[cfg(feature = "simd")]
+fn cyclic_simd_full_native_f32_k4_metrics_match_linear_search() {
+    const K: usize = 4;
+    const B: usize = 8;
+    let mut rng = StdRng::seed_from_u64(CONTENT_SEED);
+    let points: Vec<[f32; K]> = (0..777)
+        .map(|_| std::array::from_fn(|_| rng.random_range(-1.0..1.0)))
+        .collect();
+    let tree: KdTree<f32, usize, DonnellyCyclicSimdFull<4>, FlatVec<f32, usize, K, B>, K, B> =
+        KdTree::new_from_slice(&points).unwrap();
+    assert_eq!((tree.max_stem_level() + 1) % 4, 0);
+
+    macro_rules! assert_metric {
+        ($metric:ty) => {{
+            let mut query_rng = StdRng::seed_from_u64(QUERY_SEED);
+            for _ in 0..256 {
+                let query = std::array::from_fn(|_| query_rng.random_range(-1.0..1.0));
+                let expected = points
+                    .iter()
+                    .enumerate()
+                    .map(|(item, point)| {
+                        (
+                            <$metric as DistanceMetricScalar<f32>>::dist_raw(&query, point),
+                            item,
+                        )
+                    })
+                    .min_by(|lhs, rhs| lhs.0.partial_cmp(&rhs.0).unwrap())
+                    .unwrap();
+                let actual = tree.query(&query).nearest_one::<$metric>().execute();
+                assert_float_relative_eq!(actual.distance, expected.0, REL_EPS_F32);
+                assert_eq!(actual.item, expected.1);
+            }
+        }};
+    }
+
+    assert_metric!(SquaredEuclidean<f32>);
+    assert_metric!(Manhattan<f32>);
+    assert_metric!(Chebyshev<f32>);
+    assert_metric!(Minkowski<3, f32>);
 }
 
 #[cfg(feature = "simd")]
