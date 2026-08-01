@@ -12,6 +12,18 @@ pub trait Avx512F64LeafOps {
     /// calculate distance on 8 f64's at once (dimensions 1+, ie add to accumulator)
     unsafe fn dist_kn_f64x8(acc: __m512d, delta: __m512d) -> __m512d;
 
+    /// Calculate the distance to three-dimensional rectangles from their
+    /// non-negative per-axis offsets.
+    ///
+    /// Metrics may override this composition to expose more instruction-level
+    /// parallelism than the accumulator-shaped leaf operations permit.
+    #[inline(always)]
+    unsafe fn rect_dist_f64x8_3(off0: __m512d, off1: __m512d, off2: __m512d) -> __m512d {
+        let acc = Self::dist_k0_f64x8(off0);
+        let acc = Self::dist_kn_f64x8(acc, off1);
+        Self::dist_kn_f64x8(acc, off2)
+    }
+
     /// calculate distance on 4 f64's at once (dimension 0, ie set initial accumulator value)
     unsafe fn dist_k0_f64x4(delta: __m256d) -> __m256d;
 
@@ -91,6 +103,19 @@ pub trait Avx512F32LeafOps {
 
     /// Accumulate distance on 16 f32 lanes for subsequent dimensions.
     unsafe fn dist_kn_f32x16(acc: __m512, delta: __m512) -> __m512;
+
+    /// Calculate the distance to four-dimensional rectangles from their
+    /// non-negative per-axis offsets.
+    ///
+    /// Metrics may override this composition to expose more instruction-level
+    /// parallelism than the accumulator-shaped leaf operations permit.
+    #[inline(always)]
+    unsafe fn rect_dist_f32x16_4(off0: __m512, off1: __m512, off2: __m512, off3: __m512) -> __m512 {
+        let acc = Self::dist_k0_f32x16(off0);
+        let acc = Self::dist_kn_f32x16(acc, off1);
+        let acc = Self::dist_kn_f32x16(acc, off2);
+        Self::dist_kn_f32x16(acc, off3)
+    }
 
     /// Calculate distance on 8 f32 lanes for the first dimension.
     unsafe fn dist_k0_f32x8(delta: __m256) -> __m256;

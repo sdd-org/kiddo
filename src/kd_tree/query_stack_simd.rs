@@ -4,6 +4,10 @@ use crate::kd_tree::query_stack::{ScalarStackContext, StackTrait};
 use crate::{Axis, StemStrategy};
 
 const DEFAULT_INLINE_SIMD_QUERY_STACK_CAPACITY: usize = 50;
+/// Native cyclic SIMD-full traversal pushes one frame per Donnelly block.
+/// Twelve inline entries cover every tree representable by the current u32
+/// Donnelly address space while keeping the hot stack footprint compact.
+pub(crate) const CYCLIC_SIMD_FULL_INLINE_QUERY_STACK_CAPACITY: usize = 12;
 // Block3 exact traversal pushes at most one pending context per 3-level block.
 // Supporting trees up to 30 stem levels therefore requires ceil(30 / 3) = 10 entries.
 pub(crate) const BLOCK3_EXACT_INLINE_SIMD_QUERY_STACK_CAPACITY: usize = 10;
@@ -58,6 +62,41 @@ pub enum Block3ExactStackContextState<A, SS, const K: usize> {
         lower: [A; K],
         upper: [A; K],
     },
+}
+
+/// Compact stack state for native cyclic SIMD-full traversal.
+///
+/// Pending block entries retain the parent rectangle's per-axis query offsets.
+/// For squared Euclidean distance these four values completely describe the
+/// rectangle distance and are enough to derive every child offset in a block.
+#[derive(Debug)]
+pub enum CyclicSimdFullQueryStackContext<A, S> {
+    Scalar {
+        stem_state: S,
+        restore_dim: Option<usize>,
+        old_off: A,
+        rd: A,
+    },
+    Pending {
+        base_state: S,
+        pending_mask: u16,
+        off: [A; 4],
+        /// Exact minimum lower-bound distance in `pending_mask`, or zero when
+        /// the frame came from cheap near descent and has not been evaluated.
+        min_rd: A,
+    },
+}
+
+impl<A, S> CyclicSimdFullQueryStackContext<A, S> {
+    #[inline(always)]
+    pub fn pending(base_state: S, pending_mask: u16, off: [A; 4], min_rd: A) -> Self {
+        Self::Pending {
+            base_state,
+            pending_mask,
+            off,
+            min_rd,
+        }
+    }
 }
 
 pub trait Block3ExactStackContext<A, SS: StemStrategy, const K: usize>: Sized {
@@ -642,6 +681,58 @@ impl<A, SS, S> ScalarStackContext<A, S> for Block3SimdQueryStackContext<A, SS> {
     #[inline(always)]
     fn into_parts(self) -> (S, A, A) {
         unreachable!("SIMD stack contexts do not support scalar stack unpacking")
+    }
+}
+
+impl<A, S> ScalarStackContext<A, S> for CyclicSimdFullQueryStackContext<A, S> {
+    #[inline(always)]
+    fn from_parts(stem_state: S, old_off: A, rd: A) -> Self {
+        Self::Scalar {
+            stem_state,
+            restore_dim: None,
+            old_off,
+            rd,
+        }
+    }
+
+    #[inline(always)]
+    fn into_parts(self) -> (S, A, A) {
+        match self {
+            Self::Scalar {
+                stem_state,
+                old_off,
+                rd,
+                ..
+            } => (stem_state, old_off, rd),
+            Self::Pending { .. } => {
+                panic!("scalar stack unpack called on cyclic SIMD pending block")
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn from_parts_with_restore_dim(stem_state: S, restore_dim: usize, old_off: A, rd: A) -> Self {
+        Self::Scalar {
+            stem_state,
+            restore_dim: Some(restore_dim),
+            old_off,
+            rd,
+        }
+    }
+
+    #[inline(always)]
+    fn into_parts_with_restore_dim(self) -> (S, Option<usize>, A, A) {
+        match self {
+            Self::Scalar {
+                stem_state,
+                restore_dim,
+                old_off,
+                rd,
+            } => (stem_state, restore_dim, old_off, rd),
+            Self::Pending { .. } => {
+                panic!("scalar stack unpack called on cyclic SIMD pending block")
+            }
+        }
     }
 }
 

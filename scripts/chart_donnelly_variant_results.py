@@ -20,7 +20,7 @@ STRATEGIES = {
     "donnelly_unrolled_block_dim": "Donnelly unrolled/block-dim",
     "donnelly_simd_descent": "Donnelly SIMD descent",
     "donnelly_cyclic_simd_descent": "Donnelly cyclic SIMD descent",
-    "donnelly_cyclic_simd_full": "Donnelly cyclic SIMD-full control",
+    "donnelly_cyclic_simd_full": "Donnelly cyclic SIMD full",
     "donnelly_simd_initial_descent": "Donnelly initial-only SIMD",
     "donnelly_simd_full": "Donnelly full SIMD",
 }

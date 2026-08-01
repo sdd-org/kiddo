@@ -31,6 +31,7 @@ pub trait Axis:
     + AddAssign<Self>
     + Debug
     + Display
+    + 'static
     + crate::stem_strategy::CompareBlock3
     + crate::stem_strategy::CompareBlock4
 {
@@ -114,7 +115,6 @@ macro_rules! impl_axis_float {
     ($t:ty) => {
         impl Axis for $t {
             const IS_SIGNED: bool = true;
-
             type Coord = $t;
 
             #[inline(always)]

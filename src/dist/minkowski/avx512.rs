@@ -269,6 +269,14 @@ impl<const P: u32> Avx512F64LeafOps for MinkowskiAvx512F64LeafOps<P> {
     }
 
     #[inline(always)]
+    unsafe fn rect_dist_f64x8_3(off0: __m512d, off1: __m512d, off2: __m512d) -> __m512d {
+        let dist0 = pow_pd_512::<P>(off0);
+        let dist1 = pow_pd_512::<P>(off1);
+        let dist2 = pow_pd_512::<P>(off2);
+        _mm512_add_pd(_mm512_add_pd(dist0, dist1), dist2)
+    }
+
+    #[inline(always)]
     unsafe fn dist_k0_f64x4(delta: __m256d) -> __m256d {
         pow_pd_256::<P>(custom_mm256_abs_pd(delta))
     }
@@ -310,6 +318,15 @@ impl<const P: u32> Avx512F32LeafOps for MinkowskiAvx512F32LeafOps<P> {
     #[inline(always)]
     unsafe fn dist_kn_f32x16(acc: __m512, delta: __m512) -> __m512 {
         _mm512_add_ps(acc, pow_ps_512::<P>(custom_mm512_abs_ps(delta)))
+    }
+
+    #[inline(always)]
+    unsafe fn rect_dist_f32x16_4(off0: __m512, off1: __m512, off2: __m512, off3: __m512) -> __m512 {
+        let dist0 = pow_ps_512::<P>(off0);
+        let dist1 = pow_ps_512::<P>(off1);
+        let dist2 = pow_ps_512::<P>(off2);
+        let dist3 = pow_ps_512::<P>(off3);
+        _mm512_add_ps(_mm512_add_ps(dist0, dist1), _mm512_add_ps(dist2, dist3))
     }
 
     #[inline(always)]

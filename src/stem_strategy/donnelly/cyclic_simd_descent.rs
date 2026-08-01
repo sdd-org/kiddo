@@ -11,12 +11,16 @@ use std::ptr::NonNull;
 
 use aligned_vec::AVec;
 
+use crate::dist::DistanceMetric;
+use crate::kd_tree::query_context::QueryContext;
 use crate::kd_tree::query_stack::{QueryStack, QueryStackContext};
+use crate::kd_tree::{KdTreeAccessor, KdTreeQueryOps};
 use crate::stem_strategy::donnelly::core::{
     leaf_idx_from_block_base, DonnellyCore, DonnellyCoreDeferred,
 };
+use crate::stem_strategy::SimdPrune;
 use crate::traits::stem_strategy::PreparedBlockQuery;
-use crate::{Axis, StemStrategy};
+use crate::{Axis, Content, LeafStrategy, StemStrategy};
 
 /// Type-specific cyclic block comparison used by [`Axis`].
 pub(crate) trait CyclicBlockCompare: Copy {
@@ -35,7 +39,7 @@ pub(crate) trait CyclicBlockCompare: Copy {
 }
 
 #[inline(always)]
-fn prepare_query_lanes<A: Axis<Coord = A>, const BH: usize, const K: usize>(
+pub(super) fn prepare_query_lanes<A: Axis<Coord = A>, const BH: usize, const K: usize>(
     query: &[A; K],
 ) -> PreparedBlockQuery<A, K> {
     assert!(K > 0);
@@ -282,22 +286,19 @@ pub struct DonnellyCyclicSimdDescent<const BH: usize> {
     core: DonnellyCore<BH>,
 }
 
-/// Experimental home for cyclic-axis SIMD descent plus block-level pruning.
-///
-/// A direct reuse of [`super::DonnellySimdFull`]'s pending mask is not sound:
-/// that kernel represents each terminal child as an interval on the block's
-/// single split axis, whereas cyclic terminal children are multi-axis
-/// rectangles. This initial implementation therefore deliberately shares the
-/// proven scalar continuation engine with [`DonnellyCyclicSimdDescent`]. It is
-/// a correctness and code-generation control, and a stable home for a future
-/// multi-axis pending-mask kernel, without risking false pruning meanwhile.
-#[derive(Copy, Clone, Debug)]
-pub struct DonnellyCyclicSimdFull<const BH: usize> {
-    core: DonnellyCore<BH>,
-}
-
 macro_rules! impl_cyclic_simd_descent {
-    ($strategy:ident, $bh:literal, $block_base_bias:literal) => {
+    (
+        $strategy:ident,
+        $bh:literal,
+        $block_base_bias:literal,
+        $stack_context:ty,
+        $stack_type:ty,
+        $tree:ident,
+        $query_ctx:ident,
+        $stack:ident,
+        $process_leaf:ident,
+        $arithmetic:block
+    ) => {
         impl StemStrategy for $strategy<$bh> {
             const ROOT_IDX: usize = 0;
             const BLOCK_SIZE: usize = $bh;
@@ -307,8 +308,8 @@ macro_rules! impl_cyclic_simd_descent {
             const USES_PREPARED_BLOCK_QUERY: bool = true;
 
             type DeferredState = DonnellyCoreDeferred;
-            type StackContext<A> = QueryStackContext<A, Self::DeferredState>;
-            type Stack<A> = QueryStack<A, Self>;
+            type StackContext<A> = $stack_context;
+            type Stack<A> = $stack_type;
 
             #[inline(always)]
             fn new(stems_ptr: NonNull<u8>) -> Self {
@@ -495,15 +496,71 @@ macro_rules! impl_cyclic_simd_descent {
                 }
                 ordering.leaf_idx()
             }
+
+            #[inline(always)]
+            fn arithmetic_query_with_scratch<
+                Tree,
+                A,
+                T,
+                O,
+                D,
+                QC,
+                LS,
+                const K2: usize,
+                const B: usize,
+            >(
+                $tree: &Tree,
+                $query_ctx: &mut QC,
+                $stack: &mut Self::Stack<O>,
+                $process_leaf: impl FnMut(usize, &[O; K2], &mut QC),
+            ) where
+                Self: Sized,
+                Tree: KdTreeAccessor<A, T, Self, LS, K2, B>
+                    + KdTreeQueryOps<A, T, Self, LS, K2, B>,
+                A: Axis<Coord = A>,
+                T: Content,
+                O: Axis<Coord = O>
+                    + SimdPrune
+                    + crate::stem_strategy::SimdSelectBestChildBlock3
+                    + super::simd_full::BacktrackBlock3
+                    + super::simd_full::BacktrackBlock4,
+                D: DistanceMetric<A, Output = O>,
+                QC: QueryContext<A, O, K2>,
+                LS: LeafStrategy<A, T, Self, K2, B>,
+                Self::Stack<O>: crate::kd_tree::query_stack::StackTrait<O, Self>,
+            $arithmetic
         }
     };
 }
 
-impl_cyclic_simd_descent!(DonnellyCyclicSimdDescent, 3, 1);
-impl_cyclic_simd_descent!(DonnellyCyclicSimdDescent, 4, 7);
-impl_cyclic_simd_descent!(DonnellyCyclicSimdFull, 3, 1);
-impl_cyclic_simd_descent!(DonnellyCyclicSimdFull, 4, 7);
-
+impl_cyclic_simd_descent!(
+    DonnellyCyclicSimdDescent,
+    3,
+    1,
+    QueryStackContext<A, Self::DeferredState>,
+    QueryStack<A, Self>,
+    tree,
+    query_ctx,
+    stack,
+    process_leaf,
+    {
+        tree.arithmetic_query_with_scratch_impl::<QC, O, D>(query_ctx, stack, process_leaf);
+    }
+);
+impl_cyclic_simd_descent!(
+    DonnellyCyclicSimdDescent,
+    4,
+    7,
+    QueryStackContext<A, Self::DeferredState>,
+    QueryStack<A, Self>,
+    tree,
+    query_ctx,
+    stack,
+    process_leaf,
+    {
+        tree.arithmetic_query_with_scratch_impl::<QC, O, D>(query_ctx, stack, process_leaf);
+    }
+);
 #[cfg(feature = "cargo_asm")]
 mod cargo_asm {
     use super::{prepare_query_lanes, MaybeUninit, PreparedBlockQuery};

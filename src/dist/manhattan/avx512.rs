@@ -51,6 +51,11 @@ impl Avx512F64LeafOps for ManhattanAvx512F64LeafOps {
     }
 
     #[inline(always)]
+    unsafe fn rect_dist_f64x8_3(off0: __m512d, off1: __m512d, off2: __m512d) -> __m512d {
+        _mm512_add_pd(_mm512_add_pd(off0, off1), off2)
+    }
+
+    #[inline(always)]
     unsafe fn dist_k0_f64x4(delta: __m256d) -> __m256d {
         abs_pd_256(delta)
     }
@@ -92,6 +97,11 @@ impl Avx512F32LeafOps for ManhattanAvx512F32LeafOps {
     #[inline(always)]
     unsafe fn dist_kn_f32x16(acc: __m512, delta: __m512) -> __m512 {
         _mm512_add_ps(acc, abs_ps_512(delta))
+    }
+
+    #[inline(always)]
+    unsafe fn rect_dist_f32x16_4(off0: __m512, off1: __m512, off2: __m512, off3: __m512) -> __m512 {
+        _mm512_add_ps(_mm512_add_ps(off0, off1), _mm512_add_ps(off2, off3))
     }
 
     #[inline(always)]

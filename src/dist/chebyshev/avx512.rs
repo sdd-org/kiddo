@@ -17,6 +17,11 @@ impl Avx512F64LeafOps for ChebyshevAvx512F64LeafOps {
     }
 
     #[inline(always)]
+    unsafe fn rect_dist_f64x8_3(off0: __m512d, off1: __m512d, off2: __m512d) -> __m512d {
+        _mm512_max_pd(_mm512_max_pd(off0, off1), off2)
+    }
+
+    #[inline(always)]
     unsafe fn dist_k0_f64x4(delta: __m256d) -> __m256d {
         custom_mm256_abs_pd(delta)
     }
@@ -58,6 +63,11 @@ impl Avx512F32LeafOps for ChebyshevAvx512F32LeafOps {
     #[inline(always)]
     unsafe fn dist_kn_f32x16(acc: __m512, delta: __m512) -> __m512 {
         _mm512_max_ps(acc, custom_mm512_abs_ps(delta))
+    }
+
+    #[inline(always)]
+    unsafe fn rect_dist_f32x16_4(off0: __m512, off1: __m512, off2: __m512, off3: __m512) -> __m512 {
+        _mm512_max_ps(_mm512_max_ps(off0, off1), _mm512_max_ps(off2, off3))
     }
 
     #[inline(always)]

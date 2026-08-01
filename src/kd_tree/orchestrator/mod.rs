@@ -355,7 +355,11 @@ where
         process_leaf: impl FnMut(usize, &[O; K], &mut QC),
     ) where
         QC: QueryContext<A, O, K>,
-        O: Axis<Coord = O> + BacktrackBlock3 + BacktrackBlock4,
+        O: Axis<Coord = O>
+            + SimdPrune
+            + SimdSelectBestChildBlock3
+            + BacktrackBlock3
+            + BacktrackBlock4,
         D: DistanceMetric<A, Output = O>,
         SS::Stack<O>: StackTrait<O, SS> + Default,
     {
@@ -372,7 +376,11 @@ where
         process_leaf: impl FnMut(usize, &[O; K], &mut QC),
     ) where
         QC: QueryContext<A, O, K>,
-        O: Axis<Coord = O> + BacktrackBlock3 + BacktrackBlock4,
+        O: Axis<Coord = O>
+            + SimdPrune
+            + SimdSelectBestChildBlock3
+            + BacktrackBlock3
+            + BacktrackBlock4,
         D: DistanceMetric<A, Output = O>,
         SS::Stack<O>: StackTrait<O, SS>,
         SS::StackContext<O>: ScalarStackContext<O, SS::DeferredState>,
