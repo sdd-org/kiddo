@@ -67,8 +67,8 @@ pub enum Block3ExactStackContextState<A, SS, const K: usize> {
 /// Compact stack state for native cyclic SIMD-full traversal.
 ///
 /// Pending block entries retain the parent rectangle's per-axis query offsets.
-/// For squared Euclidean distance these four values completely describe the
-/// rectangle distance and are enough to derive every child offset in a block.
+/// These four values are enough for the metric-specific SIMD kernel to derive
+/// every child rectangle distance in a block.
 #[derive(Debug)]
 pub enum CyclicSimdFullQueryStackContext<A, S> {
     Scalar {
@@ -81,20 +81,34 @@ pub enum CyclicSimdFullQueryStackContext<A, S> {
         base_state: S,
         pending_mask: u16,
         off: [A; 4],
-        /// Exact minimum lower-bound distance in `pending_mask`, or zero when
-        /// the frame came from cheap near descent and has not been evaluated.
-        min_rd: A,
     },
 }
 
 impl<A, S> CyclicSimdFullQueryStackContext<A, S> {
     #[inline(always)]
-    pub fn pending(base_state: S, pending_mask: u16, off: [A; 4], min_rd: A) -> Self {
+    pub fn pending(base_state: S, pending_mask: u16, off: [A; 4]) -> Self {
         Self::Pending {
             base_state,
             pending_mask,
             off,
-            min_rd,
+        }
+    }
+
+    /// Extract a native cyclic SIMD-full pending frame without retaining the
+    /// scalar fallback variant in the hot control-flow graph.
+    ///
+    /// # Safety
+    ///
+    /// The value must be [`Self::Pending`].
+    #[inline(always)]
+    pub unsafe fn into_pending_unchecked(self) -> (S, u16, [A; 4]) {
+        match self {
+            Self::Pending {
+                base_state,
+                pending_mask,
+                off,
+            } => (base_state, pending_mask, off),
+            Self::Scalar { .. } => unsafe { core::hint::unreachable_unchecked() },
         }
     }
 }
@@ -341,6 +355,45 @@ impl<A, SS: StemStrategy, const INLINE_CAPACITY: usize> SimdQueryStack<A, SS, IN
     #[inline]
     pub fn pop(&mut self) -> Option<SS::StackContext<A>> {
         <Self as StackTrait<A, SS>>::pop(self)
+    }
+
+    /// Push directly into inline storage when the caller can prove that this
+    /// query can never exceed `INLINE_CAPACITY`.
+    ///
+    /// # Safety
+    ///
+    /// `self.len` must be less than `INLINE_CAPACITY`, and the stack must not
+    /// currently contain spill entries.
+    #[inline(always)]
+    pub(crate) unsafe fn push_inline_unchecked(&mut self, item: SS::StackContext<A>) {
+        debug_assert!(self.spill.is_empty());
+        debug_assert!(self.len < INLINE_CAPACITY);
+        unsafe { core::hint::assert_unchecked(self.len < INLINE_CAPACITY) };
+        unsafe { self.stack.get_unchecked_mut(self.len) }.write(item);
+        self.len += 1;
+
+        #[cfg(any(feature = "exact_query_stats", feature = "test_utils"))]
+        crate::results::exact_query_stats::record_simd_stack_len(self.len);
+    }
+
+    /// Pop directly from inline storage under the same no-spill invariant as
+    /// [`Self::push_inline_unchecked`].
+    ///
+    /// # Safety
+    ///
+    /// The stack must not contain spill entries and `self.len` must not exceed
+    /// `INLINE_CAPACITY`.
+    #[inline(always)]
+    pub(crate) unsafe fn pop_inline_unchecked(&mut self) -> Option<SS::StackContext<A>> {
+        debug_assert!(self.spill.is_empty());
+        debug_assert!(self.len <= INLINE_CAPACITY);
+        unsafe { core::hint::assert_unchecked(self.len <= INLINE_CAPACITY) };
+        if self.len == 0 {
+            None
+        } else {
+            self.len -= 1;
+            Some(unsafe { self.stack.get_unchecked(self.len).assume_init_read() })
+        }
     }
 }
 
