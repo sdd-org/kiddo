@@ -12,6 +12,9 @@ pub(crate) struct DonnellyCore<const BH: usize> {
     dim: usize,
     level: i32,
     minor_level: u32,
+    // Donnelly addresses are u32, so every representable root-to-leaf path also fits in u32.
+    // Keep this incrementally: exact NN resolves it at every visited leaf, where reconstructing
+    // it from the block address is substantially more expensive than the per-step shift/OR.
     leaf_idx: u32,
     stems_ptr: NonNull<u8>,
 }
@@ -39,11 +42,9 @@ impl<const BH: usize> StemStrategy for DonnellyCore<BH> {
     type StackContext<A> = crate::kd_tree::query_stack::QueryStackContext<A, Self::DeferredState>;
     type Stack<A> = crate::kd_tree::query_stack::QueryStack<A, Self>;
 
+    #[inline(always)]
     fn new(stems_ptr: NonNull<u8>) -> Self {
-        assert!(
-            BH <= u8::MAX as usize,
-            "Donnelly block height must fit in packed deferred state"
-        );
+        // debug_assert!(CL > VB); // item wider than cache line would break layout
 
         Self {
             stem_idx: Self::ROOT_IDX as u32,
@@ -59,16 +60,14 @@ impl<const BH: usize> StemStrategy for DonnellyCore<BH> {
     fn stem_idx(&self) -> usize {
         self.stem_idx as usize
     }
+    #[inline(always)]
     fn deferred_state(&self) -> Self::DeferredState {
-        debug_assert!(self.dim <= u16::MAX as usize);
-        debug_assert!((0..u32::BITS as i32).contains(&self.level));
-        debug_assert!(self.minor_level <= u8::MAX as u32);
-
         DonnellyCoreDeferred {
             indices: u64::from(self.leaf_idx) | (u64::from(self.stem_idx) << 32),
             meta: self.dim as u32 | ((self.level as u32) << 16) | (self.minor_level << 24),
         }
     }
+    #[inline(always)]
     fn rehydrate_deferred_state(&mut self, state: Self::DeferredState) {
         self.leaf_idx = state.indices as u32;
         self.stem_idx = (state.indices >> 32) as u32;
@@ -84,10 +83,6 @@ impl<const BH: usize> StemStrategy for DonnellyCore<BH> {
 
     #[inline(always)]
     fn dim<const K: usize>(&self) -> usize {
-        assert!(
-            K <= u16::MAX as usize + 1,
-            "Donnelly arithmetic queries require dimensions to fit in u16"
-        );
         self.dim
     }
 
@@ -210,10 +205,102 @@ impl<const BH: usize> StemStrategy for DonnellyCore<BH> {
     }
 }
 
+/// Recover the binary-tree path index represented by a complete-block root.
+///
+/// Donnelly block roots themselves form a `(2^BH)`-ary heap. Avoiding an
+/// incrementally-maintained leaf index removes one loop-carried dependency
+/// from descent-only and approximate-nearest traversal.
+#[inline(always)]
+pub(crate) fn leaf_idx_from_block_base<const BH: usize>(
+    block_base: u32,
+    completed_levels: usize,
+) -> usize {
+    debug_assert!(completed_levels.is_multiple_of(BH));
+    let block_root_offset = (1usize << BH) - (BH << 1) - 1;
+    let heap_bias = block_root_offset * ((1usize << completed_levels) - 1) / ((1usize << BH) - 1);
+    (block_base as usize >> BH) - heap_bias
+}
+
 impl<const BH: usize> DonnellyCore<BH> {
     #[inline(always)]
     pub(crate) fn minor_level(&self) -> u32 {
         self.minor_level
+    }
+
+    /// Branch within a minor triangle when the next level is known not to
+    /// cross a block boundary.
+    #[inline(always)]
+    pub(crate) fn branch_relative_head<A: Axis<Coord = A>, const K: usize>(
+        &mut self,
+        is_right: bool,
+    ) -> Self {
+        debug_assert!(self.minor_level + 1 < BH as u32);
+
+        let line_base = self.stem_idx & Self::line_mask_inv();
+        let local_idx = self.stem_idx & Self::line_mask();
+        let left_idx = line_base
+            .wrapping_add(1)
+            .wrapping_add(local_idx.wrapping_shl(1));
+        let right_idx = left_idx.wrapping_add(1);
+        let next_minor_level = self.minor_level + 1;
+
+        self.finish_relative_branch::<K>(is_right, left_idx, right_idx, next_minor_level)
+    }
+
+    /// Branch from the final level of a minor triangle when the transition to
+    /// child blocks is known to be unconditional.
+    #[inline(always)]
+    pub(crate) fn branch_relative_tail<A: Axis<Coord = A>, const K: usize>(
+        &mut self,
+        is_right: bool,
+    ) -> Self {
+        debug_assert_eq!(self.minor_level + 1, BH as u32);
+
+        let line_base = self.stem_idx & Self::line_mask_inv();
+        let local_idx = self.stem_idx & Self::line_mask();
+        let path_prefix = local_idx.wrapping_sub(self.minor_level).wrapping_sub(1);
+        let left_idx = line_base
+            .wrapping_add(1)
+            .wrapping_add(path_prefix.wrapping_shl(1))
+            .wrapping_shl(BH as u32);
+        let right_idx = left_idx.wrapping_add(1u32.wrapping_shl(BH as u32));
+
+        self.finish_relative_branch::<K>(is_right, left_idx, right_idx, 0)
+    }
+
+    #[inline(always)]
+    fn finish_relative_branch<const K: usize>(
+        &mut self,
+        is_right: bool,
+        left_idx: u32,
+        right_idx: u32,
+        next_minor_level: u32,
+    ) -> Self {
+        self.level = self.level.wrapping_add(1);
+        self.minor_level = next_minor_level;
+        if K == BH {
+            self.dim = next_minor_level as usize;
+        } else {
+            let wrap_dim_mask = 0usize.wrapping_sub((self.dim == (K - 1)) as usize);
+            self.dim = self.dim.wrapping_add(1) & !wrap_dim_mask;
+        }
+
+        let left_leaf_idx = self.leaf_idx.wrapping_shl(1);
+        let right_leaf_idx = left_leaf_idx | 1;
+        let (near_idx, far_idx, near_leaf_idx, far_leaf_idx) = if is_right {
+            (right_idx, left_idx, right_leaf_idx, left_leaf_idx)
+        } else {
+            (left_idx, right_idx, left_leaf_idx, right_leaf_idx)
+        };
+
+        self.stem_idx = near_idx;
+        self.leaf_idx = near_leaf_idx;
+
+        Self {
+            stem_idx: far_idx,
+            leaf_idx: far_leaf_idx,
+            ..*self
+        }
     }
 
     /// Traverse an entire block at once
@@ -489,8 +576,8 @@ impl<const BH: usize> DonnellyCore<BH> {
 
     /// Compute both children with a predictable block-boundary branch.
     ///
-    /// Exact traversal visits block phases in a fixed cycle, so this avoids
-    /// evaluating both the same-line and next-line recurrences at every level.
+    /// Exact traversal visits block phases in a fixed cycle, so this avoids evaluating
+    /// both the same-line and next-line recurrences on every level.
     #[inline(always)]
     pub(crate) fn both_children_predictable(curr_idx: u32, minor_level: u32) -> (u32, u32, u32) {
         let line_base = curr_idx & Self::line_mask_inv();
@@ -515,6 +602,353 @@ impl<const BH: usize> DonnellyCore<BH> {
             (left_idx, left_idx.wrapping_add(1), next_minor_level)
         }
     }
+}
+
+/// Descend a block-height-three Donnelly layout without materializing the full
+/// general-purpose traversal state at every level.
+///
+/// Approximate-nearest and traversal-only queries need only the final leaf
+/// index. Keeping only the block base and dimension in the hot loop lets LLVM
+/// reduce each three-level block to three dependent pivot loads plus one block
+/// transition. The leaf index is reconstructed from the block-heap index after
+/// the full-block descent.
+#[inline(always)]
+pub(crate) fn get_leaf_idx_block3<A: Axis<Coord = A>, const K: usize>(
+    stems: &[A],
+    query: &[A; K],
+    max_stem_level: i32,
+) -> usize {
+    let total_levels = (max_stem_level + 1) as usize;
+    let mut block_base = 0u32;
+    let mut dim = 0usize;
+    let mut level = 0usize;
+
+    while level + 3 <= total_levels {
+        let pivot0 = unsafe { *stems.get_unchecked(block_base as usize) };
+        let right0 = unsafe { *query.get_unchecked(dim) } >= pivot0;
+        dim += 1;
+        if dim == K {
+            dim = 0;
+        }
+
+        let path1 = right0 as u32;
+        let pivot1 = unsafe { *stems.get_unchecked((block_base + 1 + path1) as usize) };
+        let right1 = unsafe { *query.get_unchecked(dim) } >= pivot1;
+        dim += 1;
+        if dim == K {
+            dim = 0;
+        }
+
+        let path2 = path1.wrapping_shl(1) | right1 as u32;
+        let pivot2 = unsafe { *stems.get_unchecked((block_base + 3 + path2) as usize) };
+        let right2 = unsafe { *query.get_unchecked(dim) } >= pivot2;
+        dim += 1;
+        if dim == K {
+            dim = 0;
+        }
+
+        let path3 = path2.wrapping_shl(1) | right2 as u32;
+        block_base = block_base
+            .wrapping_add(1)
+            .wrapping_add(path3)
+            .wrapping_shl(3);
+        level += 3;
+    }
+
+    let mut leaf_idx = leaf_idx_from_block_base::<3>(block_base, level);
+
+    if level < total_levels {
+        let pivot0 = unsafe { *stems.get_unchecked(block_base as usize) };
+        let right0 = unsafe { *query.get_unchecked(dim) } >= pivot0;
+        leaf_idx = leaf_idx.wrapping_shl(1) | right0 as usize;
+
+        if level + 1 < total_levels {
+            dim += 1;
+            if dim == K {
+                dim = 0;
+            }
+
+            let pivot1 = unsafe { *stems.get_unchecked((block_base + 1 + right0 as u32) as usize) };
+            let right1 = unsafe { *query.get_unchecked(dim) } >= pivot1;
+            leaf_idx = leaf_idx.wrapping_shl(1) | right1 as usize;
+        }
+    }
+
+    leaf_idx
+}
+
+/// State-minimized block-height-three descent where every pivot in a block
+/// uses the same split dimension.
+#[inline(always)]
+pub(crate) fn get_leaf_idx_block3_block_dim<A: Axis<Coord = A>, const K: usize>(
+    stems: &[A],
+    query: &[A; K],
+    max_stem_level: i32,
+) -> usize {
+    let total_levels = (max_stem_level + 1) as usize;
+    let mut block_base = 0u32;
+    let mut dim = 0usize;
+    let mut level = 0usize;
+
+    while level + 3 <= total_levels {
+        let query_value = unsafe { *query.get_unchecked(dim) };
+        let pivot0 = unsafe { *stems.get_unchecked(block_base as usize) };
+        let right0 = query_value >= pivot0;
+
+        let path1 = right0 as u32;
+        let pivot1 = unsafe { *stems.get_unchecked((block_base + 1 + path1) as usize) };
+        let right1 = query_value >= pivot1;
+
+        let path2 = path1.wrapping_shl(1) | right1 as u32;
+        let pivot2 = unsafe { *stems.get_unchecked((block_base + 3 + path2) as usize) };
+        let right2 = query_value >= pivot2;
+
+        let path3 = path2.wrapping_shl(1) | right2 as u32;
+        block_base = block_base
+            .wrapping_add(1)
+            .wrapping_add(path3)
+            .wrapping_shl(3);
+
+        dim += 1;
+        if dim == K {
+            dim = 0;
+        }
+        level += 3;
+    }
+
+    let mut leaf_idx = leaf_idx_from_block_base::<3>(block_base, level);
+    let query_value = unsafe { *query.get_unchecked(dim) };
+    let mut local_idx = 0u32;
+    while level < total_levels {
+        let pivot = unsafe { *stems.get_unchecked((block_base + local_idx) as usize) };
+        let is_right = query_value >= pivot;
+        local_idx = local_idx.wrapping_shl(1) + 1 + is_right as u32;
+        leaf_idx = leaf_idx.wrapping_shl(1) | is_right as usize;
+        level += 1;
+    }
+
+    leaf_idx
+}
+
+#[inline(always)]
+fn descend_block4_values<A: Axis<Coord = A>>(
+    stems: &[A],
+    block_base: &mut u32,
+    query0: A,
+    query1: A,
+    query2: A,
+    query3: A,
+) -> u32 {
+    let right0 = query0 >= unsafe { *stems.get_unchecked(*block_base as usize) };
+    let path1 = right0 as u32;
+
+    let right1 = query1 >= unsafe { *stems.get_unchecked((*block_base + 1 + path1) as usize) };
+    let path2 = path1.wrapping_shl(1) | right1 as u32;
+
+    let right2 = query2 >= unsafe { *stems.get_unchecked((*block_base + 3 + path2) as usize) };
+    let path3 = path2.wrapping_shl(1) | right2 as u32;
+
+    let right3 = query3 >= unsafe { *stems.get_unchecked((*block_base + 7 + path3) as usize) };
+    let path4 = path3.wrapping_shl(1) | right3 as u32;
+
+    *block_base = (*block_base)
+        .wrapping_add(7)
+        .wrapping_add(path4)
+        .wrapping_shl(4);
+    path4
+}
+
+#[inline(always)]
+fn get_leaf_idx_block4_k3<A: Axis<Coord = A>>(
+    stems: &[A],
+    query: &[A; 3],
+    max_stem_level: i32,
+) -> usize {
+    let total_levels = (max_stem_level + 1) as usize;
+    let query0 = query[0];
+    let query1 = query[1];
+    let query2 = query[2];
+    let mut block_base = 0u32;
+    let mut level = 0usize;
+
+    while level + 12 <= total_levels {
+        descend_block4_values(stems, &mut block_base, query0, query1, query2, query0);
+
+        descend_block4_values(stems, &mut block_base, query1, query2, query0, query1);
+
+        descend_block4_values(stems, &mut block_base, query2, query0, query1, query2);
+        level += 12;
+    }
+
+    if level + 4 <= total_levels {
+        descend_block4_values(stems, &mut block_base, query0, query1, query2, query0);
+        level += 4;
+    }
+    if level + 4 <= total_levels {
+        descend_block4_values(stems, &mut block_base, query1, query2, query0, query1);
+        level += 4;
+    }
+
+    let mut leaf_idx = leaf_idx_from_block_base::<4>(block_base, level);
+    let mut local_idx = 0u32;
+    let mut dim = level % 3;
+    while level < total_levels {
+        let pivot = unsafe { *stems.get_unchecked((block_base + local_idx) as usize) };
+        let is_right = unsafe { *query.get_unchecked(dim) } >= pivot;
+        local_idx = local_idx.wrapping_shl(1) + 1 + is_right as u32;
+        leaf_idx = leaf_idx.wrapping_shl(1) | is_right as usize;
+
+        dim += 1;
+        if dim == 3 {
+            dim = 0;
+        }
+        level += 1;
+    }
+
+    leaf_idx
+}
+
+/// State-minimized descent for the block-height-four layout used by `f32`.
+#[inline(always)]
+pub(crate) fn get_leaf_idx_block4<A: Axis<Coord = A>, const K: usize>(
+    stems: &[A],
+    query: &[A; K],
+    max_stem_level: i32,
+) -> usize {
+    if K == 3 {
+        // SAFETY: This branch establishes that the array has exactly three elements.
+        let query_k3 = unsafe { &*(query as *const [A; K]).cast::<[A; 3]>() };
+        return get_leaf_idx_block4_k3(stems, query_k3, max_stem_level);
+    }
+
+    let total_levels = (max_stem_level + 1) as usize;
+    let mut block_base = 0u32;
+    let mut dim = 0usize;
+    let mut level = 0usize;
+
+    while level + 4 <= total_levels {
+        let pivot0 = unsafe { *stems.get_unchecked(block_base as usize) };
+        let right0 = unsafe { *query.get_unchecked(dim) } >= pivot0;
+        dim += 1;
+        if dim == K {
+            dim = 0;
+        }
+
+        let path1 = right0 as u32;
+        let pivot1 = unsafe { *stems.get_unchecked((block_base + 1 + path1) as usize) };
+        let right1 = unsafe { *query.get_unchecked(dim) } >= pivot1;
+        dim += 1;
+        if dim == K {
+            dim = 0;
+        }
+
+        let path2 = path1.wrapping_shl(1) | right1 as u32;
+        let pivot2 = unsafe { *stems.get_unchecked((block_base + 3 + path2) as usize) };
+        let right2 = unsafe { *query.get_unchecked(dim) } >= pivot2;
+        dim += 1;
+        if dim == K {
+            dim = 0;
+        }
+
+        let path3 = path2.wrapping_shl(1) | right2 as u32;
+        let pivot3 = unsafe { *stems.get_unchecked((block_base + 7 + path3) as usize) };
+        let right3 = unsafe { *query.get_unchecked(dim) } >= pivot3;
+        dim += 1;
+        if dim == K {
+            dim = 0;
+        }
+
+        let path4 = path3.wrapping_shl(1) | right3 as u32;
+        block_base = block_base
+            .wrapping_add(7)
+            .wrapping_add(path4)
+            .wrapping_shl(4);
+        level += 4;
+    }
+
+    let mut leaf_idx = leaf_idx_from_block_base::<4>(block_base, level);
+    let mut local_idx = 0u32;
+    while level < total_levels {
+        let pivot = unsafe { *stems.get_unchecked((block_base + local_idx) as usize) };
+        let is_right = unsafe { *query.get_unchecked(dim) } >= pivot;
+        local_idx = local_idx.wrapping_shl(1) + 1 + is_right as u32;
+        leaf_idx = leaf_idx.wrapping_shl(1) | is_right as usize;
+
+        dim += 1;
+        if dim == K {
+            dim = 0;
+        }
+        level += 1;
+    }
+
+    leaf_idx
+}
+
+/// State-minimized block-height-four descent where every pivot in a block
+/// uses the same split dimension.
+#[inline(always)]
+pub(crate) fn get_leaf_idx_block4_block_dim<A: Axis<Coord = A>, const K: usize>(
+    stems: &[A],
+    query: &[A; K],
+    max_stem_level: i32,
+) -> usize {
+    let total_levels = (max_stem_level + 1) as usize;
+    let mut block_base = 0u32;
+    let mut dim = 0usize;
+    let mut level = 0usize;
+
+    while level + 4 <= total_levels {
+        let query_value = unsafe { *query.get_unchecked(dim) };
+        descend_block4_values(
+            stems,
+            &mut block_base,
+            query_value,
+            query_value,
+            query_value,
+            query_value,
+        );
+
+        dim += 1;
+        if dim == K {
+            dim = 0;
+        }
+        level += 4;
+    }
+
+    let mut leaf_idx = leaf_idx_from_block_base::<4>(block_base, level);
+    let query_value = unsafe { *query.get_unchecked(dim) };
+    let mut local_idx = 0u32;
+    while level < total_levels {
+        let pivot = unsafe { *stems.get_unchecked((block_base + local_idx) as usize) };
+        let is_right = query_value >= pivot;
+        local_idx = local_idx.wrapping_shl(1) + 1 + is_right as u32;
+        leaf_idx = leaf_idx.wrapping_shl(1) | is_right as usize;
+        level += 1;
+    }
+
+    leaf_idx
+}
+
+#[cfg(feature = "cargo_asm")]
+#[inline(never)]
+#[unsafe(no_mangle)]
+pub fn donnelly_get_leaf_idx_block3_f64_k3_cargo_asm_hook(
+    stems: &[f64],
+    query: &[f64; 3],
+    max_stem_level: i32,
+) -> usize {
+    get_leaf_idx_block3(stems, query, max_stem_level)
+}
+
+#[cfg(feature = "cargo_asm")]
+#[inline(never)]
+#[unsafe(no_mangle)]
+pub fn donnelly_get_leaf_idx_block4_f32_k3_cargo_asm_hook(
+    stems: &[f32],
+    query: &[f32; 3],
+    max_stem_level: i32,
+) -> usize {
+    get_leaf_idx_block4(stems, query, max_stem_level)
 }
 
 /// Exposed pure function for use with cargo-asm
@@ -554,44 +988,35 @@ mod tests {
     use aligned_vec::avec;
     use rstest::rstest;
 
-    fn assert_branch_relative_matches_default<const BH: usize, const K: usize>() {
-        for seed in 0usize..32 {
-            let mut state = DonnellyCore::<BH>::new_no_ptr();
-            for level in 0usize..20 {
-                for is_right in [false, true] {
-                    let mut expected_near = state;
-                    let mut expected_far = expected_near.branch::<f64, K>();
-                    if is_right {
-                        std::mem::swap(&mut expected_near, &mut expected_far);
-                    }
-
-                    let mut actual_near = state;
-                    let actual_far = actual_near.branch_relative::<f64, K>(is_right);
-
-                    assert_eq!(actual_near.stem_idx, expected_near.stem_idx);
-                    assert_eq!(actual_near.leaf_idx, expected_near.leaf_idx);
-                    assert_eq!(actual_near.dim, expected_near.dim);
-                    assert_eq!(actual_near.level, expected_near.level);
-                    assert_eq!(actual_near.minor_level, expected_near.minor_level);
-                    assert_eq!(actual_far.stem_idx, expected_far.stem_idx);
-                    assert_eq!(actual_far.leaf_idx, expected_far.leaf_idx);
-                    assert_eq!(actual_far.dim, expected_far.dim);
-                    assert_eq!(actual_far.level, expected_far.level);
-                    assert_eq!(actual_far.minor_level, expected_far.minor_level);
-                }
-
-                let is_right = (seed.wrapping_mul(17) + level.wrapping_mul(29)) & 4 != 0;
-                state.traverse::<f64, K>(is_right);
-            }
+    fn scalar_leaf_idx<const BH: usize, const K: usize>(
+        stems: &[f64],
+        query: &[f64; K],
+        max_stem_level: i32,
+    ) -> usize {
+        let stems_ptr = NonNull::new(stems.as_ptr() as *mut u8).unwrap();
+        let mut strat = DonnellyCore::<BH>::new(stems_ptr);
+        while strat.level() <= max_stem_level {
+            let pivot = unsafe { *stems.get_unchecked(strat.stem_idx()) };
+            let is_right = unsafe { *query.get_unchecked(strat.dim::<K>()) } >= pivot;
+            strat.traverse::<f64, K>(is_right);
         }
+        strat.leaf_idx()
     }
 
-    #[test]
-    fn branch_relative_matches_default_across_block_boundaries() {
-        assert_branch_relative_matches_default::<3, 3>();
-        assert_branch_relative_matches_default::<3, 5>();
-        assert_branch_relative_matches_default::<4, 3>();
-        assert_branch_relative_matches_default::<4, 4>();
+    fn block_dim_scalar_leaf_idx<const BH: usize, const K: usize>(
+        stems: &[f64],
+        query: &[f64; K],
+        max_stem_level: i32,
+    ) -> usize {
+        let stems_ptr = NonNull::new(stems.as_ptr() as *mut u8).unwrap();
+        let mut strat = DonnellyCore::<BH>::new(stems_ptr);
+        while strat.level() <= max_stem_level {
+            let dim = strat.level() as usize / BH % K;
+            let pivot = unsafe { *stems.get_unchecked(strat.stem_idx()) };
+            let is_right = unsafe { *query.get_unchecked(dim) } >= pivot;
+            strat.traverse::<f64, K>(is_right);
+        }
+        strat.leaf_idx()
     }
 
     fn assert_compact_deferred_state_round_trips<const BH: usize>() {
@@ -599,29 +1024,100 @@ mod tests {
         assert_eq!(std::mem::size_of::<DonnellyCore<BH>>(), 32);
 
         for seed in 0usize..32 {
-            let mut state = DonnellyCore::<BH>::new_no_ptr();
-            for level in 0usize..20 {
-                let expected = state;
-                let saved = state.deferred_state();
+            let mut strat = DonnellyCore::<BH>::new_no_ptr();
+            for level in 0usize..=20 {
+                let expected_stem_idx = strat.stem_idx();
+                let expected_leaf_idx = strat.leaf_idx();
+                let expected_dim = strat.dim::<3>();
+                let expected_minor_level = strat.minor_level();
+                let saved = strat.deferred_state();
 
                 let mut restored = DonnellyCore::<BH>::new_no_ptr();
                 restored.rehydrate_deferred_state(saved);
-                assert_eq!(restored.stem_idx, expected.stem_idx);
-                assert_eq!(restored.leaf_idx, expected.leaf_idx);
-                assert_eq!(restored.dim, expected.dim);
-                assert_eq!(restored.level, expected.level);
-                assert_eq!(restored.minor_level, expected.minor_level);
+                assert_eq!(restored.stem_idx(), expected_stem_idx);
+                assert_eq!(restored.leaf_idx(), expected_leaf_idx);
+                assert_eq!(restored.dim::<3>(), expected_dim);
+                assert_eq!(restored.minor_level(), expected_minor_level);
+                assert_eq!(restored.level(), level as i32);
 
                 let is_right = (seed.wrapping_mul(17) + level.wrapping_mul(29)) & 4 != 0;
-                state.traverse::<f64, 3>(is_right);
+                strat.traverse::<f64, 3>(is_right);
             }
         }
     }
 
     #[test]
-    fn compact_deferred_state_round_trips_for_supported_block_heights() {
+    fn compact_block3_deferred_state_round_trips_at_every_minor_level() {
         assert_compact_deferred_state_round_trips::<3>();
+    }
+
+    #[test]
+    fn compact_block4_deferred_state_round_trips_at_every_minor_level() {
         assert_compact_deferred_state_round_trips::<4>();
+    }
+
+    #[test]
+    fn state_minimized_block3_leaf_descent_matches_scalar_core_at_every_remainder() {
+        let stems: Vec<f64> = (0usize..(1 << 20))
+            .map(|idx| ((idx.wrapping_mul(73) + 19) % 997) as f64 / 997.0)
+            .collect();
+        let query = [0.17, 0.53, 0.89];
+
+        for max_stem_level in 0..=14 {
+            assert_eq!(
+                get_leaf_idx_block3(&stems, &query, max_stem_level),
+                scalar_leaf_idx::<3, 3>(&stems, &query, max_stem_level),
+                "max_stem_level={max_stem_level}"
+            );
+        }
+    }
+
+    #[test]
+    fn state_minimized_block4_leaf_descent_matches_scalar_core_at_every_remainder() {
+        let stems: Vec<f64> = (0usize..(1 << 20))
+            .map(|idx| ((idx.wrapping_mul(61) + 23) % 991) as f64 / 991.0)
+            .collect();
+        let query = [0.13, 0.47, 0.83];
+
+        for max_stem_level in 0..=11 {
+            assert_eq!(
+                get_leaf_idx_block4(&stems, &query, max_stem_level),
+                scalar_leaf_idx::<4, 3>(&stems, &query, max_stem_level),
+                "max_stem_level={max_stem_level}"
+            );
+        }
+    }
+
+    #[test]
+    fn state_minimized_block3_block_dim_descent_matches_core_at_every_remainder() {
+        let stems: Vec<f64> = (0usize..(1 << 20))
+            .map(|idx| ((idx.wrapping_mul(43) + 31) % 983) as f64 / 983.0)
+            .collect();
+        let query = [0.19, 0.59, 0.79];
+
+        for max_stem_level in 0..=14 {
+            assert_eq!(
+                get_leaf_idx_block3_block_dim(&stems, &query, max_stem_level),
+                block_dim_scalar_leaf_idx::<3, 3>(&stems, &query, max_stem_level),
+                "max_stem_level={max_stem_level}"
+            );
+        }
+    }
+
+    #[test]
+    fn state_minimized_block4_block_dim_descent_matches_core_at_every_remainder() {
+        let stems: Vec<f64> = (0usize..(1 << 20))
+            .map(|idx| ((idx.wrapping_mul(47) + 37) % 977) as f64 / 977.0)
+            .collect();
+        let query = [0.11, 0.41, 0.91];
+
+        for max_stem_level in 0..=11 {
+            assert_eq!(
+                get_leaf_idx_block4_block_dim(&stems, &query, max_stem_level),
+                block_dim_scalar_leaf_idx::<4, 3>(&stems, &query, max_stem_level),
+                "max_stem_level={max_stem_level}"
+            );
+        }
     }
 
     #[rstest]
@@ -995,5 +1491,48 @@ mod tests {
                 }
             }
         }
+    }
+
+    fn assert_same_state<const BH: usize>(actual: DonnellyCore<BH>, expected: DonnellyCore<BH>) {
+        assert_eq!(actual.stem_idx, expected.stem_idx);
+        assert_eq!(actual.dim, expected.dim);
+        assert_eq!(actual.level, expected.level);
+        assert_eq!(actual.minor_level, expected.minor_level);
+        assert_eq!(actual.leaf_idx, expected.leaf_idx);
+    }
+
+    fn assert_unrolled_relative_branches_match_generic<const BH: usize>() {
+        for path_seed in 0u32..32 {
+            let mut base = DonnellyCore::<BH>::new_no_ptr();
+
+            for level in 0..(BH * 3) {
+                for is_right in [false, true] {
+                    let mut generic_near = base;
+                    let generic_far = generic_near.branch_relative::<f64, 3>(is_right);
+
+                    let mut unrolled_near = base;
+                    let unrolled_far = if base.minor_level + 1 == BH as u32 {
+                        unrolled_near.branch_relative_tail::<f64, 3>(is_right)
+                    } else {
+                        unrolled_near.branch_relative_head::<f64, 3>(is_right)
+                    };
+
+                    assert_same_state(unrolled_near, generic_near);
+                    assert_same_state(unrolled_far, generic_far);
+                }
+
+                let is_right = (path_seed.rotate_left(level as u32) & 1) != 0;
+                base.traverse::<f64, 3>(is_right);
+            }
+        }
+    }
+
+    #[test]
+    fn unrolled_relative_branches_match_generic_for_all_supported_block_heights() {
+        assert_unrolled_relative_branches_match_generic::<3>();
+        assert_unrolled_relative_branches_match_generic::<4>();
+        assert_unrolled_relative_branches_match_generic::<5>();
+        assert_unrolled_relative_branches_match_generic::<6>();
+        assert_unrolled_relative_branches_match_generic::<7>();
     }
 }
