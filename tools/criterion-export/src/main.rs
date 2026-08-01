@@ -100,7 +100,8 @@ fn collect_cbor_records(
 
         let record: BenchmarkRecord = serde_cbor::from_reader(BufReader::new(File::open(&path)?))
             .map_err(|error| invalid_data(&path, error))?;
-        if !matches_filter(&record.id.group_id, filters) {
+        let benchmark = benchmark_name(&record.id);
+        if !matches_filter(&benchmark, filters) {
             continue;
         }
 
@@ -108,7 +109,6 @@ fn collect_cbor_records(
         let statistics: SavedStatistics =
             serde_cbor::from_reader(BufReader::new(File::open(&measurement_path)?))
                 .map_err(|error| invalid_data(&measurement_path, error))?;
-        let benchmark = benchmark_name(&record.id);
         let metadata =
             serde_json::to_value(record.id).map_err(|error| invalid_data(&path, error))?;
 
@@ -149,20 +149,26 @@ fn collect_legacy_json(
             .unwrap_or(&path)
             .to_string_lossy()
             .replace('\\', "/");
-        if relative.contains("/base/") {
+        if relative.contains("/base/") || relative.contains("/change/") {
             continue;
         }
-        let benchmark = relative
+        let directory_benchmark = relative
             .trim_end_matches("/estimates.json")
             .trim_end_matches("/new")
+            .to_string();
+
+        let metadata_path = path.with_file_name("benchmark.json");
+        let metadata: Value = serde_json::from_reader(BufReader::new(File::open(&metadata_path)?))
+            .map_err(|error| invalid_data(&metadata_path, error))?;
+        let benchmark = metadata
+            .get("full_id")
+            .and_then(Value::as_str)
+            .unwrap_or(&directory_benchmark)
             .to_string();
         if !matches_filter(&benchmark, filters) {
             continue;
         }
 
-        let metadata_path = path.with_file_name("benchmark.json");
-        let metadata = serde_json::from_reader(BufReader::new(File::open(&metadata_path)?))
-            .map_err(|error| invalid_data(&metadata_path, error))?;
         let estimates = serde_json::from_reader(BufReader::new(File::open(&path)?))
             .map_err(|error| invalid_data(&path, error))?;
         entries.entry(benchmark.clone()).or_insert(Entry {
@@ -223,4 +229,30 @@ fn main() -> io::Result<()> {
     };
     let output = File::create(output_path)?;
     serde_json::to_writer_pretty(output, &export).map_err(io::Error::other)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::matches_filter;
+
+    #[test]
+    fn filter_matches_a_group_and_its_descendants() {
+        let filters = vec!["suite/f64/donnelly".to_string()];
+        assert!(matches_filter("suite/f64/donnelly", &filters));
+        assert!(matches_filter("suite/f64/donnelly/536870912", &filters));
+        assert!(!matches_filter("suite/f64/eytzinger/536870912", &filters));
+    }
+
+    #[test]
+    fn full_benchmark_filter_excludes_other_tree_sizes() {
+        let filters = vec!["suite/f64/donnelly/536870912".to_string()];
+        assert!(matches_filter(
+            "suite/f64/donnelly/536870912",
+            &filters
+        ));
+        assert!(!matches_filter(
+            "suite/f64/donnelly/268435456",
+            &filters
+        ));
+    }
 }

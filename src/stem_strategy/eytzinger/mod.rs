@@ -171,16 +171,26 @@ impl<const PF1: isize, const PF2: isize> StemStrategy for EytzingerFlexPf<PF1, P
 
     #[inline(always)]
     fn branch_relative<A: Axis<Coord = A>, const K: usize>(&mut self, is_right: bool) -> Self {
-        let far = if is_right {
-            let mut right = self.branch::<A, K>();
-            std::mem::swap(self, &mut right);
-            right
-        } else {
-            self.branch::<A, K>()
-        };
+        let child_base = self.stem_idx.wrapping_shl(1);
+        let direction = is_right as u32;
+        let near_idx = child_base | direction;
+        let far_idx = child_base | (direction ^ 1);
+
+        self.level = self.level.wrapping_add(1);
+
+        let wrap_dim_mask = 0usize.wrapping_sub((self.dim == (K - 1)) as usize);
+        self.dim = self.dim.wrapping_add(1) & !wrap_dim_mask;
+
+        self.stem_idx = near_idx;
 
         Self::prefetch_descendants::<A>(self.stem_idx, self.stems_ptr);
-        far
+
+        Self {
+            stem_idx: far_idx,
+            dim: self.dim,
+            level: self.level,
+            stems_ptr: self.stems_ptr,
+        }
     }
 
     fn child_indices<A: Axis<Coord = A>>(&self) -> (usize, usize) {
