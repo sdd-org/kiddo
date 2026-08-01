@@ -637,7 +637,7 @@ where
         if RESYNC_BACKTRACKED && (SS::USES_UNROLLED_SCALAR_TRAVERSAL || SS::USES_SIMD_BLOCK_DESCENT)
         {
             while stem_strat.level() <= self.max_stem_level()
-                && stem_strat.level() as usize % SS::BLOCK_SIZE != 0
+                && !(stem_strat.level() as usize).is_multiple_of(SS::BLOCK_SIZE)
             {
                 descend_one!(branch_relative, traverse);
             }

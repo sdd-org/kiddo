@@ -44,6 +44,8 @@ pub use no_pf::DonnellyNoPf;
 pub use scalar::Donnelly;
 #[doc(inline)]
 pub use simd_descent::DonnellySimdDescent;
+#[doc(hidden)]
+pub use simd_descent::DonnellySimdInitialDescent;
 #[doc(inline)]
 pub use simd_full::DonnellySimdFull;
 #[doc(inline)]
