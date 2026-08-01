@@ -745,8 +745,8 @@ impl StemStrategy for DonnellySimdFull<3> {
         O: Axis<Coord = O> + SimdSelectBestChildBlock3 + BacktrackBlock3 + BacktrackBlock4,
         D: crate::dist::DistanceMetric<A, Output = O>,
     {
-        #[cfg(feature = "test_utils")]
-        crate::test_utils::exact_query_stats::record_block3_step_entry();
+        #[cfg(any(feature = "exact_query_stats", feature = "test_utils"))]
+        crate::results::exact_query_stats::record_block3_step_entry();
 
         if self.level() > max_stem_level {
             return false;
@@ -771,8 +771,8 @@ impl StemStrategy for DonnellySimdFull<3> {
 
         // TODO: this fallback should not be required. Refactor to avoid the need for it
         if !can_take_full_block {
-            #[cfg(feature = "test_utils")]
-            crate::test_utils::exact_query_stats::record_block3_scalar_fallback_step();
+            #[cfg(any(feature = "exact_query_stats", feature = "test_utils"))]
+            crate::results::exact_query_stats::record_block3_scalar_fallback_step();
 
             use crate::kd_tree::query_stack_simd::Block3SimdQueryStackContext;
 
@@ -821,8 +821,8 @@ impl StemStrategy for DonnellySimdFull<3> {
             return true;
         }
 
-        #[cfg(feature = "test_utils")]
-        crate::test_utils::exact_query_stats::record_block3_full_step();
+        #[cfg(any(feature = "exact_query_stats", feature = "test_utils"))]
+        crate::results::exact_query_stats::record_block3_full_step();
 
         let child_idx = compare_block3(stems, query_val, block_base_idx);
         #[cfg(feature = "test_utils")]

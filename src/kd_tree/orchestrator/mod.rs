@@ -297,8 +297,8 @@ where
         while let Some(stack_ctx) = stack.pop() {
             #[cfg(feature = "result_collection_stats")]
             crate::results::result_collection_stats::record_query_stack_pop();
-            #[cfg(feature = "test_utils")]
-            crate::test_utils::exact_query_stats::record_scalar_stack_pop();
+            #[cfg(any(feature = "exact_query_stats", feature = "test_utils"))]
+            crate::results::exact_query_stats::record_scalar_stack_pop();
 
             let (stem_state, restore_dim, old_off, rd) =
                 SS::StackContext::<O>::into_parts_with_restore_dim(stack_ctx);
@@ -451,6 +451,8 @@ where
         let mut dim = stem_strat.dim::<K>();
         'query: loop {
             while let Some(frame) = restore_stack.pop() {
+                #[cfg(feature = "exact_query_stats")]
+                crate::results::exact_query_stats::record_continuation_frame_pop();
                 #[cfg(feature = "result_collection_stats")]
                 crate::results::result_collection_stats::record_query_scalar_continuation_frame_pop(
                 );
@@ -468,6 +470,9 @@ where
                     .pop()
                     .expect("scalar continuation far stack underflow");
 
+                #[cfg(feature = "exact_query_stats")]
+                crate::results::exact_query_stats::record_far_recheck();
+
                 #[cfg(feature = "result_collection_stats")]
                 crate::results::result_collection_stats::record_query_scalar_continuation_far_recheck();
 
@@ -476,6 +481,8 @@ where
                     || (query_ctx.prune_on_equal_max_dist()
                         && rd_vs_max == std::cmp::Ordering::Equal);
                 if should_prune {
+                    #[cfg(feature = "exact_query_stats")]
+                    crate::results::exact_query_stats::record_far_reject_after_near();
                     #[cfg(feature = "result_collection_stats")]
                     {
                         crate::results::result_collection_stats::record_query_prune();
@@ -486,12 +493,17 @@ where
 
                 restore_stack
                     .push_unchecked_inline(ScalarContinuationRestore::restore_only(old_off));
+                #[cfg(feature = "exact_query_stats")]
+                crate::results::exact_query_stats::record_continuation_frame_push();
                 #[cfg(feature = "result_collection_stats")]
                 crate::results::result_collection_stats::record_query_scalar_continuation_frame_push();
 
                 unsafe { *off.get_unchecked_mut(restore_dim) = far.far_off };
                 stem_strat.rehydrate_deferred_state(far.stem_state);
                 rd = far.rd;
+
+                #[cfg(feature = "exact_query_stats")]
+                crate::results::exact_query_stats::record_far_enter();
 
                 #[cfg(feature = "result_collection_stats")]
                 crate::results::result_collection_stats::record_query_scalar_continuation_far_enter(
@@ -556,6 +568,8 @@ where
 
                 let dim = $dim;
                 let pivot = $pivot;
+                #[cfg(feature = "exact_query_stats")]
+                crate::results::exact_query_stats::record_stem_step(pivot < A::max_value());
                 if pivot < A::max_value() {
                     let is_right_child = $is_right_child;
                     let far_ctx = stem_strat.$branch_method::<A, K>(is_right_child);
@@ -572,6 +586,8 @@ where
                     };
 
                     if far_is_candidate {
+                        #[cfg(feature = "exact_query_stats")]
+                        crate::results::exact_query_stats::record_initial_far_candidate();
                         #[cfg(feature = "result_collection_stats")]
                         crate::results::result_collection_stats::record_query_scalar_far_child_candidate();
                         restore_stack
@@ -582,6 +598,8 @@ where
                             rd: rd_far,
                         });
                     } else {
+                        #[cfg(feature = "exact_query_stats")]
+                        crate::results::exact_query_stats::record_initial_far_reject();
                         #[cfg(feature = "result_collection_stats")]
                         crate::results::result_collection_stats::record_query_scalar_far_child_reject();
                         restore_stack
@@ -597,6 +615,8 @@ where
                     crate::results::result_collection_stats::record_query_scalar_continuation_frame_push();
                     stem_strat.$traverse_method::<A, K>(false);
                 }
+                #[cfg(feature = "exact_query_stats")]
+                crate::results::exact_query_stats::record_continuation_frame_push();
             }};
         }
 
@@ -851,8 +871,8 @@ where
                     old_off,
                     rd,
                 } => {
-                    #[cfg(feature = "test_utils")]
-                    crate::test_utils::exact_query_stats::record_simd_single_pop();
+                #[cfg(any(feature = "exact_query_stats", feature = "test_utils"))]
+                crate::results::exact_query_stats::record_simd_single_pop();
 
                     let restore_dim = dim_val;
                     let mut dim = ss.dim::<K>();
@@ -907,8 +927,8 @@ where
                     lower: restored_lower,
                     upper: restored_upper,
                 } => {
-                    #[cfg(feature = "test_utils")]
-                    crate::test_utils::exact_query_stats::record_block3_pending_pop(pending_mask);
+                    #[cfg(any(feature = "exact_query_stats", feature = "test_utils"))]
+                    crate::results::exact_query_stats::record_block3_pending_pop(pending_mask);
 
                     let dim_val = base.dim::<K>();
                     lower = restored_lower;
@@ -1053,8 +1073,8 @@ where
                     #[cfg(not(feature = "test_utils"))]
                     let _ = (candidate_mask, &trace_pending_arrays);
 
-                    #[cfg(feature = "test_utils")]
-                    crate::test_utils::exact_query_stats::record_block3_candidate_mask(
+                    #[cfg(any(feature = "exact_query_stats", feature = "test_utils"))]
+                    crate::results::exact_query_stats::record_block3_candidate_mask(
                         candidate_mask,
                     );
 
