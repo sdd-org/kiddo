@@ -418,10 +418,19 @@ mod tests {
         for r in &result {
             let neighbor = &points[r.item];
             let checked_squared = issue_258_distance_squared(&points[test_index], neighbor);
-            assert_eq!(
-                r.distance, checked_squared,
-                "Point i={}, dist^2 kiddo ({}) !=  manual ({})",
-                r.item, r.distance, checked_squared
+            // The query kernel and this scalar reference are free to reassociate
+            // the two squared terms, so their correctly rounded results may differ
+            // by an ULP. The regression is about membership and distance accuracy,
+            // not bit-identical floating-point evaluation order.
+            let tolerance =
+                4.0 * f64::EPSILON * r.distance.abs().max(checked_squared.abs()).max(1.0);
+            assert!(
+                (r.distance - checked_squared).abs() <= tolerance,
+                "Point i={}, dist^2 kiddo ({}) != manual ({}) within tolerance {}",
+                r.item,
+                r.distance,
+                checked_squared,
+                tolerance,
             );
 
             println!(
