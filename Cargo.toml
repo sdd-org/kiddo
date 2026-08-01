@@ -298,6 +298,18 @@ harness = false
 required-features = ["simd", "test_utils"]
 
 [[bench]]
+name = "profile_v6_query_pool"
+path = "benches/profile_v6_query_pool.rs"
+harness = false
+required-features = ["simd", "test_utils"]
+
+[[bench]]
+name = "profile_v6_query_pool_perf"
+path = "benches/profile_v6_query_pool_perf.rs"
+harness = false
+required-features = ["simd", "test_utils"]
+
+[[bench]]
 name = "profile_v6_construction"
 path = "benches/profile_v6_construction.rs"
 harness = false
