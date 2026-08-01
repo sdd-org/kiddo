@@ -13,6 +13,7 @@ use crate::stem_strategy::{
     donnelly::simd_full::{BacktrackBlock3, BacktrackBlock4},
     SimdPrune, SimdSelectBestChildBlock3,
 };
+use crate::traits::stem_strategy::PreparedBlockQuery;
 use crate::{Axis, Content, LeafStrategy, StemStrategy};
 
 #[derive(Clone, Copy, Debug)]
@@ -406,6 +407,7 @@ where
         let mut stem_strat: SS = SS::new(stems_ptr);
 
         let query: [A; K] = *query_ctx.query();
+        let prepared_block_query = SS::prepare_block_query(&query);
         let mut query_wide: [O; K] = [O::zero(); K];
         for dim in 0..K {
             query_wide[dim] = D::widen_coord(query[dim]);
@@ -426,6 +428,7 @@ where
         let leaf_idx = if query_ctx.initial_bound_is_unbounded() {
             self.arithmetic_descend_to_leaf::<QC, O, D, false, false>(
                 &query,
+                &prepared_block_query,
                 &query_wide,
                 query_ctx,
                 &mut stem_strat,
@@ -437,6 +440,7 @@ where
         } else {
             self.arithmetic_descend_to_leaf::<QC, O, D, true, false>(
                 &query,
+                &prepared_block_query,
                 &query_wide,
                 query_ctx,
                 &mut stem_strat,
@@ -511,6 +515,7 @@ where
 
                 let leaf_idx = self.arithmetic_descend_to_leaf::<QC, O, D, true, true>(
                     &query,
+                    &prepared_block_query,
                     &query_wide,
                     query_ctx,
                     &mut stem_strat,
@@ -540,6 +545,7 @@ where
     >(
         &self,
         query: &[A; K],
+        prepared_block_query: &PreparedBlockQuery<A, K>,
         query_wide: &[O; K],
         query_ctx: &QC,
         stem_strat: &mut SS,
@@ -673,7 +679,12 @@ where
             if SS::BLOCK_SIZE == 4 {
                 while stem_strat.level() + 3 <= self.max_stem_level() {
                     let dim = stem_strat.dim::<K>();
-                    let child_idx = stem_strat.select_block_child(self.stems(), query, dim);
+                    let child_idx = stem_strat.select_prepared_block_child(
+                        self.stems(),
+                        query,
+                        prepared_block_query,
+                        dim,
+                    );
 
                     descend_selected!(child_idx, 0b1000, branch_relative_head, traverse_head);
                     descend_selected!(child_idx, 0b0100, branch_relative_head, traverse_head);
@@ -683,7 +694,12 @@ where
             } else if SS::BLOCK_SIZE == 3 {
                 while stem_strat.level() + 2 <= self.max_stem_level() {
                     let dim = stem_strat.dim::<K>();
-                    let child_idx = stem_strat.select_block_child(self.stems(), query, dim);
+                    let child_idx = stem_strat.select_prepared_block_child(
+                        self.stems(),
+                        query,
+                        prepared_block_query,
+                        dim,
+                    );
 
                     descend_selected!(child_idx, 0b100, branch_relative_head, traverse_head);
                     descend_selected!(child_idx, 0b010, branch_relative_head, traverse_head);

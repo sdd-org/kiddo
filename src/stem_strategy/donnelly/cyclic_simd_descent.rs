@@ -2,9 +2,11 @@
 //!
 //! Unlike [`super::DonnellySimdDescent`], this strategy preserves the ordinary
 //! per-level axis cadence. Its SIMD query vector therefore mirrors the heap
-//! levels in a block: `X, YY, ZZZZ` for `f64`/3D/block-height 3 and
-//! `X, YY, ZZZZ, WWWWWWWW` for `f32`/4D/block-height 4.
+//! levels in a block. For a block beginning at dimension `d`, the query lanes
+//! are `d, (d+1)(d+1), (d+2)(d+2)(d+2)(d+2)` for block height 3, and the
+//! analogous 1/2/4/8 pattern for block height 4. Dimensions wrap modulo `K`.
 
+use std::mem::MaybeUninit;
 use std::ptr::NonNull;
 
 use aligned_vec::AVec;
@@ -13,6 +15,7 @@ use crate::kd_tree::query_stack::{QueryStack, QueryStackContext};
 use crate::stem_strategy::donnelly::core::{
     leaf_idx_from_block_base, DonnellyCore, DonnellyCoreDeferred,
 };
+use crate::traits::stem_strategy::PreparedBlockQuery;
 use crate::{Axis, StemStrategy};
 
 /// Type-specific cyclic block comparison used by [`Axis`].
@@ -23,6 +26,75 @@ pub(crate) trait CyclicBlockCompare: Copy {
         block_base_idx: usize,
         start_dim: usize,
     ) -> u8;
+
+    fn compare_prepared_cyclic_block<const BH: usize>(
+        stems: &[Self],
+        query_lanes: &[MaybeUninit<Self>; 16],
+        block_base_idx: usize,
+    ) -> u8;
+}
+
+#[inline(always)]
+fn prepare_query_lanes<A: Axis<Coord = A>, const BH: usize, const K: usize>(
+    query: &[A; K],
+) -> PreparedBlockQuery<A, K> {
+    assert!(K > 0);
+    let mut phases = PreparedBlockQuery([[MaybeUninit::uninit(); 16]; K]);
+    let mut phase = 0usize;
+    loop {
+        let dim1 = if phase + 1 == K { 0 } else { phase + 1 };
+        let dim2 = if dim1 + 1 == K { 0 } else { dim1 + 1 };
+        let q0 = query[phase];
+        let q1 = query[dim1];
+        let q2 = query[dim2];
+        if BH == 3 {
+            phases.0[phase] = [
+                MaybeUninit::new(q0),
+                MaybeUninit::new(q1),
+                MaybeUninit::new(q1),
+                MaybeUninit::new(q2),
+                MaybeUninit::new(q2),
+                MaybeUninit::new(q2),
+                MaybeUninit::new(q2),
+                MaybeUninit::new(q2),
+                MaybeUninit::uninit(),
+                MaybeUninit::uninit(),
+                MaybeUninit::uninit(),
+                MaybeUninit::uninit(),
+                MaybeUninit::uninit(),
+                MaybeUninit::uninit(),
+                MaybeUninit::uninit(),
+                MaybeUninit::uninit(),
+            ];
+        } else {
+            assert!(BH == 4, "cyclic SIMD preparation requires BH=3 or BH=4");
+            let dim3 = if dim2 + 1 == K { 0 } else { dim2 + 1 };
+            let q3 = query[dim3];
+            phases.0[phase] = [
+                MaybeUninit::new(q0),
+                MaybeUninit::new(q1),
+                MaybeUninit::new(q1),
+                MaybeUninit::new(q2),
+                MaybeUninit::new(q2),
+                MaybeUninit::new(q2),
+                MaybeUninit::new(q2),
+                MaybeUninit::new(q3),
+                MaybeUninit::new(q3),
+                MaybeUninit::new(q3),
+                MaybeUninit::new(q3),
+                MaybeUninit::new(q3),
+                MaybeUninit::new(q3),
+                MaybeUninit::new(q3),
+                MaybeUninit::new(q3),
+                MaybeUninit::new(q3),
+            ];
+        }
+        phase = (phase + BH) % K;
+        if phase == 0 {
+            break;
+        }
+    }
+    phases
 }
 
 #[inline(always)]
@@ -50,6 +122,28 @@ fn scalar_path<A: PartialOrd + Copy, const BH: usize, const K: usize>(
 // TODO: can remove?
 #[allow(unused)]
 #[inline(always)]
+#[cfg(not(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f")))]
+fn scalar_prepared_path<A: PartialOrd + Copy, const BH: usize>(
+    stems: &[A],
+    query_lanes: &[MaybeUninit<A>; 16],
+    block_base_idx: usize,
+) -> u8 {
+    let mut heap_idx = 0usize;
+    let mut child = 0u8;
+    let mut depth = 0usize;
+    while depth < BH {
+        let is_right = unsafe {
+            query_lanes.get_unchecked(heap_idx).assume_init()
+                >= *stems.get_unchecked(block_base_idx + heap_idx)
+        };
+        child = (child << 1) | is_right as u8;
+        heap_idx = (heap_idx << 1) + 1 + is_right as usize;
+        depth += 1;
+    }
+    child
+}
+
+#[inline(always)]
 fn block3_child_from_mask(mask: u8) -> u8 {
     let b0 = mask & 1;
     let b1 = (mask >> (1 + b0)) & 1;
@@ -76,17 +170,20 @@ impl CyclicBlockCompare for f64 {
         block_base_idx: usize,
         start_dim: usize,
     ) -> u8 {
-        assert!(BH == 3 && K == 3, "f64 cyclic SIMD requires BH=3 and K=3");
-        debug_assert_eq!(start_dim, 0);
+        assert!(BH == 3, "f64 cyclic SIMD requires BH=3");
+        assert!(K > 0, "cyclic SIMD requires at least one dimension");
+        debug_assert!(start_dim < K);
 
         #[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"))]
         unsafe {
             use std::arch::x86_64::*;
 
-            let query_xyz = _mm256_maskz_loadu_pd(0b0111, query.as_ptr());
-            let repeated = _mm512_broadcast_f64x4(query_xyz);
-            let lane_indices = _mm512_set_epi64(2, 2, 2, 2, 2, 1, 1, 0);
-            let query_lanes = _mm512_permutexvar_pd(lane_indices, repeated);
+            let dim1 = if start_dim + 1 == K { 0 } else { start_dim + 1 };
+            let dim2 = if dim1 + 1 == K { 0 } else { dim1 + 1 };
+            let q0 = *query.get_unchecked(start_dim);
+            let q1 = *query.get_unchecked(dim1);
+            let q2 = *query.get_unchecked(dim2);
+            let query_lanes = _mm512_set_pd(q2, q2, q2, q2, q2, q1, q1, q0);
             let pivots = _mm512_loadu_pd(stems.as_ptr().add(block_base_idx));
             let mask = _mm512_cmp_pd_mask(query_lanes, pivots, _CMP_GE_OQ);
             block3_child_from_mask(mask)
@@ -94,6 +191,27 @@ impl CyclicBlockCompare for f64 {
 
         #[cfg(not(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f")))]
         scalar_path::<Self, BH, K>(stems, query, block_base_idx, start_dim)
+    }
+
+    #[inline(always)]
+    fn compare_prepared_cyclic_block<const BH: usize>(
+        stems: &[Self],
+        query_lanes: &[MaybeUninit<Self>; 16],
+        block_base_idx: usize,
+    ) -> u8 {
+        assert!(BH == 3, "f64 cyclic SIMD requires BH=3");
+
+        #[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"))]
+        unsafe {
+            use std::arch::x86_64::*;
+
+            let prepared = _mm512_loadu_pd(query_lanes.as_ptr().cast());
+            let pivots = _mm512_loadu_pd(stems.as_ptr().add(block_base_idx));
+            return block3_child_from_mask(_mm512_cmp_pd_mask(prepared, pivots, _CMP_GE_OQ));
+        }
+
+        #[cfg(not(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f")))]
+        scalar_prepared_path::<Self, BH>(stems, query_lanes, block_base_idx)
     }
 }
 
@@ -105,17 +223,24 @@ impl CyclicBlockCompare for f32 {
         block_base_idx: usize,
         start_dim: usize,
     ) -> u8 {
-        assert!(BH == 4 && K == 4, "f32 cyclic SIMD requires BH=4 and K=4");
-        debug_assert_eq!(start_dim, 0);
+        assert!(BH == 4, "f32 cyclic SIMD requires BH=4");
+        assert!(K > 0, "cyclic SIMD requires at least one dimension");
+        debug_assert!(start_dim < K);
 
         #[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"))]
         unsafe {
             use std::arch::x86_64::*;
 
-            let query_xyzw = _mm_loadu_ps(query.as_ptr());
-            let repeated = _mm512_broadcast_f32x4(query_xyzw);
-            let lane_indices = _mm512_set_epi32(3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 1, 1, 0);
-            let query_lanes = _mm512_permutexvar_ps(lane_indices, repeated);
+            let dim1 = if start_dim + 1 == K { 0 } else { start_dim + 1 };
+            let dim2 = if dim1 + 1 == K { 0 } else { dim1 + 1 };
+            let dim3 = if dim2 + 1 == K { 0 } else { dim2 + 1 };
+            let q0 = *query.get_unchecked(start_dim);
+            let q1 = *query.get_unchecked(dim1);
+            let q2 = *query.get_unchecked(dim2);
+            let q3 = *query.get_unchecked(dim3);
+            let query_lanes = _mm512_set_ps(
+                q3, q3, q3, q3, q3, q3, q3, q3, q3, q2, q2, q2, q2, q1, q1, q0,
+            );
             let pivots = _mm512_loadu_ps(stems.as_ptr().add(block_base_idx));
             let mask = _mm512_cmp_ps_mask(query_lanes, pivots, _CMP_GE_OQ);
             block4_child_from_mask(mask)
@@ -124,26 +249,62 @@ impl CyclicBlockCompare for f32 {
         #[cfg(not(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f")))]
         scalar_path::<Self, BH, K>(stems, query, block_base_idx, start_dim)
     }
+
+    #[inline(always)]
+    fn compare_prepared_cyclic_block<const BH: usize>(
+        stems: &[Self],
+        query_lanes: &[MaybeUninit<Self>; 16],
+        block_base_idx: usize,
+    ) -> u8 {
+        assert!(BH == 4, "f32 cyclic SIMD requires BH=4");
+
+        #[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"))]
+        unsafe {
+            use std::arch::x86_64::*;
+
+            let prepared = _mm512_loadu_ps(query_lanes.as_ptr().cast());
+            let pivots = _mm512_loadu_ps(stems.as_ptr().add(block_base_idx));
+            return block4_child_from_mask(_mm512_cmp_ps_mask(prepared, pivots, _CMP_GE_OQ));
+        }
+
+        #[cfg(not(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f")))]
+        scalar_prepared_path::<Self, BH>(stems, query_lanes, block_base_idx)
+    }
 }
 
 /// Donnelly block-at-once descent with the ordinary per-level axis cadence.
 ///
-/// AVX-512 acceleration is currently restricted to `f64`/3D/BH3 and
-/// `f32`/4D/BH4. Other type/dimension combinations are not supported by this
-/// experimental strategy.
+/// AVX-512 acceleration uses a block-height-3 specialization for `f64` and a
+/// block-height-4 specialization for `f32`. The dimension count is independent
+/// of the block height; blocks carry their cyclic start phase explicitly.
 #[derive(Copy, Clone, Debug)]
 pub struct DonnellyCyclicSimdDescent<const BH: usize> {
     core: DonnellyCore<BH>,
 }
 
+/// Experimental home for cyclic-axis SIMD descent plus block-level pruning.
+///
+/// A direct reuse of [`super::DonnellySimdFull`]'s pending mask is not sound:
+/// that kernel represents each terminal child as an interval on the block's
+/// single split axis, whereas cyclic terminal children are multi-axis
+/// rectangles. This initial implementation therefore deliberately shares the
+/// proven scalar continuation engine with [`DonnellyCyclicSimdDescent`]. It is
+/// a correctness and code-generation control, and a stable home for a future
+/// multi-axis pending-mask kernel, without risking false pruning meanwhile.
+#[derive(Copy, Clone, Debug)]
+pub struct DonnellyCyclicSimdFull<const BH: usize> {
+    core: DonnellyCore<BH>,
+}
+
 macro_rules! impl_cyclic_simd_descent {
-    ($bh:literal, $block_base_bias:literal) => {
-        impl StemStrategy for DonnellyCyclicSimdDescent<$bh> {
+    ($strategy:ident, $bh:literal, $block_base_bias:literal) => {
+        impl StemStrategy for $strategy<$bh> {
             const ROOT_IDX: usize = 0;
             const BLOCK_SIZE: usize = $bh;
             const SUPPORTS_ARITHMETIC_LEAF_RESOLUTION: bool = true;
             const USES_UNROLLED_SCALAR_TRAVERSAL: bool = true;
             const USES_SIMD_BLOCK_DESCENT: bool = true;
+            const USES_PREPARED_BLOCK_QUERY: bool = true;
 
             type DeferredState = DonnellyCoreDeferred;
             type StackContext<A> = QueryStackContext<A, Self::DeferredState>;
@@ -189,6 +350,28 @@ macro_rules! impl_cyclic_simd_descent {
                 start_dim: usize,
             ) -> u8 {
                 A::compare_cyclic_block::<$bh, K>(stems, query, self.stem_idx(), start_dim)
+            }
+
+            #[inline(always)]
+            fn prepare_block_query<A: Axis<Coord = A>, const K: usize>(
+                query: &[A; K],
+            ) -> PreparedBlockQuery<A, K> {
+                prepare_query_lanes::<A, $bh, K>(query)
+            }
+
+            #[inline(always)]
+            fn select_prepared_block_child<A: Axis<Coord = A>, const K: usize>(
+                &self,
+                stems: &[A],
+                _query: &[A; K],
+                prepared: &PreparedBlockQuery<A, K>,
+                start_dim: usize,
+            ) -> u8 {
+                A::compare_prepared_cyclic_block::<$bh>(
+                    stems,
+                    &prepared[start_dim],
+                    self.stem_idx(),
+                )
             }
 
             #[inline(always)]
@@ -283,15 +466,21 @@ macro_rules! impl_cyclic_simd_descent {
             ) -> usize {
                 let total_levels = (max_stem_level + 1).max(0) as usize;
                 let native_bh = (64 / A::VALUE_WIDTH_BYTES as u32).ilog2() as usize;
-                if native_bh == $bh && K == $bh && total_levels.is_multiple_of($bh) {
+                if native_bh == $bh && total_levels.is_multiple_of($bh) {
                     let mut block_base = 0u32;
+                    let mut start_dim = 0usize;
+                    let prepared = prepare_query_lanes::<A, $bh, K>(query);
                     for _ in 0..(total_levels / $bh) {
-                        let child =
-                            A::compare_cyclic_block::<$bh, K>(stems, query, block_base as usize, 0);
+                        let child = A::compare_prepared_cyclic_block::<$bh>(
+                            stems,
+                            &prepared[start_dim],
+                            block_base as usize,
+                        );
                         block_base = block_base
                             .wrapping_add($block_base_bias)
                             .wrapping_add(child as u32)
                             .wrapping_shl($bh as u32);
+                        start_dim = (start_dim + $bh) % K;
                     }
                     return leaf_idx_from_block_base::<$bh>(block_base, total_levels);
                 }
@@ -310,11 +499,14 @@ macro_rules! impl_cyclic_simd_descent {
     };
 }
 
-impl_cyclic_simd_descent!(3, 1);
-impl_cyclic_simd_descent!(4, 7);
+impl_cyclic_simd_descent!(DonnellyCyclicSimdDescent, 3, 1);
+impl_cyclic_simd_descent!(DonnellyCyclicSimdDescent, 4, 7);
+impl_cyclic_simd_descent!(DonnellyCyclicSimdFull, 3, 1);
+impl_cyclic_simd_descent!(DonnellyCyclicSimdFull, 4, 7);
 
 #[cfg(feature = "cargo_asm")]
 mod cargo_asm {
+    use super::{prepare_query_lanes, MaybeUninit, PreparedBlockQuery};
     use crate::Axis;
 
     #[inline(never)]
@@ -336,11 +528,44 @@ mod cargo_asm {
     ) -> u8 {
         <f32 as Axis>::compare_cyclic_block::<4, 4>(stems, query, block_base, 0)
     }
+
+    #[inline(never)]
+    #[unsafe(no_mangle)]
+    pub fn donnelly_cyclic_block3_f64_prepared_cargo_asm_hook(
+        stems: &[f64],
+        query_lanes: &[MaybeUninit<f64>; 16],
+        block_base: usize,
+    ) -> u8 {
+        <f64 as Axis>::compare_prepared_cyclic_block::<3>(stems, query_lanes, block_base)
+    }
+
+    #[inline(never)]
+    #[unsafe(no_mangle)]
+    pub fn donnelly_cyclic_prepare_f64_k4_cargo_asm_hook(
+        query: &[f64; 4],
+    ) -> PreparedBlockQuery<f64, 4> {
+        prepare_query_lanes::<f64, 3, 4>(query)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn scalar_reference<A: PartialOrd + Copy, const BH: usize, const K: usize>(
+        stems: &[A],
+        query: &[A; K],
+        start_dim: usize,
+    ) -> u8 {
+        let mut heap_idx = 0usize;
+        let mut child = 0u8;
+        for depth in 0..BH {
+            let is_right = query[(start_dim + depth) % K] >= stems[heap_idx];
+            child = (child << 1) | is_right as u8;
+            heap_idx = (heap_idx << 1) + 1 + is_right as usize;
+        }
+        child
+    }
 
     #[test]
     fn f64_block3_mask_follows_xyz_path() {
@@ -377,5 +602,56 @@ mod tests {
             <f32 as Axis>::compare_cyclic_block::<4, 4>(&stems, &query, 0, 0),
             0b1011
         );
+    }
+
+    #[test]
+    fn f64_block3_honours_every_k4_start_phase() {
+        let stems = [0.5, 0.25, 0.75, 0.1, 0.4, 0.6, 0.9, f64::INFINITY];
+        let query = [0.8, 0.2, 0.7, 0.35];
+        let prepared = prepare_query_lanes::<f64, 3, 4>(&query);
+        for start_dim in 0..4 {
+            assert_eq!(
+                <f64 as Axis>::compare_cyclic_block::<3, 4>(&stems, &query, 0, start_dim,),
+                scalar_reference::<_, 3, 4>(&stems, &query, start_dim),
+            );
+            assert_eq!(
+                <f64 as Axis>::compare_prepared_cyclic_block::<3>(&stems, &prepared[start_dim], 0,),
+                scalar_reference::<_, 3, 4>(&stems, &query, start_dim),
+            );
+        }
+    }
+
+    #[test]
+    fn f32_block4_honours_every_k3_start_phase() {
+        let stems = [
+            0.5,
+            0.25,
+            0.75,
+            0.1,
+            0.4,
+            0.6,
+            0.9,
+            0.05,
+            0.2,
+            0.3,
+            0.45,
+            0.55,
+            0.7,
+            0.8,
+            0.95,
+            f32::INFINITY,
+        ];
+        let query = [0.8, 0.2, 0.7];
+        let prepared = prepare_query_lanes::<f32, 4, 3>(&query);
+        for start_dim in 0..3 {
+            assert_eq!(
+                <f32 as Axis>::compare_cyclic_block::<4, 3>(&stems, &query, 0, start_dim,),
+                scalar_reference::<_, 4, 3>(&stems, &query, start_dim),
+            );
+            assert_eq!(
+                <f32 as Axis>::compare_prepared_cyclic_block::<4>(&stems, &prepared[start_dim], 0,),
+                scalar_reference::<_, 4, 3>(&stems, &query, start_dim),
+            );
+        }
     }
 }
