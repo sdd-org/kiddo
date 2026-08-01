@@ -7,7 +7,9 @@ use kiddo::kd_tree::KdTree;
 #[cfg(feature = "simd")]
 use kiddo::leaf_strategy::FlatVec;
 #[cfg(feature = "simd")]
-use kiddo::stem_strategy::{Donnelly, DonnellySimdFull};
+use kiddo::stem_strategy::{
+    Donnelly, DonnellyCyclicSimdDescent, DonnellyCyclicSimdFull, DonnellySimdFull,
+};
 #[cfg(feature = "simd")]
 use kiddo::BestQueryResultItem;
 #[cfg(feature = "simd")]
@@ -31,6 +33,78 @@ const POINT_COUNT: usize = 1_022;
 const REL_EPS_F32: f32 = 1.0e-6;
 #[cfg(feature = "simd")]
 const REL_EPS_F64: f64 = 1.0e-12;
+
+#[test]
+#[cfg(feature = "simd")]
+fn cyclic_simd_handles_f32_k3_with_root_padding() {
+    const K: usize = 3;
+    const B: usize = 8;
+    let points: Vec<[f32; K]> = (0..33)
+        .map(|i| {
+            let x = i as f32 / 37.0;
+            [x, (x * 1.7).fract(), (x * 2.9).fract()]
+        })
+        .collect();
+    let tree: KdTree<f32, usize, DonnellyCyclicSimdDescent<4>, FlatVec<f32, usize, K, B>, K, B> =
+        KdTree::new_from_slice(&points).unwrap();
+
+    assert_eq!(tree.max_stem_level(), 3);
+    for (expected_item, point) in points.iter().enumerate() {
+        let result = tree
+            .query(point)
+            .nearest_one::<SquaredEuclidean<f32>>()
+            .execute();
+        assert_eq!(result.distance, 0.0);
+        assert_eq!(result.item, expected_item);
+    }
+
+    let full_tree: KdTree<f32, usize, DonnellyCyclicSimdFull<4>, FlatVec<f32, usize, K, B>, K, B> =
+        KdTree::new_from_slice(&points).unwrap();
+    for (expected_item, point) in points.iter().enumerate() {
+        let result = full_tree
+            .query(point)
+            .nearest_one::<SquaredEuclidean<f32>>()
+            .execute();
+        assert_eq!(result.distance, 0.0);
+        assert_eq!(result.item, expected_item);
+    }
+}
+
+#[test]
+#[cfg(feature = "simd")]
+fn cyclic_simd_handles_f64_k4_with_two_root_padding_levels() {
+    const K: usize = 4;
+    const B: usize = 8;
+    let points: Vec<[f64; K]> = (0..65)
+        .map(|i| {
+            let x = i as f64 / 71.0;
+            [x, (x * 1.7).fract(), (x * 2.9).fract(), (x * 4.3).fract()]
+        })
+        .collect();
+    let tree: KdTree<f64, usize, DonnellyCyclicSimdDescent<3>, FlatVec<f64, usize, K, B>, K, B> =
+        KdTree::new_from_slice(&points).unwrap();
+
+    assert_eq!(tree.max_stem_level(), 5);
+    for (expected_item, point) in points.iter().enumerate() {
+        let result = tree
+            .query(point)
+            .nearest_one::<SquaredEuclidean<f64>>()
+            .execute();
+        assert_eq!(result.distance, 0.0);
+        assert_eq!(result.item, expected_item);
+    }
+
+    let full_tree: KdTree<f64, usize, DonnellyCyclicSimdFull<3>, FlatVec<f64, usize, K, B>, K, B> =
+        KdTree::new_from_slice(&points).unwrap();
+    for (expected_item, point) in points.iter().enumerate() {
+        let result = full_tree
+            .query(point)
+            .nearest_one::<SquaredEuclidean<f64>>()
+            .execute();
+        assert_eq!(result.distance, 0.0);
+        assert_eq!(result.item, expected_item);
+    }
+}
 
 #[cfg(feature = "simd")]
 fn build_points_f32_k2() -> Vec<[f32; 2]> {

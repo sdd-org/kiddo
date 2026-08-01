@@ -1,5 +1,6 @@
 use num_traits::ConstZero;
 use std::fmt::{Debug, Display};
+use std::mem::MaybeUninit;
 use std::ops::{AddAssign, Sub};
 
 use fixed::types::extra::{U0, U16, U8};
@@ -84,6 +85,20 @@ pub trait Axis:
             std::any::type_name::<Self>()
         )
     }
+
+    /// Select a cyclic path using query lanes prepared once per query.
+    #[doc(hidden)]
+    #[inline(always)]
+    fn compare_prepared_cyclic_block<const BH: usize>(
+        _stems: &[Self],
+        _query_lanes: &[MaybeUninit<Self>; 16],
+        _block_base_idx: usize,
+    ) -> u8 {
+        unimplemented!(
+            "axis {} does not support prepared cyclic SIMD block comparison",
+            std::any::type_name::<Self>()
+        )
+    }
 }
 
 /// Macro to implement AxisUnified for floating-point types.
@@ -164,6 +179,19 @@ macro_rules! impl_axis_float {
                     query,
                     block_base_idx,
                     start_dim,
+                )
+            }
+
+            #[inline(always)]
+            fn compare_prepared_cyclic_block<const BH: usize>(
+                stems: &[Self],
+                query_lanes: &[MaybeUninit<Self>; 16],
+                block_base_idx: usize,
+            ) -> u8 {
+                <Self as crate::stem_strategy::donnelly::cyclic_simd_descent::CyclicBlockCompare>::compare_prepared_cyclic_block::<BH>(
+                    stems,
+                    query_lanes,
+                    block_base_idx,
                 )
             }
         }

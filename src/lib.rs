@@ -298,6 +298,9 @@ pub type DonnellyNoPf<const BH: usize> = stem_strategies::donnelly::DonnellyNoPf
 pub type DonnellyCyclicSimdDescent<const BH: usize> =
     stem_strategies::donnelly::DonnellyCyclicSimdDescent<BH>;
 #[doc(hidden)]
+pub type DonnellyCyclicSimdFull<const BH: usize> =
+    stem_strategies::donnelly::DonnellyCyclicSimdFull<BH>;
+#[doc(hidden)]
 pub type DonnellySimdDescent<const BH: usize> = stem_strategies::donnelly::DonnellySimdDescent<BH>;
 #[doc(hidden)]
 pub type DonnellySimdFull<const BH: usize> = stem_strategies::donnelly::DonnellySimdFull<BH>;

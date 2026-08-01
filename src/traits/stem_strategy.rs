@@ -1,4 +1,5 @@
 use aligned_vec::AVec;
+use std::mem::MaybeUninit;
 use std::ptr::NonNull;
 
 use crate::kd_tree::query_stack::{ScalarStackContext, StackTrait};
@@ -6,6 +7,21 @@ use crate::stem_strategy::donnelly::simd_full::{BacktrackBlock3, BacktrackBlock4
 use crate::{Axis, Content};
 
 const MAX_MUTABLE_STEM_LEVEL_SLACK: usize = 4;
+
+/// Cache-line-aligned, phase-specific SIMD query lanes. Strategies initialize
+/// only phases and lanes their traversal can reach.
+#[doc(hidden)]
+#[repr(C, align(64))]
+pub struct PreparedBlockQuery<A, const K: usize>(pub [[MaybeUninit<A>; 16]; K]);
+
+impl<A, const K: usize> std::ops::Index<usize> for PreparedBlockQuery<A, K> {
+    type Output = [MaybeUninit<A>; 16];
+
+    #[inline(always)]
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[index]
+    }
+}
 
 /// Trait that needs to be implemented by any potential stem ordering
 /// algorithm used by a KdTree.
@@ -43,6 +59,11 @@ pub trait StemStrategy: Clone + Sync + Send + 'static {
     /// root-to-terminal path before replaying that path through the ordinary
     /// scalar continuation machinery.
     const USES_SIMD_BLOCK_DESCENT: bool = false;
+
+    /// Whether the strategy prepares phase-specific SIMD query lanes once per
+    /// query and reuses them for every complete block.
+    #[doc(hidden)]
+    const USES_PREPARED_BLOCK_QUERY: bool = false;
 
     /// Whether SIMD block selection is also used after entering a deferred far
     /// subtree. Initial descent is always eligible when
@@ -124,6 +145,29 @@ pub trait StemStrategy: Clone + Sync + Send + 'static {
         _start_dim: usize,
     ) -> u8 {
         unreachable!("strategy does not implement SIMD block descent")
+    }
+
+    /// Prepare phase-specific SIMD query lanes once for this query.
+    #[doc(hidden)]
+    #[inline(always)]
+    fn prepare_block_query<A: Axis<Coord = A>, const K: usize>(
+        _query: &[A; K],
+    ) -> PreparedBlockQuery<A, K> {
+        PreparedBlockQuery([[MaybeUninit::uninit(); 16]; K])
+    }
+
+    /// Select a terminal block child using a query representation prepared by
+    /// [`Self::prepare_block_query`].
+    #[doc(hidden)]
+    #[inline(always)]
+    fn select_prepared_block_child<A: Axis<Coord = A>, const K: usize>(
+        &self,
+        stems: &[A],
+        query: &[A; K],
+        _prepared: &PreparedBlockQuery<A, K>,
+        start_dim: usize,
+    ) -> u8 {
+        self.select_block_child(stems, query, start_dim)
     }
 
     /// Get the current level

@@ -42,7 +42,7 @@ pub mod core;
 pub mod simd_full;
 
 #[doc(inline)]
-pub use cyclic_simd_descent::DonnellyCyclicSimdDescent;
+pub use cyclic_simd_descent::{DonnellyCyclicSimdDescent, DonnellyCyclicSimdFull};
 #[doc(inline)]
 pub use no_pf::DonnellyNoPf;
 #[doc(inline)]
