@@ -966,3 +966,316 @@ uprof-donnelly:
         -w /home/scotty/projects/kiddo \
         -o ./uprof-output-eytz \
         target/release/examples/immutable-large-ann-donnelly-deserialize-and-query
+
+# Criterion reproduction and decomposition of the 1k-to-4k exact-NN crossover.
+# The stored and stateless generated-by-index modes use identical SplitMix64
+# queries, allowing query-array footprint to be separated from the repeated
+# tree-path working set.
+bench-v6-donnelly-vs-eytzinger-query-pool POINT_LOG2='27' POOL_SIZES='256,512,1000,2048,4096,8192,16384' WARMUP='3' MEASUREMENT='8' SAMPLE_SIZE='30' RESULT_KEY='query-pool' OUTPUT_DIR='./focused-results' AXIS='both':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    result_key={{quote(RESULT_KEY)}}
+    output_dir={{quote(OUTPUT_DIR)}}
+    if [[ ! "$result_key" =~ ^[A-Za-z0-9][A-Za-z0-9._+:-]*$ ]]; then
+        echo "RESULT_KEY must contain only letters, digits, '.', '_', '+', ':', or '-'" >&2
+        exit 2
+    fi
+    RUSTC_WRAPPER= \
+    KIDDO_QUERY_POOL_POINT_LOG2={{quote(POINT_LOG2)}} \
+    KIDDO_QUERY_POOL_SIZES={{quote(POOL_SIZES)}} \
+    KIDDO_QUERY_POOL_AXIS={{quote(AXIS)}} \
+    RUSTFLAGS='-C target-cpu=native' \
+        cargo bench \
+        --bench profile_v6_query_pool \
+        --features simd,test_utils,logging_off \
+        -- \
+        profile_v6_query_pool \
+        --warm-up-time {{quote(WARMUP)}} \
+        --measurement-time {{quote(MEASUREMENT)}} \
+        --sample-size {{quote(SAMPLE_SIZE)}} \
+        --noplot
+
+    mkdir -p -- "$output_dir"
+    cargo run --quiet --manifest-path tools/criterion-export/Cargo.toml -- \
+        target/criterion \
+        "$output_dir/bench_result-v6-donnelly-vs-eytzinger-query-pool-${result_key}.json" \
+        profile_v6_query_pool
+
+# IRQ-audited variant. Compilation occurs first; the benchmark executable and
+# all Criterion records live on tmpfs during the CPU-8 measurement interval.
+bench-v6-donnelly-vs-eytzinger-query-pool-clean POINT_LOG2='27' POOL_SIZES='256,512,1000,2048,4096,8192,16384' WARMUP='3' MEASUREMENT='8' SAMPLE_SIZE='30' RESULT_KEY='query-pool' OUTPUT_DIR='./focused-results' AXIS='both':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    point_log2={{quote(POINT_LOG2)}}
+    pool_sizes={{quote(POOL_SIZES)}}
+    warmup={{quote(WARMUP)}}
+    measurement={{quote(MEASUREMENT)}}
+    sample_size={{quote(SAMPLE_SIZE)}}
+    result_key={{quote(RESULT_KEY)}}
+    output_dir={{quote(OUTPUT_DIR)}}
+    axis={{quote(AXIS)}}
+    if [[ ! "$result_key" =~ ^[A-Za-z0-9][A-Za-z0-9._+:-]*$ ]]; then
+        echo "RESULT_KEY must contain only letters, digits, '.', '_', '+', ':', or '-'" >&2
+        exit 2
+    fi
+
+    benchmark_exe="$(
+        RUSTC_WRAPPER= RUSTFLAGS='-C target-cpu=native' \
+            cargo bench \
+            --bench profile_v6_query_pool \
+            --features simd,test_utils,logging_off \
+            --no-run \
+            --message-format=json |
+        jq -r \
+            'select(.reason == "compiler-artifact" and .target.name == "profile_v6_query_pool") | .executable // empty' |
+        tail -n 1
+    )"
+    if [[ -z "$benchmark_exe" || ! -x "$benchmark_exe" ]]; then
+        echo "Could not resolve the compiled query-pool benchmark executable" >&2
+        exit 1
+    fi
+
+    run_dir="$(mktemp -d /dev/shm/kiddo-query-pool.XXXXXX)"
+    trap 'rm -rf -- "$run_dir/criterion"; rm -f -- "$run_dir/benchmark"; rmdir -- "$run_dir"' EXIT
+    cp -- "$benchmark_exe" "$run_dir/benchmark"
+    chmod 0755 "$run_dir/benchmark"
+
+    set +e
+    bench-profile-run env \
+        CRITERION_HOME="$run_dir/criterion" \
+        KIDDO_QUERY_POOL_POINT_LOG2="$point_log2" \
+        KIDDO_QUERY_POOL_SIZES="$pool_sizes" \
+        KIDDO_QUERY_POOL_AXIS="$axis" \
+        "$run_dir/benchmark" \
+        profile_v6_query_pool \
+        --warm-up-time "$warmup" \
+        --measurement-time "$measurement" \
+        --sample-size "$sample_size" \
+        --noplot \
+        --bench
+    run_status=$?
+    set -e
+
+    if [[ ! -d "$run_dir/criterion" ]]; then
+        echo "Criterion produced no records under $run_dir/criterion" >&2
+        if (( run_status == 0 )); then
+            run_status=1
+        fi
+    else
+        mkdir -p -- "$output_dir"
+        cargo run --quiet --manifest-path tools/criterion-export/Cargo.toml -- \
+            "$run_dir/criterion" \
+            "$output_dir/bench_result-v6-donnelly-vs-eytzinger-query-pool-${result_key}.json" \
+            profile_v6_query_pool
+    fi
+    exit "$run_status"
+
+# Screen exact-NN Donnelly traversal variants using the same stored/generated
+# query-pool workload as the paper comparison.
+bench-v6-donnelly-variants-query-pool-clean POINT_LOG2='27' POOL_SIZES='256,512,1000,2048,4096,8192,16384' WARMUP='3' MEASUREMENT='8' SAMPLE_SIZE='30' RESULT_KEY='donnelly-variants' OUTPUT_DIR='./focused-results' AXIS='both' STRATEGIES='eytzinger,donnelly,donnelly_unrolled,donnelly_unrolled_block_dim,donnelly_simd_descent,donnelly_cyclic_simd_descent,donnelly_simd_initial_descent,donnelly_simd_full':
+    KIDDO_QUERY_POOL_STRATEGIES={{quote(STRATEGIES)}} \
+        just bench-v6-donnelly-vs-eytzinger-query-pool-clean \
+        {{quote(POINT_LOG2)}} {{quote(POOL_SIZES)}} {{quote(WARMUP)}} \
+        {{quote(MEASUREMENT)}} {{quote(SAMPLE_SIZE)}} {{quote(RESULT_KEY)}} \
+        {{quote(OUTPUT_DIR)}} {{quote(AXIS)}}
+
+chart-v6-donnelly-variants-query-pool RESULT_KEY RESULTS_DIR='./focused-results' OUTPUT_DIR='./focused-charts' PYTHON='python3':
+    {{quote(PYTHON)}} scripts/chart_donnelly_variant_results.py charts \
+        --result {{quote(RESULTS_DIR)}}/bench_result-v6-donnelly-vs-eytzinger-query-pool-{{quote(RESULT_KEY)}}.json \
+        --result-label {{quote(RESULT_KEY)}} \
+        --output-dir {{quote(OUTPUT_DIR)}}
+
+html-v6-donnelly-variants-query-pool RESULT_KEY RESULTS_DIR='./focused-results' OUTPUT_DIR='./focused-charts' HTML_NAME='donnelly-variant-screen.html' PYTHON='python3':
+    {{quote(PYTHON)}} scripts/chart_donnelly_variant_results.py all \
+        --result {{quote(RESULTS_DIR)}}/bench_result-v6-donnelly-vs-eytzinger-query-pool-{{quote(RESULT_KEY)}}.json \
+        --result-label {{quote(RESULT_KEY)}} \
+        --output-dir {{quote(OUTPUT_DIR)}} \
+        --html-name {{quote(HTML_NAME)}}
+
+view-v6-donnelly-variants-query-pool RESULT_KEY RESULTS_DIR='./focused-results' OUTPUT_DIR='./focused-charts' HTML_NAME='donnelly-variant-screen.html' PYTHON='python3':
+    just html-v6-donnelly-variants-query-pool {{quote(RESULT_KEY)}} {{quote(RESULTS_DIR)}} {{quote(OUTPUT_DIR)}} {{quote(HTML_NAME)}} {{quote(PYTHON)}}
+    xdg-open {{quote(OUTPUT_DIR)}}/{{quote(HTML_NAME)}}
+
+# Run the Donnelly variant screen across several tree heights, retrying an
+# interval if the benchmark-core IRQ audit invalidates it, then merge and chart.
+bench-v6-donnelly-variants-height-sweep-clean POINT_LOG2S='25,26,27' POOL_SIZES='256,512,1000,2048,4096,8192,16384' WARMUP='3' MEASUREMENT='8' SAMPLE_SIZE='30' RESULT_KEY='donnelly-variants-height-sweep' OUTPUT_DIR='./focused-results' CHART_DIR='./focused-charts' AXIS='both' IRQ_RETRIES='2' STRATEGIES='eytzinger,donnelly,donnelly_unrolled,donnelly_unrolled_block_dim,donnelly_simd_descent,donnelly_cyclic_simd_descent,donnelly_simd_initial_descent,donnelly_simd_full':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    IFS=',' read -ra heights <<< {{quote(POINT_LOG2S)}}
+    result_key={{quote(RESULT_KEY)}}
+    output_dir={{quote(OUTPUT_DIR)}}
+    chart_dir={{quote(CHART_DIR)}}
+    irq_retries={{quote(IRQ_RETRIES)}}
+    strategies={{quote(STRATEGIES)}}
+    mkdir -p -- "$output_dir" "$chart_dir"
+    inputs=()
+    for height in "${heights[@]}"; do
+        [[ "$height" =~ ^[0-9]+$ ]] || { echo "invalid point height: $height" >&2; exit 2; }
+        cell_key="${result_key}-2p${height}"
+        attempt=0
+        while true; do
+            set +e
+            just bench-v6-donnelly-variants-query-pool-clean \
+                "$height" {{quote(POOL_SIZES)}} {{quote(WARMUP)}} \
+                {{quote(MEASUREMENT)}} {{quote(SAMPLE_SIZE)}} "$cell_key" \
+                "$output_dir" {{quote(AXIS)}} "$strategies"
+            status=$?
+            set -e
+            if (( status != 125 )); then
+                (( status == 0 )) || exit "$status"
+                break
+            fi
+            if (( attempt >= irq_retries )); then
+                echo "IRQ retry limit reached for 2^$height" >&2
+                exit 125
+            fi
+            attempt=$((attempt + 1))
+            echo "Retrying IRQ-invalidated 2^$height interval ($attempt/$irq_retries)"
+        done
+        inputs+=("$output_dir/bench_result-v6-donnelly-vs-eytzinger-query-pool-${cell_key}.json")
+    done
+    merged="$output_dir/bench_result-v6-donnelly-vs-eytzinger-query-pool-${result_key}.json"
+    jq -s --arg criterion_root "merged:$result_key" '
+        {
+            schema_version: 1,
+            criterion_root: $criterion_root,
+            collected_at_unix_ms: ([.[].collected_at_unix_ms] | max),
+            filters: ([.[].filters[]] | unique),
+            results: ([.[].results[]] | sort_by(.benchmark))
+        }
+    ' "${inputs[@]}" > "$merged"
+    python3 scripts/chart_donnelly_variant_results.py all \
+        --result "$merged" --result-label "$result_key" \
+        --output-dir "$chart_dir" --html-name "${result_key}.html"
+    echo "merged results: $merged"
+    echo "charts: $chart_dir/${result_key}.html"
+
+chart-v6-donnelly-vs-eytzinger-query-pool RESULT_KEY RESULTS_DIR='./focused-results' OUTPUT_DIR='./focused-charts' PYTHON='python3':
+    {{quote(PYTHON)}} scripts/chart_query_pool_results.py charts \
+        --result {{quote(RESULTS_DIR)}}/bench_result-v6-donnelly-vs-eytzinger-query-pool-{{quote(RESULT_KEY)}}.json \
+        --result-label {{quote(RESULT_KEY)}} \
+        --output-dir {{quote(OUTPUT_DIR)}}
+
+# Publication-style cache-context charts. The third panel is an analytical
+# lower bound, not measured cache occupancy or a fitted miss model.
+chart-v6-donnelly-vs-eytzinger-query-pool-cache-context RESULT_KEY RESULTS_DIR='./focused-results' OUTPUT_DIR='./focused-charts' PYTHON='python3':
+    {{quote(PYTHON)}} scripts/chart_query_pool_cache_context.py \
+        --result {{quote(RESULTS_DIR)}}/bench_result-v6-donnelly-vs-eytzinger-query-pool-{{quote(RESULT_KEY)}}.json \
+        --output-dir {{quote(OUTPUT_DIR)}}
+
+html-v6-donnelly-vs-eytzinger-query-pool RESULT_KEY RESULTS_DIR='./focused-results' OUTPUT_DIR='./focused-charts' HTML_NAME='donnelly-vs-eytzinger-query-pool.html' PYTHON='python3':
+    {{quote(PYTHON)}} scripts/chart_query_pool_results.py all \
+        --result {{quote(RESULTS_DIR)}}/bench_result-v6-donnelly-vs-eytzinger-query-pool-{{quote(RESULT_KEY)}}.json \
+        --result-label {{quote(RESULT_KEY)}} \
+        --output-dir {{quote(OUTPUT_DIR)}} \
+        --html-name {{quote(HTML_NAME)}}
+
+view-v6-donnelly-vs-eytzinger-query-pool RESULT_KEY RESULTS_DIR='./focused-results' OUTPUT_DIR='./focused-charts' HTML_NAME='donnelly-vs-eytzinger-query-pool.html' PYTHON='python3':
+    just html-v6-donnelly-vs-eytzinger-query-pool {{quote(RESULT_KEY)}} {{quote(RESULTS_DIR)}} {{quote(OUTPUT_DIR)}} {{quote(HTML_NAME)}} {{quote(PYTHON)}}
+    xdg-open {{quote(OUTPUT_DIR)}}/{{quote(HTML_NAME)}}
+
+# Fixed-work exact-NN counter run. Construction and warmup finish before the
+# benchmark SIGSTOPs; perf attaches to the stopped process and only then resumes
+# the measured query loop. Keep exact_query_stats disabled here.
+perf-v6-donnelly-vs-eytzinger-query-pool POINT_LOG2='27' POOL_SIZE='2048' TOTAL_QUERIES='4000000' WARMUP_REPEATS='2' AXIS='f64' STRATEGY='eytzinger' EVENT_SET='cache' RESULT_KEY='query-pool-perf' OUTPUT_DIR='./focused-results':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    point_log2={{quote(POINT_LOG2)}}
+    pool_size={{quote(POOL_SIZE)}}
+    total_queries={{quote(TOTAL_QUERIES)}}
+    warmup_repeats={{quote(WARMUP_REPEATS)}}
+    axis={{quote(AXIS)}}
+    strategy={{quote(STRATEGY)}}
+    event_set={{quote(EVENT_SET)}}
+    result_key={{quote(RESULT_KEY)}}
+    output_dir={{quote(OUTPUT_DIR)}}
+    if [[ ! "$result_key" =~ ^[A-Za-z0-9][A-Za-z0-9._+:-]*$ ]]; then
+        echo "RESULT_KEY contains unsupported characters" >&2
+        exit 2
+    fi
+    case "$axis" in f32|f64) ;; *) echo "AXIS must be f32 or f64" >&2; exit 2 ;; esac
+    case "$strategy" in
+        eytzinger|donnelly|donnelly_unrolled|donnelly_unrolled_block_dim|donnelly_simd_descent|donnelly_cyclic_simd_descent|donnelly_simd_initial_descent|donnelly_simd_full) ;;
+        *) echo "unsupported STRATEGY: $strategy" >&2; exit 2 ;;
+    esac
+    events="$(scripts/query_pool_perf_events.sh "$event_set")"
+
+    benchmark_exe="$(
+        RUSTC_WRAPPER= RUSTFLAGS='-C target-cpu=native' \
+            cargo bench --bench profile_v6_query_pool_perf \
+            --features simd,test_utils,logging_off --no-run --message-format=json |
+        jq -r 'select(.reason == "compiler-artifact" and .target.name == "profile_v6_query_pool_perf") | .executable // empty' |
+        tail -n 1
+    )"
+    if [[ -z "$benchmark_exe" || ! -x "$benchmark_exe" ]]; then
+        echo "Could not resolve profile_v6_query_pool_perf executable" >&2
+        exit 1
+    fi
+
+    run_dir="$(mktemp -d /dev/shm/kiddo-query-pool-perf-result.XXXXXX)"
+    trap 'rm -rf -- "$run_dir"' EXIT
+    temporary_result="$run_dir/perf.csv"
+    final_stem="${result_key}-${axis}-${strategy}-q${pool_size}-${event_set}"
+
+    bench-profile-run env \
+        KIDDO_PERF_POINT_LOG2="$point_log2" \
+        KIDDO_PERF_POOL_SIZE="$pool_size" \
+        KIDDO_PERF_TOTAL_QUERIES="$total_queries" \
+        KIDDO_PERF_WARMUP_REPEATS="$warmup_repeats" \
+        KIDDO_PERF_AXIS="$axis" \
+        KIDDO_PERF_STRATEGY="$strategy" \
+        scripts/run_query_pool_perf.sh "$benchmark_exe" "$temporary_result" "$events"
+
+    mkdir -p -- "$output_dir"
+    cp -- "$temporary_result" "$output_dir/${final_stem}.perf.csv"
+    cp -- "${temporary_result%.csv}.run.txt" "$output_dir/${final_stem}.run.txt"
+    echo "saved $output_dir/${final_stem}.perf.csv"
+
+# A convenient paired sweep around the observed private-cache transition.
+perf-v6-donnelly-vs-eytzinger-query-pool-sweep POINT_LOG2='27' POOL_SIZES='1000,2048,4096,8192,16384' TOTAL_QUERIES='4000000' WARMUP_REPEATS='2' EVENT_SET='cache' RESULT_KEY='query-pool-perf' OUTPUT_DIR='./focused-results':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    IFS=',' read -ra pools <<< {{quote(POOL_SIZES)}}
+    for axis in f64 f32; do
+        for pool in "${pools[@]}"; do
+            for strategy in eytzinger donnelly; do
+                just perf-v6-donnelly-vs-eytzinger-query-pool \
+                    {{quote(POINT_LOG2)}} "$pool" {{quote(TOTAL_QUERIES)}} \
+                    {{quote(WARMUP_REPEATS)}} "$axis" "$strategy" \
+                    {{quote(EVENT_SET)}} {{quote(RESULT_KEY)}} {{quote(OUTPUT_DIR)}}
+            done
+        done
+    done
+
+# Structural counts use a separate, deliberately invasive build. The elapsed
+# time printed by this task is diagnostic only and must not enter paper plots.
+stats-v6-donnelly-vs-eytzinger-query-pool POINT_LOG2='27' POOL_SIZE='2048' TOTAL_QUERIES='200000' WARMUP_REPEATS='1' AXIS='f64' STRATEGY='eytzinger' RESULT_KEY='query-pool-stats' OUTPUT_DIR='./focused-results':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p -- {{quote(OUTPUT_DIR)}}
+    output={{quote(OUTPUT_DIR)}}/{{quote(RESULT_KEY)}}-{{quote(AXIS)}}-{{quote(STRATEGY)}}-q{{quote(POOL_SIZE)}}.txt
+    RUSTC_WRAPPER= RUSTFLAGS='-C target-cpu=native' \
+    KIDDO_PERF_POINT_LOG2={{quote(POINT_LOG2)}} \
+    KIDDO_PERF_POOL_SIZE={{quote(POOL_SIZE)}} \
+    KIDDO_PERF_TOTAL_QUERIES={{quote(TOTAL_QUERIES)}} \
+    KIDDO_PERF_WARMUP_REPEATS={{quote(WARMUP_REPEATS)}} \
+    KIDDO_PERF_AXIS={{quote(AXIS)}} \
+    KIDDO_PERF_STRATEGY={{quote(STRATEGY)}} \
+        cargo bench --bench profile_v6_query_pool_perf \
+        --features simd,test_utils,logging_off,exact_query_stats -- 2>&1 | tee "$output"
+    echo "saved $output"
+
+stats-v6-donnelly-vs-eytzinger-query-pool-sweep POINT_LOG2='27' POOL_SIZES='1000,2048,4096,8192,16384' TOTAL_QUERIES='200000' WARMUP_REPEATS='1' RESULT_KEY='query-pool-stats' OUTPUT_DIR='./focused-results':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    IFS=',' read -ra pools <<< {{quote(POOL_SIZES)}}
+    for axis in f64 f32; do
+        for pool in "${pools[@]}"; do
+            for strategy in eytzinger donnelly; do
+                just stats-v6-donnelly-vs-eytzinger-query-pool \
+                    {{quote(POINT_LOG2)}} "$pool" {{quote(TOTAL_QUERIES)}} \
+                    {{quote(WARMUP_REPEATS)}} "$axis" "$strategy" \
+                    {{quote(RESULT_KEY)}} {{quote(OUTPUT_DIR)}}
+            done
+        done
+    done
