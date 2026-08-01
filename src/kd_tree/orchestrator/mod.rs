@@ -424,7 +424,7 @@ where
 
         let mut rd = O::zero();
         let leaf_idx = if query_ctx.initial_bound_is_unbounded() {
-            self.arithmetic_descend_to_leaf::<QC, O, D, false>(
+            self.arithmetic_descend_to_leaf::<QC, O, D, false, false>(
                 &query,
                 &query_wide,
                 query_ctx,
@@ -435,7 +435,7 @@ where
                 &mut far_stack,
             )
         } else {
-            self.arithmetic_descend_to_leaf::<QC, O, D, true>(
+            self.arithmetic_descend_to_leaf::<QC, O, D, true, false>(
                 &query,
                 &query_wide,
                 query_ctx,
@@ -497,7 +497,7 @@ where
                 crate::results::result_collection_stats::record_query_scalar_continuation_far_enter(
                 );
 
-                let leaf_idx = self.arithmetic_descend_to_leaf::<QC, O, D, true>(
+                let leaf_idx = self.arithmetic_descend_to_leaf::<QC, O, D, true, true>(
                     &query,
                     &query_wide,
                     query_ctx,
@@ -519,7 +519,13 @@ where
 
     #[allow(private_interfaces)]
     #[inline(always)]
-    fn arithmetic_descend_to_leaf<QC, O, D, const CHECK_BOUND: bool>(
+    fn arithmetic_descend_to_leaf<
+        QC,
+        O,
+        D,
+        const CHECK_BOUND: bool,
+        const RESYNC_BACKTRACKED: bool,
+    >(
         &self,
         query: &[A; K],
         query_wide: &[O; K],
@@ -535,8 +541,8 @@ where
         O: Axis<Coord = O> + BacktrackBlock3 + BacktrackBlock4,
         D: DistanceMetric<A, Output = O>,
     {
-        macro_rules! descend_one {
-            () => {{
+        macro_rules! descend_one_with_direction {
+            ($dim:expr, $pivot:expr, $is_right_child:expr, $branch_method:ident, $traverse_method:ident) => {{
                 #[cfg(feature = "result_collection_stats")]
                 crate::results::result_collection_stats::record_query_scalar_traverse_step();
 
@@ -548,12 +554,11 @@ where
                     );
                 }
 
-                let dim = stem_strat.dim::<K>();
-                let pivot = unsafe { *self.stems().get_unchecked(stem_strat.stem_idx()) };
+                let dim = $dim;
+                let pivot = $pivot;
                 if pivot < A::max_value() {
-                    let query_elem = unsafe { *query.get_unchecked(dim) };
-                    let is_right_child = query_elem >= pivot;
-                    let far_ctx = stem_strat.branch_relative::<A, K>(is_right_child);
+                    let is_right_child = $is_right_child;
+                    let far_ctx = stem_strat.$branch_method::<A, K>(is_right_child);
 
                     let pivot_wide = D::widen_coord(pivot);
                     let query_elem_wide = unsafe { *query_wide.get_unchecked(dim) };
@@ -590,21 +595,129 @@ where
                         .push_unchecked_inline(ScalarContinuationRestore::restore_only(old_off));
                     #[cfg(feature = "result_collection_stats")]
                     crate::results::result_collection_stats::record_query_scalar_continuation_frame_push();
-                    stem_strat.traverse::<A, K>(false);
+                    stem_strat.$traverse_method::<A, K>(false);
                 }
             }};
         }
 
-        if SS::BLOCK_SIZE == 3 {
-            while stem_strat.level() + 2 <= self.max_stem_level() {
-                descend_one!();
-                descend_one!();
-                descend_one!();
+        macro_rules! descend_one {
+            ($branch_method:ident, $traverse_method:ident) => {{
+                let dim = stem_strat.dim::<K>();
+                let pivot = unsafe { *self.stems().get_unchecked(stem_strat.stem_idx()) };
+                let query_elem = unsafe { *query.get_unchecked(dim) };
+                descend_one_with_direction!(
+                    dim,
+                    pivot,
+                    query_elem >= pivot,
+                    $branch_method,
+                    $traverse_method
+                );
+            }};
+        }
+
+        macro_rules! descend_selected {
+            ($child_idx:ident, $bit:expr, $branch_method:ident, $traverse_method:ident) => {{
+                let dim = stem_strat.dim::<K>();
+                let pivot = unsafe { *self.stems().get_unchecked(stem_strat.stem_idx()) };
+                descend_one_with_direction!(
+                    dim,
+                    pivot,
+                    $child_idx & $bit != 0,
+                    $branch_method,
+                    $traverse_method
+                );
+            }};
+        }
+
+        // Only a deferred far child can resume part-way through a Donnelly
+        // block. `RESYNC_BACKTRACKED` is false for initial descent, so
+        // monomorphisation removes this entire test and loop from that hot path.
+        // Once this loop reaches a block root, the unrolled body below proceeds
+        // without any further phase checks.
+        if RESYNC_BACKTRACKED && (SS::USES_UNROLLED_SCALAR_TRAVERSAL || SS::USES_SIMD_BLOCK_DESCENT)
+        {
+            while stem_strat.level() <= self.max_stem_level()
+                && stem_strat.level() as usize % SS::BLOCK_SIZE != 0
+            {
+                descend_one!(branch_relative, traverse);
+            }
+        }
+
+        // SIMD descent chooses the terminal child of a complete minor triangle
+        // in one comparison. Replay only the selected root-to-terminal path so
+        // exact search still creates precisely the ordinary scalar far-child
+        // continuations, in the ordinary near-first order.
+        if SS::USES_SIMD_BLOCK_DESCENT
+            && (!RESYNC_BACKTRACKED || SS::SIMD_BLOCK_DESCENT_ON_BACKTRACK)
+        {
+            if SS::BLOCK_SIZE == 4 {
+                while stem_strat.level() + 3 <= self.max_stem_level() {
+                    let dim = stem_strat.dim::<K>();
+                    let child_idx = stem_strat.select_block_child(self.stems(), query, dim);
+
+                    descend_selected!(child_idx, 0b1000, branch_relative_head, traverse_head);
+                    descend_selected!(child_idx, 0b0100, branch_relative_head, traverse_head);
+                    descend_selected!(child_idx, 0b0010, branch_relative_head, traverse_head);
+                    descend_selected!(child_idx, 0b0001, branch_relative_tail, traverse_tail);
+                }
+            } else if SS::BLOCK_SIZE == 3 {
+                while stem_strat.level() + 2 <= self.max_stem_level() {
+                    let dim = stem_strat.dim::<K>();
+                    let child_idx = stem_strat.select_block_child(self.stems(), query, dim);
+
+                    descend_selected!(child_idx, 0b100, branch_relative_head, traverse_head);
+                    descend_selected!(child_idx, 0b010, branch_relative_head, traverse_head);
+                    descend_selected!(child_idx, 0b001, branch_relative_tail, traverse_tail);
+                }
+            }
+        }
+
+        if SS::USES_UNROLLED_SCALAR_TRAVERSAL {
+            if SS::BLOCK_SIZE == 7 {
+                while stem_strat.level() + 6 <= self.max_stem_level() {
+                    descend_one!(branch_relative_head, traverse_head);
+                    descend_one!(branch_relative_head, traverse_head);
+                    descend_one!(branch_relative_head, traverse_head);
+                    descend_one!(branch_relative_head, traverse_head);
+                    descend_one!(branch_relative_head, traverse_head);
+                    descend_one!(branch_relative_head, traverse_head);
+                    descend_one!(branch_relative_tail, traverse_tail);
+                }
+            } else if SS::BLOCK_SIZE == 6 {
+                while stem_strat.level() + 5 <= self.max_stem_level() {
+                    descend_one!(branch_relative_head, traverse_head);
+                    descend_one!(branch_relative_head, traverse_head);
+                    descend_one!(branch_relative_head, traverse_head);
+                    descend_one!(branch_relative_head, traverse_head);
+                    descend_one!(branch_relative_head, traverse_head);
+                    descend_one!(branch_relative_tail, traverse_tail);
+                }
+            } else if SS::BLOCK_SIZE == 5 {
+                while stem_strat.level() + 4 <= self.max_stem_level() {
+                    descend_one!(branch_relative_head, traverse_head);
+                    descend_one!(branch_relative_head, traverse_head);
+                    descend_one!(branch_relative_head, traverse_head);
+                    descend_one!(branch_relative_head, traverse_head);
+                    descend_one!(branch_relative_tail, traverse_tail);
+                }
+            } else if SS::BLOCK_SIZE == 4 {
+                while stem_strat.level() + 3 <= self.max_stem_level() {
+                    descend_one!(branch_relative_head, traverse_head);
+                    descend_one!(branch_relative_head, traverse_head);
+                    descend_one!(branch_relative_head, traverse_head);
+                    descend_one!(branch_relative_tail, traverse_tail);
+                }
+            } else if SS::BLOCK_SIZE == 3 {
+                while stem_strat.level() + 2 <= self.max_stem_level() {
+                    descend_one!(branch_relative_head, traverse_head);
+                    descend_one!(branch_relative_head, traverse_head);
+                    descend_one!(branch_relative_tail, traverse_tail);
+                }
             }
         }
 
         while stem_strat.level() <= self.max_stem_level() {
-            descend_one!();
+            descend_one!(branch_relative, traverse);
         }
 
         let leaf_idx = stem_strat.leaf_idx();

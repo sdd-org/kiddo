@@ -95,6 +95,37 @@ impl<const BH: usize> StemStrategy for DonnellyNoPf<BH> {
         self.core.child_indices::<A>()
     }
 
+    #[inline(always)]
+    fn get_leaf_idx<A: Axis<Coord = A>, const K: usize>(
+        stems: &[A],
+        query: &[A; K],
+        max_stem_level: i32,
+    ) -> usize {
+        if BH == 3 {
+            return crate::stem_strategy::donnelly::core::get_leaf_idx_block3(
+                stems,
+                query,
+                max_stem_level,
+            );
+        }
+        if BH == 4 {
+            return crate::stem_strategy::donnelly::core::get_leaf_idx_block4(
+                stems,
+                query,
+                max_stem_level,
+            );
+        }
+
+        let stems_ptr = NonNull::new(stems.as_ptr() as *mut u8).unwrap();
+        let mut strat = Self::new(stems_ptr);
+        while strat.level() <= max_stem_level {
+            let pivot = unsafe { *stems.get_unchecked(strat.stem_idx()) };
+            let is_right = unsafe { *query.get_unchecked(strat.dim::<K>()) } >= pivot;
+            strat.traverse::<A, K>(is_right);
+        }
+        strat.leaf_idx()
+    }
+
     fn get_stem_node_count_from_leaf_node_count(leaf_node_count: usize) -> usize {
         if leaf_node_count < 2 {
             0

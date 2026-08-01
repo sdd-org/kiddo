@@ -2,7 +2,7 @@
 
 use std::ptr::NonNull;
 
-use crate::stem_strategy::donnelly::core::DonnellyCore;
+use crate::stem_strategy::donnelly::core::{DonnellyCore, DonnellyCoreDeferred};
 use crate::{Axis, StemStrategy};
 
 /// Unrolled Donnelly strategy using block-sized dimension scheduling.
@@ -16,8 +16,10 @@ macro_rules! impl_donnelly_unrolled_block_dim_strategy {
         impl StemStrategy for DonnellyUnrolledBlockDim<$size> {
             const ROOT_IDX: usize = 0;
             const BLOCK_SIZE: usize = $size;
+            const SUPPORTS_ARITHMETIC_LEAF_RESOLUTION: bool = true;
+            const USES_UNROLLED_SCALAR_TRAVERSAL: bool = true;
 
-            type DeferredState = Self;
+            type DeferredState = DonnellyCoreDeferred;
             type StackContext<A> =
                 crate::kd_tree::query_stack::QueryStackContext<A, Self::DeferredState>;
             type Stack<A> = crate::kd_tree::query_stack::QueryStack<A, Self>;
@@ -36,12 +38,12 @@ macro_rules! impl_donnelly_unrolled_block_dim_strategy {
 
             #[inline(always)]
             fn deferred_state(&self) -> Self::DeferredState {
-                *self
+                self.core.deferred_state()
             }
 
             #[inline(always)]
             fn rehydrate_deferred_state(&mut self, state: Self::DeferredState) {
-                *self = state;
+                self.core.rehydrate_deferred_state(state);
             }
 
             #[inline(always)]
@@ -88,6 +90,36 @@ macro_rules! impl_donnelly_unrolled_block_dim_strategy {
             }
 
             #[inline(always)]
+            fn branch_relative<A: Axis<Coord = A>, const K: usize>(
+                &mut self,
+                is_right: bool,
+            ) -> Self {
+                Self {
+                    core: self.core.branch_relative::<A, K>(is_right),
+                }
+            }
+
+            #[inline(always)]
+            fn branch_relative_head<A: Axis<Coord = A>, const K: usize>(
+                &mut self,
+                is_right: bool,
+            ) -> Self {
+                Self {
+                    core: self.core.branch_relative_head::<A, K>(is_right),
+                }
+            }
+
+            #[inline(always)]
+            fn branch_relative_tail<A: Axis<Coord = A>, const K: usize>(
+                &mut self,
+                is_right: bool,
+            ) -> Self {
+                Self {
+                    core: self.core.branch_relative_tail::<A, K>(is_right),
+                }
+            }
+
+            #[inline(always)]
             fn child_indices<A: Axis<Coord = A>>(&self) -> (usize, usize) {
                 self.core.child_indices::<A>()
             }
@@ -105,6 +137,21 @@ macro_rules! impl_donnelly_unrolled_block_dim_strategy {
                 query: &[A; K2],
                 max_stem_level: i32,
             ) -> usize {
+                if $size == 3 {
+                    return crate::stem_strategy::donnelly::core::get_leaf_idx_block3_block_dim(
+                        stems,
+                        query,
+                        max_stem_level,
+                    );
+                }
+                if $size == 4 {
+                    return crate::stem_strategy::donnelly::core::get_leaf_idx_block4_block_dim(
+                        stems,
+                        query,
+                        max_stem_level,
+                    );
+                }
+
                 let stems_ptr = NonNull::new(stems.as_ptr() as *mut u8).unwrap();
                 let mut strat = Self::new(stems_ptr);
 
@@ -200,8 +247,8 @@ mod tests {
         let saved = strat.deferred_state();
         strat.traverse::<f64, 3>(true);
         strat.traverse::<f64, 3>(false);
-        assert_ne!(strat.stem_idx(), saved.stem_idx());
-        assert_ne!(strat.leaf_idx(), saved.leaf_idx());
+        assert_ne!(strat.stem_idx(), 0);
+        assert_ne!(strat.leaf_idx(), 0);
 
         strat.rehydrate_deferred_state(saved);
         assert_eq!(strat.stem_idx(), 0);

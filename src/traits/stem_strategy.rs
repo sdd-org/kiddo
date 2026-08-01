@@ -35,6 +35,21 @@ pub trait StemStrategy: Clone + Sync + Send + 'static {
     /// an equivalent arithmetic leaf index.
     const SUPPORTS_ARITHMETIC_LEAF_RESOLUTION: bool = Self::BLOCK_SIZE == 1;
 
+    /// Whether scalar descent has dedicated head/tail operations for complete
+    /// block-unrolled bodies.
+    const USES_UNROLLED_SCALAR_TRAVERSAL: bool = false;
+
+    /// Whether complete blocks use one SIMD comparison to select the near
+    /// root-to-terminal path before replaying that path through the ordinary
+    /// scalar continuation machinery.
+    const USES_SIMD_BLOCK_DESCENT: bool = false;
+
+    /// Whether SIMD block selection is also used after entering a deferred far
+    /// subtree. Initial descent is always eligible when
+    /// `USES_SIMD_BLOCK_DESCENT` is set.
+    #[doc(hidden)]
+    const SIMD_BLOCK_DESCENT_ON_BACKTRACK: bool = true;
+
     /// Compact state persisted on scalar backtracking stacks.
     ///
     /// Scalar strategies can use this to store only the state needed to resume a deferred branch.
@@ -97,6 +112,20 @@ pub trait StemStrategy: Clone + Sync + Send + 'static {
         self.dim::<K>()
     }
 
+    /// Select the terminal child of the complete block rooted at the current
+    /// stem. The returned child index encodes the scalar path bits from most to
+    /// least significant.
+    #[doc(hidden)]
+    #[inline(always)]
+    fn select_block_child<A: Axis<Coord = A>, const K: usize>(
+        &self,
+        _stems: &[A],
+        _query: &[A; K],
+        _start_dim: usize,
+    ) -> u8 {
+        unreachable!("strategy does not implement SIMD block descent")
+    }
+
     /// Get the current level
     fn level(&self) -> i32;
 
@@ -132,6 +161,18 @@ pub trait StemStrategy: Clone + Sync + Send + 'static {
         } else {
             self.branch::<A, K>()
         }
+    }
+
+    /// Branch within a known non-final level of a block-unrolled traversal.
+    #[inline(always)]
+    fn branch_relative_head<A: Axis<Coord = A>, const K: usize>(&mut self, is_right: bool) -> Self {
+        self.branch_relative::<A, K>(is_right)
+    }
+
+    /// Branch from a known final level of a block-unrolled traversal.
+    #[inline(always)]
+    fn branch_relative_tail<A: Axis<Coord = A>, const K: usize>(&mut self, is_right: bool) -> Self {
+        self.branch_relative::<A, K>(is_right)
     }
 
     /// Split `self` into two independent child strategies (left, right).
