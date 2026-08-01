@@ -20,6 +20,13 @@ pub trait StemStrategy: Clone + Sync + Send + 'static {
     /// The default is 1, which means that the strategy is not block-based.
     const BLOCK_SIZE: usize = 1;
 
+    /// Whether construction must pad the stem height to a whole layout block.
+    ///
+    /// A strategy can use block-shaped addressing without requiring a complete
+    /// final block. Such strategies should override this to `false` so that
+    /// queries do not traverse synthetic root levels.
+    const REQUIRES_BLOCK_ALIGNED_STEM_HEIGHT: bool = Self::BLOCK_SIZE > 1;
+
     /// Whether this strategy maintains the arithmetic leaf-path index required
     /// by immutable trees' inline continuation-stack query path.
     ///

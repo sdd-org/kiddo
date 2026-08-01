@@ -316,11 +316,11 @@ fn parallel_soft_construction_matches_sequential_construction() {
 
 #[cfg(feature = "multi-threaded")]
 #[test]
-fn parallel_soft_construction_handles_block_strategy_root_padding() {
+fn parallel_soft_construction_handles_scalar_donnelly_partial_block() {
     type TestTree = KdTree<f64, u32, Donnelly<3>, FlatVec<f64, u32, 2, 4>, 2, 4>;
 
-    // Sixteen leaves require four construction levels. Donnelly<3> pads the
-    // stem layout to six levels and starts construction below two root levels.
+    // Sixteen leaves require four construction levels. This deliberately ends
+    // one level into Donnelly<3>'s second block.
     let points = (0..64)
         .map(|idx| [((idx * 17) % 67) as f64, ((idx * 29 + idx / 5) % 71) as f64])
         .collect::<Vec<_>>();
@@ -337,7 +337,7 @@ fn parallel_soft_construction_handles_block_strategy_root_padding() {
     assert_eq!(sequential.stems.as_slice(), parallel.stems.as_slice());
     assert_eq!(sequential.leaf_count(), 16);
     assert_eq!(sequential.leaf_count(), parallel.leaf_count());
-    assert_eq!(sequential.max_stem_level(), 5);
+    assert_eq!(sequential.max_stem_level(), 3);
     assert_eq!(sequential.max_stem_level(), parallel.max_stem_level());
     assert_eq!(sequential.max_leaf_len(), parallel.max_leaf_len());
     assert_eq!(
