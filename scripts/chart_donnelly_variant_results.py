@@ -20,6 +20,7 @@ STRATEGIES = {
     "donnelly_unrolled_block_dim": "Donnelly unrolled/block-dim",
     "donnelly_simd_descent": "Donnelly SIMD descent",
     "donnelly_cyclic_simd_descent": "Donnelly cyclic SIMD descent",
+    "donnelly_cyclic_simd_full": "Donnelly cyclic SIMD-full control",
     "donnelly_simd_initial_descent": "Donnelly initial-only SIMD",
     "donnelly_simd_full": "Donnelly full SIMD",
 }
@@ -30,6 +31,7 @@ COLORS = {
     "donnelly_unrolled_block_dim": "#298f75",
     "donnelly_simd_descent": "#8a6d1d",
     "donnelly_cyclic_simd_descent": "#16a085",
+    "donnelly_cyclic_simd_full": "#c0392b",
     "donnelly_simd_initial_descent": "#7d5fff",
     "donnelly_simd_full": "#c0392b",
 }
@@ -173,7 +175,7 @@ def render(
         eytzinger = [table[("eytzinger", size)].query_ns for size in sizes]
         if mode == "generated":
             eytzinger = [
-                value - controls[(axis, point_count, size)]
+                value - controls.get((axis, point_count, size), 0.0)
                 for value, size in zip(eytzinger, sizes)
             ]
         for strategy in strategies:
@@ -182,7 +184,7 @@ def render(
             values = [table[(strategy, size)].query_ns for size in sizes]
             if mode == "generated":
                 values = [
-                    value - controls[(axis, point_count, size)]
+                    value - controls.get((axis, point_count, size), 0.0)
                     for value, size in zip(values, sizes)
                 ]
             speedups = [
@@ -207,7 +209,12 @@ def render(
         advantage.set_xticks(x, [f"{size:,}" for size in sizes])
         advantage.grid(True, color="#dfe3e8", linewidth=0.8)
 
-    dimensions = 3 if axis == "f64" else 4
+    if "_k" in axis:
+        scalar, dimension_text = axis.split("_k", 1)
+        dimensions = int(dimension_text)
+    else:
+        scalar = axis
+        dimensions = 3 if axis == "f64" else 4
     present = {point.strategy for point in selected}
     if (
         "donnelly_unrolled_block_dim" in present
@@ -221,7 +228,7 @@ def render(
     else:
         experiment = "strategy screen"
     figure.suptitle(
-        f"Exact nearest-one Donnelly variant screen — {dimensions}D {axis}, "
+        f"Exact nearest-one Donnelly variant screen — {dimensions}D {scalar}, "
         f"2^{point_log2} points — {experiment}"
     )
     figure.savefig(output, dpi=180)
@@ -233,7 +240,7 @@ def main() -> None:
     points, controls = load(args.result)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     chart_names: list[str] = []
-    for axis in ("f64", "f32"):
+    for axis in sorted({point.axis for point in points}):
         for point_count in sorted(
             {point.point_count for point in points if point.axis == axis}
         ):
