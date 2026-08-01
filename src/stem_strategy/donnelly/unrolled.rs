@@ -2,7 +2,7 @@
 
 use std::ptr::NonNull;
 
-use crate::stem_strategy::donnelly::core::DonnellyCore;
+use crate::stem_strategy::donnelly::core::{DonnellyCore, DonnellyCoreDeferred};
 use crate::{Axis, StemStrategy};
 
 /// Unrolled Donnelly strategy with per-level dimension scheduling.
@@ -16,8 +16,10 @@ macro_rules! impl_donnelly_unrolled_strategy {
         impl StemStrategy for DonnellyUnrolled<$size> {
             const ROOT_IDX: usize = 0;
             const BLOCK_SIZE: usize = $size;
+            const SUPPORTS_ARITHMETIC_LEAF_RESOLUTION: bool = true;
+            const USES_UNROLLED_SCALAR_TRAVERSAL: bool = true;
 
-            type DeferredState = Self;
+            type DeferredState = DonnellyCoreDeferred;
             type StackContext<A> =
                 crate::kd_tree::query_stack::QueryStackContext<A, Self::DeferredState>;
             type Stack<A> = crate::kd_tree::query_stack::QueryStack<A, Self>;
@@ -33,10 +35,12 @@ macro_rules! impl_donnelly_unrolled_strategy {
             fn stem_idx(&self) -> usize { self.core.stem_idx() }
 
             #[inline(always)]
-            fn deferred_state(&self) -> Self::DeferredState { *self }
+            fn deferred_state(&self) -> Self::DeferredState { self.core.deferred_state() }
 
             #[inline(always)]
-            fn rehydrate_deferred_state(&mut self, state: Self::DeferredState) { *self = state; }
+            fn rehydrate_deferred_state(&mut self, state: Self::DeferredState) {
+                self.core.rehydrate_deferred_state(state);
+            }
 
             #[inline(always)]
             fn leaf_idx(&self) -> usize { self.core.leaf_idx() }
@@ -71,6 +75,36 @@ macro_rules! impl_donnelly_unrolled_strategy {
             }
 
             #[inline(always)]
+            fn branch_relative<A: Axis<Coord = A>, const K: usize>(
+                &mut self,
+                is_right: bool,
+            ) -> Self {
+                Self {
+                    core: self.core.branch_relative::<A, K>(is_right),
+                }
+            }
+
+            #[inline(always)]
+            fn branch_relative_head<A: Axis<Coord = A>, const K: usize>(
+                &mut self,
+                is_right: bool,
+            ) -> Self {
+                Self {
+                    core: self.core.branch_relative_head::<A, K>(is_right),
+                }
+            }
+
+            #[inline(always)]
+            fn branch_relative_tail<A: Axis<Coord = A>, const K: usize>(
+                &mut self,
+                is_right: bool,
+            ) -> Self {
+                Self {
+                    core: self.core.branch_relative_tail::<A, K>(is_right),
+                }
+            }
+
+            #[inline(always)]
             fn child_indices<A: Axis<Coord = A>>(&self) -> (usize, usize) {
                 self.core.child_indices::<A>()
             }
@@ -87,23 +121,48 @@ macro_rules! impl_donnelly_unrolled_strategy {
                 query: &[A; K2],
                 max_stem_level: i32,
             ) -> usize {
-                let stems_ptr = NonNull::new(stems.as_ptr() as *mut u8).unwrap();
+                impl_donnelly_unrolled_strategy!(
+                    @get_leaf $size,
+                    stems,
+                    query,
+                    max_stem_level
+                )
+            }
+        }
+    };
+
+    (@get_leaf 3, $stems:expr, $query:expr, $max_stem_level:expr) => {{
+        crate::stem_strategy::donnelly::core::get_leaf_idx_block3::<A, K2>(
+            $stems,
+            $query,
+            $max_stem_level,
+        )
+    }};
+
+    (@get_leaf 4, $stems:expr, $query:expr, $max_stem_level:expr) => {{
+        crate::stem_strategy::donnelly::core::get_leaf_idx_block4::<A, K2>(
+            $stems,
+            $query,
+            $max_stem_level,
+        )
+    }};
+
+    (@get_leaf $size:tt, $stems:expr, $query:expr, $max_stem_level:expr) => {{
+                let stems_ptr = NonNull::new($stems.as_ptr() as *mut u8).unwrap();
                 let mut strat = Self::new(stems_ptr);
 
-                while strat.level() + ($size as i32) <= max_stem_level + 1 {
-                    impl_donnelly_unrolled_strategy!(@unroll $size, stems, query, strat);
+                while strat.level() + ($size as i32) <= $max_stem_level + 1 {
+                    impl_donnelly_unrolled_strategy!(@unroll $size, $stems, $query, strat);
                 }
 
-                while strat.level() <= max_stem_level {
-                    let pivot = unsafe { stems.get_unchecked(strat.stem_idx()) };
-                    let is_right = unsafe { *query.get_unchecked(strat.dim::<K2>()) } >= *pivot;
+                while strat.level() <= $max_stem_level {
+                    let pivot = unsafe { $stems.get_unchecked(strat.stem_idx()) };
+                    let is_right = unsafe { *$query.get_unchecked(strat.dim::<K2>()) } >= *pivot;
                     strat.traverse::<A, K2>(is_right);
                 }
 
                 strat.leaf_idx()
-            }
-        }
-    };
+    }};
 
     (@unroll 3, $stems:expr, $query:expr, $strat:expr) => {
         impl_donnelly_unrolled_strategy!(@head $stems, $query, $strat);
