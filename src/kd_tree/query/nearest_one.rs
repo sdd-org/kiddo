@@ -28,8 +28,8 @@ where
         D: DistanceMetric<A>,
         D::Output: Axis<Coord = D::Output> + 'static,
     {
-        #[cfg(feature = "test_utils")]
-        crate::test_utils::exact_query_stats::record_leaf_visit();
+        #[cfg(any(feature = "exact_query_stats", feature = "test_utils"))]
+        crate::results::exact_query_stats::record_leaf_visit();
         #[cfg(feature = "test_utils")]
         crate::test_utils::exact_query_trace::push(
             crate::test_utils::exact_query_trace::ExactQueryTraceEvent::LeafVisit { leaf_idx },
@@ -70,6 +70,9 @@ where
         SS::Stack<D::Output>: StackTrait<D::Output, SS> + Default + 'static,
         SS: 'static,
     {
+        #[cfg(feature = "exact_query_stats")]
+        crate::results::exact_query_stats::record_query();
+
         if self.stem_leaf_resolution.uses_arithmetic() {
             return self.nearest_one_arithmetic::<D>(query);
         }

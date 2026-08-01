@@ -44,6 +44,7 @@ no_inline = []
 las = ["dep:las"]
 multi-threaded = ["dep:rayon"]
 result_collection_stats = []
+exact_query_stats = []
 serde = ["dep:serde", "serde/derive", "fixed/serde", "aligned-vec/serde"]
 simd = []
 simulator = []
@@ -324,7 +325,7 @@ required-features = ["test_utils"]
 name = "profile_v6_stem_exact_stats"
 path = "benches/profile_v6_stem_exact_stats.rs"
 harness = false
-required-features = ["simd", "test_utils"]
+required-features = ["simd", "test_utils", "exact_query_stats"]
 
 [[bench]]
 name = "profile_v6_result_collection_stats"

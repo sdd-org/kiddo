@@ -211,8 +211,8 @@ impl<A, SS: StemStrategy, const INLINE_CAPACITY: usize> StackTrait<A, SS>
         }
         self.len += 1;
 
-        #[cfg(feature = "test_utils")]
-        crate::test_utils::exact_query_stats::record_simd_stack_len(self.len);
+        #[cfg(any(feature = "exact_query_stats", feature = "test_utils"))]
+        crate::results::exact_query_stats::record_simd_stack_len(self.len);
     }
 
     #[inline]
@@ -261,8 +261,8 @@ impl<
         unsafe { self.stack.get_unchecked_mut(self.len) }.write(item);
         self.len += 1;
 
-        #[cfg(feature = "test_utils")]
-        crate::test_utils::exact_query_stats::record_simd_stack_len(self.len);
+        #[cfg(any(feature = "exact_query_stats", feature = "test_utils"))]
+        crate::results::exact_query_stats::record_simd_stack_len(self.len);
     }
 
     #[inline]
