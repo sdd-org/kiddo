@@ -11,8 +11,9 @@ use kiddo::kd_tree::KdTree;
 use kiddo::leaf_strategy::FlatVec;
 use kiddo::stem_strategies::donnelly::DonnellySimdInitialDescent;
 use kiddo::{
-    Donnelly, DonnellyCyclicSimdDescent, DonnellySimdDescent, DonnellySimdFull, DonnellyUnrolled,
-    DonnellyUnrolledBlockDim, EytzingerFlexPf, SquaredEuclidean, StemStrategy,
+    Donnelly, DonnellyCyclicSimdDescent, DonnellyCyclicSimdFull, DonnellySimdDescent,
+    DonnellySimdFull, DonnellyUnrolled, DonnellyUnrolledBlockDim, EytzingerFlexPf,
+    SquaredEuclidean, StemStrategy,
 };
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -287,6 +288,12 @@ fn main() {
                     warmup_repeats,
                     repeats,
                 ),
+                "donnelly_cyclic_simd_full" => execute_f64::<DonnellyCyclicSimdFull<3>>(
+                    &points,
+                    &queries,
+                    warmup_repeats,
+                    repeats,
+                ),
                 "donnelly_simd_initial_descent" => execute_f64::<DonnellySimdInitialDescent<3>>(
                     &points,
                     &queries,
@@ -326,6 +333,12 @@ fn main() {
                     repeats,
                 ),
                 "donnelly_cyclic_simd_descent" => execute_f32::<DonnellyCyclicSimdDescent<4>>(
+                    &points,
+                    &queries,
+                    warmup_repeats,
+                    repeats,
+                ),
+                "donnelly_cyclic_simd_full" => execute_f32::<DonnellyCyclicSimdFull<4>>(
                     &points,
                     &queries,
                     warmup_repeats,

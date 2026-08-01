@@ -1354,14 +1354,14 @@ perf-v6-donnelly-vs-eytzinger-query-pool POINT_LOG2='27' POOL_SIZE='2048' TOTAL_
     fi
     case "$axis" in f32|f64) ;; *) echo "AXIS must be f32 or f64" >&2; exit 2 ;; esac
     case "$strategy" in
-        eytzinger|donnelly|donnelly_unrolled|donnelly_unrolled_block_dim|donnelly_simd_descent|donnelly_cyclic_simd_descent|donnelly_simd_initial_descent|donnelly_simd_full) ;;
+        eytzinger|donnelly|donnelly_unrolled|donnelly_unrolled_block_dim|donnelly_simd_descent|donnelly_cyclic_simd_descent|donnelly_cyclic_simd_full|donnelly_simd_initial_descent|donnelly_simd_full) ;;
         *) echo "unsupported STRATEGY: $strategy" >&2; exit 2 ;;
     esac
     events="$(scripts/query_pool_perf_events.sh "$event_set")"
 
     benchmark_exe="$(
         RUSTC_WRAPPER= RUSTFLAGS='-C target-cpu=native' \
-            cargo bench --bench profile_v6_query_pool_perf \
+            cargo bench --offline --bench profile_v6_query_pool_perf \
             --features simd,test_utils,logging_off --no-run --message-format=json |
         jq -r 'select(.reason == "compiler-artifact" and .target.name == "profile_v6_query_pool_perf") | .executable // empty' |
         tail -n 1
