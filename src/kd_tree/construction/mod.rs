@@ -611,8 +611,12 @@ where
         let leaf_node_count = item_count.div_ceil(B);
         let mut stems_depth: usize = leaf_node_count.next_power_of_two().ilog2() as usize;
 
-        // Pad stem tree height to the next block boundary for block-based strategies
-        let padding_level_count = if !stems_depth.is_multiple_of(SS::block_size()) {
+        // Some block-at-once strategies require construction to begin at a block
+        // boundary. Scalar block layouts can consume an incomplete final block
+        // and should not pay for synthetic root levels.
+        let padding_level_count = if SS::REQUIRES_BLOCK_ALIGNED_STEM_HEIGHT
+            && !stems_depth.is_multiple_of(SS::block_size())
+        {
             let padding_level_count = SS::block_size() - (stems_depth % SS::block_size());
             stems_depth += padding_level_count;
             padding_level_count

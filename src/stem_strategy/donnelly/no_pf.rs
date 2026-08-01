@@ -16,6 +16,7 @@ pub struct DonnellyNoPf<const BH: usize> {
 impl<const BH: usize> StemStrategy for DonnellyNoPf<BH> {
     const ROOT_IDX: usize = 0;
     const BLOCK_SIZE: usize = BH;
+    const REQUIRES_BLOCK_ALIGNED_STEM_HEIGHT: bool = false;
     const SUPPORTS_ARITHMETIC_LEAF_RESOLUTION: bool = true;
 
     type DeferredState = DonnellyCoreDeferred;

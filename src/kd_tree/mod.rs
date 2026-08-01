@@ -740,15 +740,14 @@ mod tests {
     }
 
     #[test]
-    fn test_stem_height_padding_donnelly_l4() {
-        // Create a tree with a height that needs padding to block boundary
+    fn scalar_donnelly_supports_an_incomplete_final_block() {
+        // Create a tree whose natural height is not a block boundary.
         // With 100 items and bucket size 32, we get 4 leaves
         // 4 leaves -> depth = log2(4) = 2 levels (levels 0, 1)
         // max_stem_level = 1 (0-indexed)
         // stems_depth = max_stem_level + 1 = 2
-        // For Donnelly<4>, block_size = 4
-        // 2 % 4 = 2, so we need padding of 4 - 2 = 2 levels
-        // Final depth should be 4, max_stem_level should be 3
+        // Donnelly<4> still uses four-level block addressing, but scalar
+        // traversal can stop after the two real levels.
 
         const TREE_SIZE: usize = 100;
         let content_to_add: Vec<[f32; 4]> = (0..TREE_SIZE)
@@ -763,31 +762,11 @@ mod tests {
 
         assert_eq!(tree.size(), TREE_SIZE);
 
-        // Verify padding was applied
         let stems_depth = tree.max_stem_level() + 1;
-        let block_size = 4;
-        assert_eq!(
-            stems_depth % block_size,
-            0,
-            "Stem tree depth should be a multiple of block size. depth={}, block_size={}",
-            stems_depth,
-            block_size
-        );
+        assert_eq!(stems_depth, 2, "scalar Donnelly must retain natural depth");
+        assert_eq!(tree.max_stem_level(), 1);
 
-        // With 100 items and bucket size 32, we have 4 leaves
-        // Natural depth would be 2 (log2(4) = 2)
-        // Padded to block size 4, should be 4
-        assert_eq!(
-            stems_depth, 4,
-            "Expected padded depth of 4 for tree with 4 leaves and block size 4"
-        );
-        assert_eq!(
-            tree.max_stem_level(),
-            3,
-            "Expected max_stem_level of 3 (depth 4 - 1)"
-        );
-
-        // Verify tree still works correctly with padding
+        // Verify leaf resolution across the incomplete block.
         let query_point = [0.5f32, 1.0f32, 1.5f32, 2.0f32];
         let leaf_idx = tree.get_leaf_idx(&query_point);
         assert!(
