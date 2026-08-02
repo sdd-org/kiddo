@@ -78,7 +78,9 @@ use criterion::{
 use kiddo::batch::Executor;
 use kiddo::kd_tree::KdTree;
 use kiddo::leaf_strategy::FlatVec;
-use kiddo::stem_strategy::{DonnellyCyclicSimdDescent, DonnellyUnrolled, Eytzinger};
+use kiddo::stem_strategy::{
+    DonnellyCyclicSimdDescent, DonnellyCyclicSimdFull, DonnellyUnrolled, Eytzinger,
+};
 use kiddo::SquaredEuclidean;
 use kiddo::StemStrategy;
 use rand::{RngExt, SeedableRng};
@@ -87,7 +89,14 @@ use std::ffi::c_void;
 use std::hint::black_box;
 use std::num::NonZeroUsize;
 
-const K: usize = 3;
+// One dimensionality per scalar rather than one shared K: the cyclic
+// Donnelly strategies (DonnellyCyclicSimdDescent, DonnellyCyclicSimdFull)
+// are native to block-height-3 for f64 and block-height-4 for f32, and
+// running every library at the block height its own strategies are native
+// to keeps every comparison in this file apples-to-apples per scalar,
+// rather than only the cyclic strategies getting their fast path.
+const K_F32: usize = 4;
+const K_F64: usize = 3;
 const DEFAULT_QUERY_COUNT: usize = 1_000;
 const DEFAULT_MIN_LOG2_POINTS: u32 = 16;
 const DEFAULT_MAX_LOG2_POINTS: u32 = 24;
@@ -133,41 +142,66 @@ const F32: &str = "f32";
 const F64: &str = "f64";
 const ALL_SCALARS: [&str; 2] = [F32, F64];
 
+const STRATEGY_EYTZINGER: &str = "eytzinger";
+const STRATEGY_DONNELLY_UNROLLED: &str = "donnelly_unrolled";
+const STRATEGY_DONNELLY_CYCLIC_SIMD_DESCENT: &str = "donnelly_cyclic_simd_descent";
+const STRATEGY_DONNELLY_CYCLIC_SIMD_FULL: &str = "donnelly_cyclic_simd_full";
+// Same four names and order as profile_v6_cyclic_query_pool.rs's
+// KIDDO_CYCLIC_STRATEGIES, so a results file from either bench sorts and
+// reads the same way.
+const ALL_STRATEGIES: [&str; 4] = [
+    STRATEGY_EYTZINGER,
+    STRATEGY_DONNELLY_UNROLLED,
+    STRATEGY_DONNELLY_CYCLIC_SIMD_DESCENT,
+    STRATEGY_DONNELLY_CYCLIC_SIMD_FULL,
+];
+
 // Pkd-tree's build_recursive has a box-containment assertion that fails for
 // f32 from 2^22 points upward: 2^21 builds, 2^22 and 2^23 abort, and f64 is
 // unaffected at least through 2^24. The assertion aborts the process rather
 // than returning an error, which would take every later benchmark in the same
 // run down with it, so oversized f32 Pkd-tree cells are skipped up front.
+// Reconfirmed at K_F32=4 (originally measured at the shared K=3 this file
+// used before the cyclic strategies needed a per-scalar dimension): 2^21
+// still builds cleanly.
 const PKDTREE_MAX_LOG2_POINTS_F32: u32 = 21;
 
 /// Asserts that the experimental Donnelly cyclic SIMD descent answers exactly
 /// as the Eytzinger baseline does on this tree, so a throughput win can never
 /// be a wrong-answer win. Checked once per run, at the smallest size.
-fn validate_kiddo_strategies_f64(points: &[PointF64], queries: &[PointF64]) {
-    let eytzinger: KiddoF64 = KdTree::new_from_slice(points).unwrap();
-    let donnelly: KiddoF64<DonnellyCyclicSimdDescent<3>> = KdTree::new_from_slice(points).unwrap();
+/// Checks one strategy's answers against the Eytzinger baseline it was built
+/// alongside, for both query shapes. `label` names the strategy in a panic
+/// message, since the whole point of this check is to fail loudly and
+/// specifically rather than let a throughput win be a wrong-answer win.
+fn assert_strategy_matches_baseline_f64<S: StemStrategy>(
+    label: &str,
+    baseline: &KiddoF64,
+    points: &[PointF64],
+    queries: &[PointF64],
+) {
+    let candidate: KiddoF64<S> = KdTree::new_from_slice(points).unwrap();
     let max_qty = NonZeroUsize::new(*MAX_QTYS.last().unwrap()).unwrap();
 
     for (index, query) in queries.iter().enumerate() {
-        let expected = eytzinger
+        let expected = baseline
             .query(query)
             .nearest_one::<SquaredEuclidean<f64>>()
             .execute();
-        let actual = donnelly
+        let actual = candidate
             .query(query)
             .nearest_one::<SquaredEuclidean<f64>>()
             .execute();
         assert_eq!(
             (actual.item, actual.distance),
             (expected.item, expected.distance),
-            "Donnelly cyclic SIMD nearest_one disagrees with Eytzinger at query {index}"
+            "{label} nearest_one disagrees with Eytzinger at query {index}"
         );
 
-        let expected = eytzinger
+        let expected = baseline
             .query(query)
             .nearest_n::<SquaredEuclidean<f64>>(max_qty)
             .execute();
-        let actual = donnelly
+        let actual = candidate
             .query(query)
             .nearest_n::<SquaredEuclidean<f64>>(max_qty)
             .execute();
@@ -175,9 +209,102 @@ fn validate_kiddo_strategies_f64(points: &[PointF64], queries: &[PointF64]) {
         let actual: Vec<_> = actual.iter().map(|r| (r.item, r.distance)).collect();
         assert_eq!(
             actual, expected,
-            "Donnelly cyclic SIMD nearest_n disagrees with Eytzinger at query {index}"
+            "{label} nearest_n disagrees with Eytzinger at query {index}"
         );
     }
+}
+
+/// Asserts that every non-Eytzinger strategy answers exactly as the
+/// Eytzinger baseline does on this tree, so a throughput win can never be a
+/// wrong-answer win. Checked once per run, at the smallest size. f64-only:
+/// f64/K_F64 is the combination every strategy here is exercised at, so this
+/// is the one tree all four can be cross-checked on at once.
+fn validate_kiddo_strategies_f64(points: &[PointF64], queries: &[PointF64]) {
+    let eytzinger: KiddoF64 = KdTree::new_from_slice(points).unwrap();
+    assert_strategy_matches_baseline_f64::<DonnellyUnrolled<3>>(
+        "DonnellyUnrolled",
+        &eytzinger,
+        points,
+        queries,
+    );
+    assert_strategy_matches_baseline_f64::<DonnellyCyclicSimdDescent<3>>(
+        "DonnellyCyclicSimdDescent",
+        &eytzinger,
+        points,
+        queries,
+    );
+    assert_strategy_matches_baseline_f64::<DonnellyCyclicSimdFull<3>>(
+        "DonnellyCyclicSimdFull",
+        &eytzinger,
+        points,
+        queries,
+    );
+}
+
+/// f32 counterpart of [`assert_strategy_matches_baseline_f64`].
+fn assert_strategy_matches_baseline_f32<S: StemStrategy>(
+    label: &str,
+    baseline: &KiddoF32,
+    points: &[PointF32],
+    queries: &[PointF32],
+) {
+    let candidate: KiddoF32<S> = KdTree::new_from_slice(points).unwrap();
+    let max_qty = NonZeroUsize::new(*MAX_QTYS.last().unwrap()).unwrap();
+
+    for (index, query) in queries.iter().enumerate() {
+        let expected = baseline
+            .query(query)
+            .nearest_one::<SquaredEuclidean<f32>>()
+            .execute();
+        let actual = candidate
+            .query(query)
+            .nearest_one::<SquaredEuclidean<f32>>()
+            .execute();
+        assert_eq!(
+            (actual.item, actual.distance),
+            (expected.item, expected.distance),
+            "{label} nearest_one disagrees with Eytzinger at query {index}"
+        );
+
+        let expected = baseline
+            .query(query)
+            .nearest_n::<SquaredEuclidean<f32>>(max_qty)
+            .execute();
+        let actual = candidate
+            .query(query)
+            .nearest_n::<SquaredEuclidean<f32>>(max_qty)
+            .execute();
+        let expected: Vec<_> = expected.iter().map(|r| (r.item, r.distance)).collect();
+        let actual: Vec<_> = actual.iter().map(|r| (r.item, r.distance)).collect();
+        assert_eq!(
+            actual, expected,
+            "{label} nearest_n disagrees with Eytzinger at query {index}"
+        );
+    }
+}
+
+/// f32 counterpart of [`validate_kiddo_strategies_f64`]; f32/K_F32 is the
+/// combination every f32 strategy here is exercised at.
+fn validate_kiddo_strategies_f32(points: &[PointF32], queries: &[PointF32]) {
+    let eytzinger: KiddoF32 = KdTree::new_from_slice(points).unwrap();
+    assert_strategy_matches_baseline_f32::<DonnellyUnrolled<4>>(
+        "DonnellyUnrolled",
+        &eytzinger,
+        points,
+        queries,
+    );
+    assert_strategy_matches_baseline_f32::<DonnellyCyclicSimdDescent<4>>(
+        "DonnellyCyclicSimdDescent",
+        &eytzinger,
+        points,
+        queries,
+    );
+    assert_strategy_matches_baseline_f32::<DonnellyCyclicSimdFull<4>>(
+        "DonnellyCyclicSimdFull",
+        &eytzinger,
+        points,
+        queries,
+    );
 }
 
 /// The executors charted side by side in the batch-throughput suite.
@@ -216,14 +343,17 @@ fn pkdtree_f32_selected(libraries: &Selection, point_count: usize) -> bool {
     true
 }
 
-type PointF32 = [f32; K];
-type PointF64 = [f64; K];
+type PointF32 = [f32; K_F32];
+type PointF64 = [f64; K_F64];
 const B: usize = 32;
-type KiddoF32<S = Eytzinger> = KdTree<f32, u32, S, FlatVec<f32, u32, K, B>, K, B>;
-type KiddoF64<S = Eytzinger> = KdTree<f64, u32, S, FlatVec<f64, u32, K, B>, K, B>;
-// DonnellyCyclicSimdDescent's AVX-512 path asserts BH == K, and is implemented
-// only for f64/3D/BH3 and f32/4D/BH4. These benchmarks are 3D for every
-// library, so f64 gets the SIMD descent and f32 (K=3) cannot have it at all.
+type KiddoF32<S = Eytzinger> = KdTree<f32, u32, S, FlatVec<f32, u32, K_F32, B>, K_F32, B>;
+type KiddoF64<S = Eytzinger> = KdTree<f64, u32, S, FlatVec<f64, u32, K_F64, B>, K_F64, B>;
+// DonnellyCyclicSimdDescent and DonnellyCyclicSimdFull each panic unless
+// BH matches the AVX-512 specialization compiled in for the scalar type: 3
+// for f64, 4 for f32 (independent of tree dimensionality, which is why
+// K_F32 and K_F64 differ above -- picking them to equal their scalar's block
+// height, rather than leaving both at a shared K=3, is what gives both
+// scalars their native fast path instead of only f64).
 
 mod ffi {
     use std::ffi::c_void;
@@ -465,6 +595,10 @@ fn scalar_selection() -> Selection {
     Selection::from_env("KIDDO_CPP_SCALARS", &ALL_SCALARS, &ALL_SCALARS)
 }
 
+fn strategy_selection() -> Selection {
+    Selection::from_env("KIDDO_STRATEGIES", &ALL_STRATEGIES, &ALL_STRATEGIES)
+}
+
 fn build_points_f32(point_count: usize) -> Vec<PointF32> {
     let mut rng = ChaCha8Rng::seed_from_u64(POINT_SEED);
     (0..point_count).map(|_| rng.random()).collect()
@@ -605,7 +739,7 @@ fn validate_implementations_f32(
             let handle = NanoflannF32(ffi::nanoflann_build_f32(
                 points.as_ptr().cast(),
                 points.len() as u64,
-                K as u32,
+                K_F32 as u32,
             ));
             let n = ffi::nanoflann_nearest_n_f32(
                 handle.0,
@@ -635,7 +769,7 @@ fn validate_implementations_f32(
             let handle = PkdtreeF32(ffi::pkdtree_build_f32(
                 points.as_ptr().cast(),
                 points.len() as u64,
-                K as u32,
+                K_F32 as u32,
             ));
             let n = ffi::pkdtree_single_query_f32(
                 handle.0,
@@ -679,7 +813,7 @@ fn validate_implementations_f64(
             let handle = NanoflannF64(ffi::nanoflann_build_f64(
                 points.as_ptr().cast(),
                 points.len() as u64,
-                K as u32,
+                K_F64 as u32,
             ));
             let n = ffi::nanoflann_nearest_n_f64(
                 handle.0,
@@ -707,7 +841,7 @@ fn validate_implementations_f64(
             let handle = AlglibF64(ffi::alglib_build_f64(
                 points.as_ptr().cast(),
                 points.len() as u64,
-                K as u32,
+                K_F64 as u32,
             ));
             let n = ffi::alglib_nearest_n_f64(
                 handle.0,
@@ -735,7 +869,8 @@ fn validate_implementations_f64(
             // Returns null if the globals are already occupied or a coordinate
             // is outside the quantisable range; both are silent-wrong-answer
             // hazards, so treat null as a hard failure rather than a skip.
-            let raw = ffi::skdtree_build_f64(points.as_ptr().cast(), points.len() as u64, K as u32);
+            let raw =
+                ffi::skdtree_build_f64(points.as_ptr().cast(), points.len() as u64, K_F64 as u32);
             assert!(
                 !raw.is_null(),
                 "skd-tree refused to build; see skdtree_shim.cpp"
@@ -754,7 +889,7 @@ fn validate_implementations_f64(
             let handle = PkdtreeF64(ffi::pkdtree_build_f64(
                 points.as_ptr().cast(),
                 points.len() as u64,
-                K as u32,
+                K_F64 as u32,
             ));
             let n = ffi::pkdtree_single_query_f64(
                 handle.0,
@@ -780,7 +915,7 @@ fn bench_nanoflann_f32(
         NanoflannF32(ffi::nanoflann_build_f32(
             points.as_ptr().cast(),
             points.len() as u64,
-            K as u32,
+            K_F32 as u32,
         ))
     };
 
@@ -876,7 +1011,7 @@ fn bench_nanoflann_f64(
         NanoflannF64(ffi::nanoflann_build_f64(
             points.as_ptr().cast(),
             points.len() as u64,
-            K as u32,
+            K_F64 as u32,
         ))
     };
 
@@ -972,7 +1107,7 @@ fn bench_alglib_f64(
         AlglibF64(ffi::alglib_build_f64(
             points.as_ptr().cast(),
             points.len() as u64,
-            K as u32,
+            K_F64 as u32,
         ))
     };
 
@@ -1066,7 +1201,7 @@ fn bench_pkdtree_f32(
         PkdtreeF32(ffi::pkdtree_build_f32(
             points.as_ptr().cast(),
             points.len() as u64,
-            K as u32,
+            K_F32 as u32,
         ))
     };
 
@@ -1135,8 +1270,9 @@ fn bench_skdtree_f64(
     points: &[PointF64],
     queries: &[PointF64],
 ) {
-    let raw =
-        unsafe { ffi::skdtree_build_f64(points.as_ptr().cast(), points.len() as u64, K as u32) };
+    let raw = unsafe {
+        ffi::skdtree_build_f64(points.as_ptr().cast(), points.len() as u64, K_F64 as u32)
+    };
     assert!(
         !raw.is_null(),
         "skd-tree refused to build at {point_count} points; see skdtree_shim.cpp"
@@ -1179,7 +1315,7 @@ fn bench_pkdtree_f64(
         PkdtreeF64(ffi::pkdtree_build_f64(
             points.as_ptr().cast(),
             points.len() as u64,
-            K as u32,
+            K_F64 as u32,
         ))
     };
 
@@ -1239,15 +1375,16 @@ fn bench_pkdtree_f64(
     }
 }
 
-fn bench_kiddo_single_f32(
+fn bench_kiddo_single_f32<S: StemStrategy>(
     group: &mut BenchmarkGroup<'_, WallTime>,
+    label: &str,
     point_count: usize,
     points: &[PointF32],
     queries: &[PointF32],
 ) {
-    let tree: KiddoF32 = KdTree::new_from_slice(points).unwrap();
+    let tree: KiddoF32<S> = KdTree::new_from_slice(points).unwrap();
 
-    group.bench_function(id("kiddo", "nearest_one", point_count), |b| {
+    group.bench_function(id(label, "nearest_one", point_count), |b| {
         b.iter(|| {
             let mut distance = 0.0f32;
             let mut item = 0u64;
@@ -1266,7 +1403,7 @@ fn bench_kiddo_single_f32(
     for max_qty in MAX_QTYS {
         let k = NonZeroUsize::new(max_qty).unwrap();
         group.bench_function(
-            id("kiddo", &format!("nearest_n_k{max_qty}"), point_count),
+            id(label, &format!("nearest_n_k{max_qty}"), point_count),
             |b| {
                 b.iter(|| {
                     let mut len = 0u64;
@@ -1290,15 +1427,16 @@ fn bench_kiddo_single_f32(
     }
 }
 
-fn bench_kiddo_single_f64(
+fn bench_kiddo_single_f64<S: StemStrategy>(
     group: &mut BenchmarkGroup<'_, WallTime>,
+    label: &str,
     point_count: usize,
     points: &[PointF64],
     queries: &[PointF64],
 ) {
-    let tree: KiddoF64 = KdTree::new_from_slice(points).unwrap();
+    let tree: KiddoF64<S> = KdTree::new_from_slice(points).unwrap();
 
-    group.bench_function(id("kiddo", "nearest_one", point_count), |b| {
+    group.bench_function(id(label, "nearest_one", point_count), |b| {
         b.iter(|| {
             let mut distance = 0.0f64;
             let mut item = 0u64;
@@ -1317,7 +1455,7 @@ fn bench_kiddo_single_f64(
     for max_qty in MAX_QTYS {
         let k = NonZeroUsize::new(max_qty).unwrap();
         group.bench_function(
-            id("kiddo", &format!("nearest_n_k{max_qty}"), point_count),
+            id(label, &format!("nearest_n_k{max_qty}"), point_count),
             |b| {
                 b.iter(|| {
                     let mut len = 0u64;
@@ -1341,6 +1479,91 @@ fn bench_kiddo_single_f64(
     }
 }
 
+/// Dispatches every selected strategy for one f32 tree size, each building
+/// and dropping its own tree in turn so only one is resident at a time.
+/// Labels match the batch suite's convention (`kiddo`, `kiddo_donnelly_*`).
+fn bench_kiddo_single_strategies_f32(
+    group: &mut BenchmarkGroup<'_, WallTime>,
+    strategies: &Selection,
+    point_count: usize,
+    points: &[PointF32],
+    queries: &[PointF32],
+) {
+    if strategies.contains(STRATEGY_EYTZINGER) {
+        bench_kiddo_single_f32::<Eytzinger>(group, "kiddo", point_count, points, queries);
+    }
+    // BH=4 throughout: K_F32 is chosen to equal it, so every Donnelly variant
+    // here gets its native block height, not just the cyclic ones.
+    if strategies.contains(STRATEGY_DONNELLY_UNROLLED) {
+        bench_kiddo_single_f32::<DonnellyUnrolled<4>>(
+            group,
+            "kiddo_donnelly_unrolled",
+            point_count,
+            points,
+            queries,
+        );
+    }
+    if strategies.contains(STRATEGY_DONNELLY_CYCLIC_SIMD_DESCENT) {
+        bench_kiddo_single_f32::<DonnellyCyclicSimdDescent<4>>(
+            group,
+            "kiddo_donnelly_cyclic_simd_descent",
+            point_count,
+            points,
+            queries,
+        );
+    }
+    if strategies.contains(STRATEGY_DONNELLY_CYCLIC_SIMD_FULL) {
+        bench_kiddo_single_f32::<DonnellyCyclicSimdFull<4>>(
+            group,
+            "kiddo_donnelly_cyclic_simd_full",
+            point_count,
+            points,
+            queries,
+        );
+    }
+}
+
+/// f64 counterpart of [`bench_kiddo_single_strategies_f32`]; BH=3 throughout,
+/// matching K_F64.
+fn bench_kiddo_single_strategies_f64(
+    group: &mut BenchmarkGroup<'_, WallTime>,
+    strategies: &Selection,
+    point_count: usize,
+    points: &[PointF64],
+    queries: &[PointF64],
+) {
+    if strategies.contains(STRATEGY_EYTZINGER) {
+        bench_kiddo_single_f64::<Eytzinger>(group, "kiddo", point_count, points, queries);
+    }
+    if strategies.contains(STRATEGY_DONNELLY_UNROLLED) {
+        bench_kiddo_single_f64::<DonnellyUnrolled<3>>(
+            group,
+            "kiddo_donnelly_unrolled",
+            point_count,
+            points,
+            queries,
+        );
+    }
+    if strategies.contains(STRATEGY_DONNELLY_CYCLIC_SIMD_DESCENT) {
+        bench_kiddo_single_f64::<DonnellyCyclicSimdDescent<3>>(
+            group,
+            "kiddo_donnelly_cyclic_simd_descent",
+            point_count,
+            points,
+            queries,
+        );
+    }
+    if strategies.contains(STRATEGY_DONNELLY_CYCLIC_SIMD_FULL) {
+        bench_kiddo_single_f64::<DonnellyCyclicSimdFull<3>>(
+            group,
+            "kiddo_donnelly_cyclic_simd_full",
+            point_count,
+            points,
+            queries,
+        );
+    }
+}
+
 fn kiddo_vs_pkdtree_single(c: &mut Criterion) {
     let suites = suite_selection();
     if !suites.contains(SUITE_KIDDO_VS_PKDTREE) {
@@ -1348,6 +1571,7 @@ fn kiddo_vs_pkdtree_single(c: &mut Criterion) {
     }
     let libraries = library_selection();
     let scalars = scalar_selection();
+    let strategies = strategy_selection();
     if !libraries.any(&[KIDDO, PKDTREE]) {
         return;
     }
@@ -1360,9 +1584,10 @@ fn kiddo_vs_pkdtree_single(c: &mut Criterion) {
     let max_log2_points = read_u32_env("KIDDO_LARGE_MAX_LOG2_POINTS", DEFAULT_MAX_LOG2_POINTS);
 
     eprintln!(
-        "benchmarking kiddo vs Pkd-tree only, single-threaded per-query: scalars={} libraries={} tree_sizes=2^{min_log2_points}..2^{max_log2_points} queries={query_count}",
+        "benchmarking kiddo vs Pkd-tree only, single-threaded per-query: scalars={} libraries={} strategies={} tree_sizes=2^{min_log2_points}..2^{max_log2_points} queries={query_count}",
         scalars.list(),
-        libraries.list()
+        libraries.list(),
+        strategies.list()
     );
 
     if scalars.contains(F32) {
@@ -1373,7 +1598,19 @@ fn kiddo_vs_pkdtree_single(c: &mut Criterion) {
             let point_count = 1usize << log2_points;
             let points = build_points_f32(point_count);
             if libraries.contains(KIDDO) {
-                bench_kiddo_single_f32(&mut group, point_count, &points, &queries_f32);
+                if log2_points == min_log2_points {
+                    validate_kiddo_strategies_f32(
+                        &points,
+                        &queries_f32[..queries_f32.len().min(64)],
+                    );
+                }
+                bench_kiddo_single_strategies_f32(
+                    &mut group,
+                    &strategies,
+                    point_count,
+                    &points,
+                    &queries_f32,
+                );
             }
             if pkdtree_f32_selected(&libraries, point_count) {
                 bench_pkdtree_f32(&mut group, point_count, &points, &queries_f32);
@@ -1390,7 +1627,19 @@ fn kiddo_vs_pkdtree_single(c: &mut Criterion) {
             let point_count = 1usize << log2_points;
             let points = build_points_f64(point_count);
             if libraries.contains(KIDDO) {
-                bench_kiddo_single_f64(&mut group, point_count, &points, &queries_f64);
+                if log2_points == min_log2_points {
+                    validate_kiddo_strategies_f64(
+                        &points,
+                        &queries_f64[..queries_f64.len().min(64)],
+                    );
+                }
+                bench_kiddo_single_strategies_f64(
+                    &mut group,
+                    &strategies,
+                    point_count,
+                    &points,
+                    &queries_f64,
+                );
             }
             if libraries.contains(PKDTREE) {
                 bench_pkdtree_f64(&mut group, point_count, &points, &queries_f64);
@@ -1413,7 +1662,7 @@ fn bench_pkdtree_batch_f32(
         PkdtreeF32(ffi::pkdtree_build_f32(
             points.as_ptr().cast(),
             points.len() as u64,
-            K as u32,
+            K_F32 as u32,
         ))
     };
     let flat_queries: Vec<f32> = queries.iter().flatten().copied().collect();
@@ -1452,7 +1701,7 @@ fn bench_pkdtree_batch_f64(
         PkdtreeF64(ffi::pkdtree_build_f64(
             points.as_ptr().cast(),
             points.len() as u64,
-            K as u32,
+            K_F64 as u32,
         ))
     };
     let flat_queries: Vec<f64> = queries.iter().flatten().copied().collect();
@@ -1590,6 +1839,88 @@ fn bench_kiddo_batch_f64<S: StemStrategy>(
     }
 }
 
+/// Dispatches every selected strategy's batch benchmarks for one f32 tree
+/// size. BH=4 throughout, matching K_F32.
+fn bench_kiddo_batch_strategies_f32(
+    group: &mut BenchmarkGroup<'_, WallTime>,
+    strategies: &Selection,
+    point_count: usize,
+    points: &[PointF32],
+    queries: &[PointF32],
+) {
+    if strategies.contains(STRATEGY_EYTZINGER) {
+        bench_kiddo_batch_f32::<Eytzinger>(group, "kiddo_batch", point_count, points, queries);
+    }
+    if strategies.contains(STRATEGY_DONNELLY_UNROLLED) {
+        bench_kiddo_batch_f32::<DonnellyUnrolled<4>>(
+            group,
+            "kiddo_donnelly_unrolled_batch",
+            point_count,
+            points,
+            queries,
+        );
+    }
+    if strategies.contains(STRATEGY_DONNELLY_CYCLIC_SIMD_DESCENT) {
+        bench_kiddo_batch_f32::<DonnellyCyclicSimdDescent<4>>(
+            group,
+            "kiddo_donnelly_cyclic_simd_descent_batch",
+            point_count,
+            points,
+            queries,
+        );
+    }
+    if strategies.contains(STRATEGY_DONNELLY_CYCLIC_SIMD_FULL) {
+        bench_kiddo_batch_f32::<DonnellyCyclicSimdFull<4>>(
+            group,
+            "kiddo_donnelly_cyclic_simd_full_batch",
+            point_count,
+            points,
+            queries,
+        );
+    }
+}
+
+/// f64 counterpart of [`bench_kiddo_batch_strategies_f32`]; BH=3 throughout,
+/// matching K_F64.
+fn bench_kiddo_batch_strategies_f64(
+    group: &mut BenchmarkGroup<'_, WallTime>,
+    strategies: &Selection,
+    point_count: usize,
+    points: &[PointF64],
+    queries: &[PointF64],
+) {
+    if strategies.contains(STRATEGY_EYTZINGER) {
+        bench_kiddo_batch_f64::<Eytzinger>(group, "kiddo_batch", point_count, points, queries);
+    }
+    if strategies.contains(STRATEGY_DONNELLY_UNROLLED) {
+        bench_kiddo_batch_f64::<DonnellyUnrolled<3>>(
+            group,
+            "kiddo_donnelly_unrolled_batch",
+            point_count,
+            points,
+            queries,
+        );
+    }
+    if strategies.contains(STRATEGY_DONNELLY_CYCLIC_SIMD_DESCENT) {
+        bench_kiddo_batch_f64::<DonnellyCyclicSimdDescent<3>>(
+            group,
+            "kiddo_donnelly_cyclic_simd_descent_batch",
+            point_count,
+            points,
+            queries,
+        );
+    }
+    if strategies.contains(STRATEGY_DONNELLY_CYCLIC_SIMD_FULL) {
+        bench_kiddo_batch_f64::<DonnellyCyclicSimdFull<3>>(
+            group,
+            "kiddo_donnelly_cyclic_simd_full_batch",
+            point_count,
+            points,
+            queries,
+        );
+    }
+}
+
 fn pkdtree_batch(c: &mut Criterion) {
     let suites = suite_selection();
     if !suites.contains(SUITE_PKDTREE_BATCH) {
@@ -1597,6 +1928,7 @@ fn pkdtree_batch(c: &mut Criterion) {
     }
     let libraries = library_selection();
     let scalars = scalar_selection();
+    let strategies = strategy_selection();
     if !libraries.any(&[KIDDO, PKDTREE]) {
         return;
     }
@@ -1608,9 +1940,10 @@ fn pkdtree_batch(c: &mut Criterion) {
     let max_log2_points = read_u32_env("KIDDO_LARGE_MAX_LOG2_POINTS", DEFAULT_MAX_LOG2_POINTS);
 
     eprintln!(
-        "benchmarking batch-parallel throughput (kiddo serial+parallel executors, Pkd-tree parallel_for): scalars={} libraries={} tree_sizes=2^{min_log2_points}..2^{max_log2_points} queries={query_count} (all submitted at once)",
+        "benchmarking batch-parallel throughput (kiddo serial+parallel executors, Pkd-tree parallel_for): scalars={} libraries={} strategies={} tree_sizes=2^{min_log2_points}..2^{max_log2_points} queries={query_count} (all submitted at once)",
         scalars.list(),
-        libraries.list()
+        libraries.list(),
+        strategies.list()
     );
 
     if scalars.contains(F32) {
@@ -1621,20 +1954,15 @@ fn pkdtree_batch(c: &mut Criterion) {
             let point_count = 1usize << log2_points;
             let points = build_points_f32(point_count);
             if libraries.contains(KIDDO) {
-                bench_kiddo_batch_f32::<Eytzinger>(
+                if log2_points == min_log2_points {
+                    validate_kiddo_strategies_f32(
+                        &points,
+                        &queries_f32[..queries_f32.len().min(64)],
+                    );
+                }
+                bench_kiddo_batch_strategies_f32(
                     &mut group,
-                    "kiddo_batch",
-                    point_count,
-                    &points,
-                    &queries_f32,
-                );
-                // f32/3D cannot use DonnellyCyclicSimdDescent, whose AVX-512
-                // path requires BH == K == 4. DonnellyUnrolled has no such
-                // constraint, so f32 still gets the Donnelly memory layout,
-                // just with scalar rather than block-at-once descent.
-                bench_kiddo_batch_f32::<DonnellyUnrolled<4>>(
-                    &mut group,
-                    "kiddo_donnelly_batch",
+                    &strategies,
                     point_count,
                     &points,
                     &queries_f32,
@@ -1661,18 +1989,9 @@ fn pkdtree_batch(c: &mut Criterion) {
                         &queries_f64[..queries_f64.len().min(64)],
                     );
                 }
-                bench_kiddo_batch_f64::<Eytzinger>(
+                bench_kiddo_batch_strategies_f64(
                     &mut group,
-                    "kiddo_batch",
-                    point_count,
-                    &points,
-                    &queries_f64,
-                );
-                // Each strategy builds and drops its own tree in turn, so only
-                // one is resident at a time.
-                bench_kiddo_batch_f64::<DonnellyCyclicSimdDescent<3>>(
-                    &mut group,
-                    "kiddo_donnelly_batch",
+                    &strategies,
                     point_count,
                     &points,
                     &queries_f64,
@@ -1716,7 +2035,7 @@ fn cpp_competitors(c: &mut Criterion) {
     );
 
     eprintln!(
-        "benchmarking C++ k-d trees: dims={K} scalars={} libraries={} tree_sizes=2^{min_log2_points}..2^{max_log2_points} queries={query_count} nearest_n={MAX_QTYS:?} radius={radius_f64} point_seed={POINT_SEED} query_seed={QUERY_SEED}",
+        "benchmarking C++ k-d trees: dims=f32:{K_F32}/f64:{K_F64} scalars={} libraries={} tree_sizes=2^{min_log2_points}..2^{max_log2_points} queries={query_count} nearest_n={MAX_QTYS:?} radius={radius_f64} point_seed={POINT_SEED} query_seed={QUERY_SEED}",
         scalars.list(),
         libraries.list()
     );
@@ -1815,7 +2134,7 @@ fn pkdtree_f64_probe(c: &mut Criterion) {
             PkdtreeF64(ffi::pkdtree_build_f64(
                 points.as_ptr().cast(),
                 points.len() as u64,
-                K as u32,
+                K_F64 as u32,
             ))
         };
         let query = build_queries_f64(1);
