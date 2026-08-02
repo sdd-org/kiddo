@@ -147,6 +147,7 @@ fn scalar_prepared_path<A: PartialOrd + Copy, const BH: usize>(
     child
 }
 
+#[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"))]
 #[inline(always)]
 fn block3_child_from_mask(mask: u8) -> u8 {
     let b0 = mask & 1;
@@ -155,8 +156,7 @@ fn block3_child_from_mask(mask: u8) -> u8 {
     (b0 << 2) | (b1 << 1) | b2
 }
 
-// TODO: can remove?
-#[allow(unused)]
+#[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"))]
 #[inline(always)]
 fn block4_child_from_mask(mask: u16) -> u8 {
     let b0 = (mask & 1) as u8;
