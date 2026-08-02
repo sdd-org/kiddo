@@ -2,8 +2,11 @@
 //! `benches/profile_cpp_competitors.rs`.
 //!
 //! Entirely gated behind the `cpp_competitors` feature (see root
-//! `build.rs`), so a normal `cargo build`/`cargo test`/CI run never touches
-//! the network or requires a C++ toolchain. This is local, throwaway
+//! `build.rs`), so a normal `cargo build`/`cargo test` never touches the
+//! network or requires a C++ toolchain. CI's `cargo hack --each-feature`
+//! sweeps do check this feature in isolation, though, and provision the
+//! three system packages skd-tree needs (see `require_system_header` below)
+//! in a dedicated step before that check runs. This is local, throwaway
 //! evaluation tooling: sources are fetched into `OUT_DIR` (never committed)
 //! and pinned to exact revisions/URLs for reproducibility.
 
