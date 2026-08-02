@@ -328,6 +328,35 @@ The benchmarks are repeated against 2d, 3d and 4d trees, as well as with points 
 
 The trees are populated with random source data whose points are all on a unit sphere. This use case is representative of common k-d tree usages in geospatial and astronomical contexts.
 
+### Reproducible local benchmarking
+
+The controlled benchmark suites in `scripts/` — the Donnelly variant matrix, the query-pool perf passes and the competitor matrices — are designed to run under a dedicated benchmark boot profile rather than a normal desktop session. That tooling lives in its own project:
+
+**[github.com/sdd/bench-profile](https://github.com/sdd/bench-profile)**
+
+It adds three boot entries, one per measurement question, and applies the matching CPU policy automatically at boot:
+
+| Profile       | Answers                         | CPU state                                                        |
+| ------------- | ------------------------------- | ---------------------------------------------------------------- |
+| `single-core` | "Is A faster than B?"           | One isolated core, scheduler load balancing off                  |
+| `multi-core`  | "How does it scale?"            | A whole core complex as a real parallel pool, SMT off, boost off |
+| `unlimited`   | "How fast can this machine go?" | Every thread, SMT on, boost on, no isolation                     |
+
+Install it, reboot into the entry matching the suite you want, and the scripts here will gate themselves on the correct state:
+
+```sh
+git clone https://github.com/sdd/bench-profile && cd bench-profile && just install
+# reboot into "... benchmark single-core", then, back in kiddo:
+./scripts/run_donnelly_variant_query_pool_matrix.sh
+```
+
+Two commands from that project are used directly by the scripts and just recipes here:
+
+- `bench-profile-run <command>` — pins the command tree to the profile's benchmark CPUs and audits hardware IRQs around the run, exiting **125** if any arrive so the caller can discard and retry the measurement.
+- `bench-profile-status expect-<profile>` — asserts the machine is in the required state, and exits non-zero if not. Note that the **bare** `bench-profile-status` is a report that always exits 0; it is meant for logging the environment alongside results, not for gating.
+
+Choosing the wrong profile is not a cosmetic mistake. Running a parallel suite under the `single-core` profile silently collapses every thread pool onto one core, because `isolcpus=domain` disables load balancing across the isolated set — the affinity mask alone is not enough to spread work. The `multi-core` profile exists specifically to avoid this, and `bench-profile-status expect-multi-core` runs a dispatch canary that proves work is actually spreading.
+
 ## MSRV
 
 Kiddo v6's current minimum supported Rust version (MSRV) is **1.89.0** (**1.85.0** for `v5.x.x`).
