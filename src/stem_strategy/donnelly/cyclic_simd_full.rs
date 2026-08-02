@@ -202,13 +202,7 @@ unsafe fn select_cyclic_block3_f64<Ops: Avx512F64LeafOps>(
         return u32::MAX;
     }
 
-    let child = if CYCLIC_FULL_SELECT_MIN_RD_CHILD {
-        let min_rd = _mm512_mask_reduce_min_pd(candidates, rd);
-        let best_mask = candidates & _mm512_cmp_pd_mask(rd, _mm512_set1_pd(min_rd), _CMP_EQ_OQ);
-        best_mask.trailing_zeros() as u8
-    } else {
-        candidates.trailing_zeros() as u8
-    };
+    let child = candidates.trailing_zeros() as u8;
     let lane = _mm512_set1_epi64(i64::from(child));
     *child_off = _mm_cvtsd_f64(_mm512_castpd512_pd128(_mm512_permutexvar_pd(lane, off_x)));
     *child_off.add(1) = _mm_cvtsd_f64(_mm512_castpd512_pd128(_mm512_permutexvar_pd(lane, off_y)));
@@ -293,13 +287,7 @@ unsafe fn select_cyclic_block4_f32<Ops: Avx512F32LeafOps>(
         return u32::MAX;
     }
 
-    let child = if CYCLIC_FULL_SELECT_MIN_RD_CHILD {
-        let min_rd = _mm512_mask_reduce_min_ps(candidates, rd);
-        let best_mask = candidates & _mm512_cmp_ps_mask(rd, _mm512_set1_ps(min_rd), _CMP_EQ_OQ);
-        best_mask.trailing_zeros() as u8
-    } else {
-        candidates.trailing_zeros() as u8
-    };
+    let child = candidates.trailing_zeros() as u8;
     let lane = _mm512_set1_epi32(i32::from(child));
     *child_off = _mm_cvtss_f32(_mm512_castps512_ps128(_mm512_permutexvar_ps(lane, off_x)));
     *child_off.add(1) = _mm_cvtss_f32(_mm512_castps512_ps128(_mm512_permutexvar_ps(lane, off_y)));
@@ -407,10 +395,6 @@ where
 pub struct DonnellyCyclicSimdFull<const BH: usize> {
     core: DonnellyCore<BH>,
 }
-
-// Kept as compile-time tuning switches while the experimental strategy is
-// characterised. LLVM removes the unused reduction paths completely.
-const CYCLIC_FULL_SELECT_MIN_RD_CHILD: bool = false;
 
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
@@ -897,7 +881,13 @@ mod cargo_asm {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    feature = "simd",
+    target_arch = "x86_64",
+    target_feature = "avx512f",
+    target_feature = "fma"
+))]
 mod tests {
     use super::*;
 
