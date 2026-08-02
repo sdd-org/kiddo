@@ -160,6 +160,11 @@ impl PartialEq for ExecutorKind {
             // the same only when they name the very same pool.
             #[cfg(feature = "multi-threaded")]
             (Self::ParallelInPool(left), Self::ParallelInPool(right)) => Arc::ptr_eq(left, right),
+            // Without `multi-threaded`, ExecutorKind has only the Serial
+            // variant, so the arm above is already exhaustive and this
+            // wildcard would be unreachable -- hence it is cfg'd out rather
+            // than allowed.
+            #[cfg(feature = "multi-threaded")]
             _ => false,
         }
     }
