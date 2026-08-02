@@ -26,33 +26,58 @@ from typing import Any
 
 GROUP = "profile_pkdtree_batch"
 SCALARS = ("f32", "f64")
-# Donnelly prefixes must precede the Eytzinger ones: "kiddo_batch_" is a
-# prefix of nothing else, but matching is first-wins, and a future rename
-# could easily make one stem's prefix shadow another's.
+# Longer, more specific prefixes must precede shorter ones that would
+# otherwise shadow them: "kiddo_donnelly_cyclic_simd_full_batch_" is also
+# matched by "kiddo_donnelly_batch_" (it isn't, in this table, since none of
+# these strategy names are prefixes of each other -- but matching is
+# first-wins, so keep it that way deliberately as strategies are added).
 LIBRARY_PREFIXES = (
-    ("kiddo_donnelly_batch_tuned_", "kiddo Donnelly (tuned)"),
-    ("kiddo_donnelly_batch_parallel_", "kiddo Donnelly (parallel)"),
-    ("kiddo_donnelly_batch_serial_", "kiddo Donnelly (serial)"),
+    ("kiddo_donnelly_cyclic_simd_full_batch_tuned_", "kiddo DonnellyCyclicSimdFull (tuned)"),
+    ("kiddo_donnelly_cyclic_simd_full_batch_parallel_", "kiddo DonnellyCyclicSimdFull (parallel)"),
+    ("kiddo_donnelly_cyclic_simd_full_batch_serial_", "kiddo DonnellyCyclicSimdFull (serial)"),
+    ("kiddo_donnelly_cyclic_simd_descent_batch_tuned_", "kiddo DonnellyCyclicSimdDescent (tuned)"),
+    ("kiddo_donnelly_cyclic_simd_descent_batch_parallel_", "kiddo DonnellyCyclicSimdDescent (parallel)"),
+    ("kiddo_donnelly_cyclic_simd_descent_batch_serial_", "kiddo DonnellyCyclicSimdDescent (serial)"),
+    ("kiddo_donnelly_unrolled_batch_tuned_", "kiddo DonnellyUnrolled (tuned)"),
+    ("kiddo_donnelly_unrolled_batch_parallel_", "kiddo DonnellyUnrolled (parallel)"),
+    ("kiddo_donnelly_unrolled_batch_serial_", "kiddo DonnellyUnrolled (serial)"),
+    # Legacy label from before the strategy was renamed with an explicit
+    # "cyclic_simd_descent" infix; kept so older result files still chart.
+    ("kiddo_donnelly_batch_tuned_", "kiddo DonnellyCyclicSimdDescent (tuned)"),
+    ("kiddo_donnelly_batch_parallel_", "kiddo DonnellyCyclicSimdDescent (parallel)"),
+    ("kiddo_donnelly_batch_serial_", "kiddo DonnellyCyclicSimdDescent (serial)"),
     ("kiddo_batch_tuned_", "kiddo Eytzinger (tuned)"),
     ("kiddo_batch_parallel_", "kiddo Eytzinger (parallel)"),
     ("kiddo_batch_serial_", "kiddo Eytzinger (serial)"),
     ("pkdtree_batch_", "Pkd-tree"),
 )
 LIBRARY_ORDER = (
-    "kiddo Donnelly (tuned)",
-    "kiddo Donnelly (parallel)",
+    "kiddo DonnellyCyclicSimdFull (tuned)",
+    "kiddo DonnellyCyclicSimdFull (parallel)",
+    "kiddo DonnellyCyclicSimdDescent (tuned)",
+    "kiddo DonnellyCyclicSimdDescent (parallel)",
+    "kiddo DonnellyUnrolled (tuned)",
+    "kiddo DonnellyUnrolled (parallel)",
     "kiddo Eytzinger (tuned)",
     "kiddo Eytzinger (parallel)",
-    "kiddo Donnelly (serial)",
+    "kiddo DonnellyCyclicSimdFull (serial)",
+    "kiddo DonnellyCyclicSimdDescent (serial)",
+    "kiddo DonnellyUnrolled (serial)",
     "kiddo Eytzinger (serial)",
     "Pkd-tree",
 )
 COLORS = {
-    "kiddo Donnelly (tuned)": "#0f6b48",
-    "kiddo Donnelly (parallel)": "#1a7f5a",
+    "kiddo DonnellyCyclicSimdFull (tuned)": "#0f6b48",
+    "kiddo DonnellyCyclicSimdFull (parallel)": "#1a7f5a",
+    "kiddo DonnellyCyclicSimdFull (serial)": "#7fc4a8",
+    "kiddo DonnellyCyclicSimdDescent (tuned)": "#8c5a1f",
+    "kiddo DonnellyCyclicSimdDescent (parallel)": "#a8703a",
+    "kiddo DonnellyCyclicSimdDescent (serial)": "#d9a878",
+    "kiddo DonnellyUnrolled (tuned)": "#7a1f8c",
+    "kiddo DonnellyUnrolled (parallel)": "#973aa8",
+    "kiddo DonnellyUnrolled (serial)": "#c78cd9",
     "kiddo Eytzinger (tuned)": "#1f4e8c",
     "kiddo Eytzinger (parallel)": "#3264a8",
-    "kiddo Donnelly (serial)": "#7fc4a8",
     "kiddo Eytzinger (serial)": "#7fa8d9",
     "Pkd-tree": "#8e44ad",
 }
