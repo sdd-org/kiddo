@@ -48,6 +48,14 @@ jobs:
       - name: Rustfmt Check
         uses: actions-rust-lang/rustfmt@v1
 
+      - name: Install cpp_competitors system dependencies
+        # benches/profile_cpp_competitors.rs is gated behind the cpp_competitors
+        # feature, which cargo-hack's --each-feature sweep below checks in
+        # isolation. Its build script (build_cpp_competitors.rs) vendors and
+        # compiles nanoflann/ALGLIB/Pkd-tree itself, but skd-tree's shim links
+        # against three system packages it deliberately does not vendor.
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libboost-dev libarmadillo-dev libensmallen-dev
+
       - name: Install cargo-hack
         uses: baptiste0928/cargo-install@v3
         with:
