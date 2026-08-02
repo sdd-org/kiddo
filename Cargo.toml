@@ -26,6 +26,7 @@ cargo_asm = ["dep:rand", "dep:rand_chacha"]
 csv = ["dep:csv"]
 default = ["fixed", "multi-threaded"]
 buffered_result_collection = ["dep:smallvec"]
+cpp_competitors = ["dep:cc"]
 huge_pages = ["dep:libc"]
 leaf_view_chunked = []
 leaf_nta_prefetch = []
@@ -132,6 +133,11 @@ version = "0.1"
 
 [build-dependencies]
 yep-cache-line-size = "0.9"
+
+[build-dependencies.cc]
+version = "1"
+optional = true
+features = ["parallel"]
 
 [dev-dependencies]
 assert_float_eq = "1.2"
@@ -322,6 +328,12 @@ name = "profile_external_kd_trees"
 path = "benches/profile_external_kd_trees.rs"
 harness = false
 required-features = ["test_utils"]
+
+[[bench]]
+name = "profile_cpp_competitors"
+path = "benches/profile_cpp_competitors.rs"
+harness = false
+required-features = ["cpp_competitors", "test_utils"]
 
 [[bench]]
 name = "profile_v6_within_radius_projection"

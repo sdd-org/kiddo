@@ -6,7 +6,14 @@
 #[cfg(target_arch = "x86_64")]
 mod ultimate_f64_avx512_nearest_one_sq_euc_kernel;
 
+#[cfg(feature = "cpp_competitors")]
+#[path = "build_cpp_competitors.rs"]
+mod cpp_competitors;
+
 fn main() {
+    #[cfg(feature = "cpp_competitors")]
+    cpp_competitors::build();
+
     // Register the custom cfg to avoid warnings
     println!("cargo::rustc-check-cfg=cfg(cache_line_128)");
     println!("cargo::rustc-check-cfg=cfg(kiddo_nightly)");

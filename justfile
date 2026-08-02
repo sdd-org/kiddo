@@ -365,6 +365,157 @@ bench-external-kd-trees RESULT_KEY=benchmark_result_key OUTPUT_DIR='.' FEATURES=
         "$output_dir/bench_result-external-kd-trees-${result_key}.json" \
         profile_external_kd_trees
 
+bench-cpp-competitors RESULT_KEY=benchmark_result_key OUTPUT_DIR='.' FEATURES='cpp_competitors,test_utils,logging_off' QUERIES=profile_queries MIN_LOG2_POINTS=profile_min_log2_points MAX_LOG2_POINTS=profile_max_log2_points RADIUS='0.05' LIBRARIES='nanoflann,alglib,pkdtree,kiddo' SCALARS='f32,f64':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    result_key={{quote(RESULT_KEY)}}
+    output_dir={{quote(OUTPUT_DIR)}}
+    if [[ ! "$result_key" =~ ^[A-Za-z0-9][A-Za-z0-9._+:-]*$ ]]; then
+        echo "RESULT_KEY must contain only letters, digits, '.', '_', '+', ':', or '-'" >&2
+        exit 2
+    fi
+    mkdir -p "$output_dir"
+    RUSTC_WRAPPER= \
+        KIDDO_CPP_SUITES='cpp_competitors,pkdtree_batch' \
+        KIDDO_CPP_LIBRARIES={{quote(LIBRARIES)}} \
+        KIDDO_CPP_SCALARS={{quote(SCALARS)}} \
+        KIDDO_PROFILE_QUERIES={{quote(QUERIES)}} \
+        KIDDO_PROFILE_MIN_LOG2_POINTS={{quote(MIN_LOG2_POINTS)}} \
+        KIDDO_PROFILE_MAX_LOG2_POINTS={{quote(MAX_LOG2_POINTS)}} \
+        KIDDO_PROFILE_RADIUS={{quote(RADIUS)}} \
+        KIDDO_LARGE_MIN_LOG2_POINTS={{quote(MIN_LOG2_POINTS)}} \
+        KIDDO_LARGE_MAX_LOG2_POINTS={{quote(MAX_LOG2_POINTS)}} \
+        RUSTFLAGS='-C target-cpu=native' \
+        cargo criterion \
+            --bench profile_cpp_competitors \
+            --features {{quote(FEATURES)}}
+    cargo run --quiet --manifest-path tools/criterion-export/Cargo.toml -- \
+        target/criterion \
+        "$output_dir/bench_result-cpp-competitors-${result_key}.json" \
+        profile_cpp_competitors
+    cargo run --quiet --manifest-path tools/criterion-export/Cargo.toml -- \
+        target/criterion \
+        "$output_dir/bench_result-pkdtree-batch-${result_key}.json" \
+        profile_pkdtree_batch
+
+# kiddo vs Pkd-tree alone at large tree sizes (KIDDO_CPP_SUITES keeps the other suites from allocating: Criterion's `--` filter selects results, not setup)
+bench-kiddo-vs-pkdtree RESULT_KEY=benchmark_result_key OUTPUT_DIR='.' FEATURES='cpp_competitors,test_utils,logging_off' QUERIES=profile_queries MIN_LOG2_POINTS='24' MAX_LOG2_POINTS='24' LIBRARIES='kiddo,pkdtree' SCALARS='f32,f64':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    result_key={{quote(RESULT_KEY)}}
+    output_dir={{quote(OUTPUT_DIR)}}
+    if [[ ! "$result_key" =~ ^[A-Za-z0-9][A-Za-z0-9._+:-]*$ ]]; then
+        echo "RESULT_KEY must contain only letters, digits, '.', '_', '+', ':', or '-'" >&2
+        exit 2
+    fi
+    mkdir -p "$output_dir"
+    RUSTC_WRAPPER= \
+        KIDDO_CPP_SUITES='kiddo_vs_pkdtree' \
+        KIDDO_CPP_LIBRARIES={{quote(LIBRARIES)}} \
+        KIDDO_CPP_SCALARS={{quote(SCALARS)}} \
+        KIDDO_PROFILE_QUERIES={{quote(QUERIES)}} \
+        KIDDO_LARGE_MIN_LOG2_POINTS={{quote(MIN_LOG2_POINTS)}} \
+        KIDDO_LARGE_MAX_LOG2_POINTS={{quote(MAX_LOG2_POINTS)}} \
+        RUSTFLAGS='-C target-cpu=native' \
+        cargo criterion \
+            --bench profile_cpp_competitors \
+            --features {{quote(FEATURES)}} \
+            -- profile_kiddo_vs_pkdtree
+    cargo run --quiet --manifest-path tools/criterion-export/Cargo.toml -- \
+        target/criterion \
+        "$output_dir/bench_result-kiddo-vs-pkdtree-${result_key}.json" \
+        profile_kiddo_vs_pkdtree
+
+# kiddo (serial + parallel executors) vs Pkd-tree, batch-throughput mode only; one scalar per invocation so each can use the tree-size range it supports
+bench-kiddo-vs-pkdtree-batch RESULT_KEY=benchmark_result_key OUTPUT_DIR='.' FEATURES='cpp_competitors,test_utils,logging_off,simd' QUERIES=profile_queries MIN_LOG2_POINTS='24' MAX_LOG2_POINTS='27' SCALARS='f64' LIBRARIES='kiddo,pkdtree':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    result_key={{quote(RESULT_KEY)}}
+    output_dir={{quote(OUTPUT_DIR)}}
+    if [[ ! "$result_key" =~ ^[A-Za-z0-9][A-Za-z0-9._+:-]*$ ]]; then
+        echo "RESULT_KEY must contain only letters, digits, '.', '_', '+', ':', or '-'" >&2
+        exit 2
+    fi
+    mkdir -p "$output_dir"
+    RUSTC_WRAPPER= \
+        KIDDO_CPP_SUITES='pkdtree_batch' \
+        KIDDO_CPP_LIBRARIES={{quote(LIBRARIES)}} \
+        KIDDO_CPP_SCALARS={{quote(SCALARS)}} \
+        KIDDO_PROFILE_QUERIES={{quote(QUERIES)}} \
+        KIDDO_LARGE_MIN_LOG2_POINTS={{quote(MIN_LOG2_POINTS)}} \
+        KIDDO_LARGE_MAX_LOG2_POINTS={{quote(MAX_LOG2_POINTS)}} \
+        RUSTFLAGS='-C target-cpu=native' \
+        cargo criterion \
+            --bench profile_cpp_competitors \
+            --features {{quote(FEATURES)}} \
+            -- profile_pkdtree_batch
+    cargo run --quiet --manifest-path tools/criterion-export/Cargo.toml -- \
+        target/criterion \
+        "$output_dir/bench_result-pkdtree-batch-${result_key}.json" \
+        profile_pkdtree_batch
+
+chart-kiddo-vs-pkdtree-results RESULT_KEY RESULTS_DIR='.' OUTPUT_DIR='.' PYTHON='python3':
+    {{quote(PYTHON)}} scripts/chart_kiddo_vs_pkdtree_results.py charts \
+        --result {{quote(RESULTS_DIR)}}/bench_result-kiddo-vs-pkdtree-{{quote(RESULT_KEY)}}.json \
+        --result-label {{quote(RESULT_KEY)}} \
+        --output-dir {{quote(OUTPUT_DIR)}}
+
+html-kiddo-vs-pkdtree-results RESULT_KEY RESULTS_DIR='.' OUTPUT_DIR='.' HTML_NAME='kiddo-vs-pkdtree.html' PYTHON='python3':
+    {{quote(PYTHON)}} scripts/chart_kiddo_vs_pkdtree_results.py all \
+        --result {{quote(RESULTS_DIR)}}/bench_result-kiddo-vs-pkdtree-{{quote(RESULT_KEY)}}.json \
+        --result-label {{quote(RESULT_KEY)}} \
+        --output-dir {{quote(OUTPUT_DIR)}} \
+        --html-name {{quote(HTML_NAME)}}
+
+bench-nearestneighborsjl RESULT_KEY=benchmark_result_key OUTPUT_DIR='.' QUERIES=profile_queries MIN_LOG2_POINTS=profile_min_log2_points MAX_LOG2_POINTS=profile_max_log2_points RADIUS='0.05' JULIA='julia':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    result_key={{quote(RESULT_KEY)}}
+    output_dir={{quote(OUTPUT_DIR)}}
+    if [[ ! "$result_key" =~ ^[A-Za-z0-9][A-Za-z0-9._+:-]*$ ]]; then
+        echo "RESULT_KEY must contain only letters, digits, '.', '_', '+', ':', or '-'" >&2
+        exit 2
+    fi
+    mkdir -p "$output_dir"
+    KIDDO_PROFILE_QUERIES={{quote(QUERIES)}} \
+        KIDDO_PROFILE_MIN_LOG2_POINTS={{quote(MIN_LOG2_POINTS)}} \
+        KIDDO_PROFILE_MAX_LOG2_POINTS={{quote(MAX_LOG2_POINTS)}} \
+        KIDDO_PROFILE_RADIUS={{quote(RADIUS)}} \
+        {{quote(JULIA)}} scripts/bench_nearestneighbors_jl.jl \
+        "$output_dir/bench_result-nearestneighborsjl-${result_key}.json"
+
+chart-cpp-competitor-results CPP_RESULT_KEY KIDDO_RESULT_KEY=CPP_RESULT_KEY RESULTS_DIR='.' OUTPUT_DIR='.' PYTHON='python3':
+    {{quote(PYTHON)}} scripts/chart_cpp_competitor_results.py charts \
+        --cpp {{quote(RESULTS_DIR)}}/bench_result-cpp-competitors-{{quote(CPP_RESULT_KEY)}}.json \
+        --kiddo-nearest-one {{quote(RESULTS_DIR)}}/bench_result-v6-nearest_one-eytzinger-{{quote(KIDDO_RESULT_KEY)}}.json \
+        --kiddo-nearest-n {{quote(RESULTS_DIR)}}/bench_result-v6-nearest_n-eytzinger-{{quote(KIDDO_RESULT_KEY)}}.json \
+        --kiddo-query-family {{quote(RESULTS_DIR)}}/bench_result-v6-query-family-eytzinger-{{quote(KIDDO_RESULT_KEY)}}.json \
+        --result-label {{quote(CPP_RESULT_KEY)}} \
+        --output-dir {{quote(OUTPUT_DIR)}}
+
+html-cpp-competitor-results CPP_RESULT_KEY KIDDO_RESULT_KEY=CPP_RESULT_KEY RESULTS_DIR='.' OUTPUT_DIR='.' HTML_NAME='cpp-competitor-benchmarks.html' PYTHON='python3':
+    {{quote(PYTHON)}} scripts/chart_cpp_competitor_results.py all \
+        --cpp {{quote(RESULTS_DIR)}}/bench_result-cpp-competitors-{{quote(CPP_RESULT_KEY)}}.json \
+        --kiddo-nearest-one {{quote(RESULTS_DIR)}}/bench_result-v6-nearest_one-eytzinger-{{quote(KIDDO_RESULT_KEY)}}.json \
+        --kiddo-nearest-n {{quote(RESULTS_DIR)}}/bench_result-v6-nearest_n-eytzinger-{{quote(KIDDO_RESULT_KEY)}}.json \
+        --kiddo-query-family {{quote(RESULTS_DIR)}}/bench_result-v6-query-family-eytzinger-{{quote(KIDDO_RESULT_KEY)}}.json \
+        --result-label {{quote(CPP_RESULT_KEY)}} \
+        --output-dir {{quote(OUTPUT_DIR)}} \
+        --html-name {{quote(HTML_NAME)}}
+
+chart-pkdtree-batch-results RESULT_KEY RESULTS_DIR='.' OUTPUT_DIR='.' PYTHON='python3':
+    {{quote(PYTHON)}} scripts/chart_pkdtree_batch_results.py charts \
+        --result {{quote(RESULTS_DIR)}}/bench_result-pkdtree-batch-{{quote(RESULT_KEY)}}.json \
+        --result-label {{quote(RESULT_KEY)}} \
+        --output-dir {{quote(OUTPUT_DIR)}}
+
+html-pkdtree-batch-results RESULT_KEY RESULTS_DIR='.' OUTPUT_DIR='.' HTML_NAME='pkdtree-batch-throughput.html' PYTHON='python3':
+    {{quote(PYTHON)}} scripts/chart_pkdtree_batch_results.py all \
+        --result {{quote(RESULTS_DIR)}}/bench_result-pkdtree-batch-{{quote(RESULT_KEY)}}.json \
+        --result-label {{quote(RESULT_KEY)}} \
+        --output-dir {{quote(OUTPUT_DIR)}} \
+        --html-name {{quote(HTML_NAME)}}
+
 bench-v6-within-radius-projection RESULT_KEY=benchmark_result_key OUTPUT_DIR='./focused-results' FEATURES='simd,test_utils,logging_off' QUERIES='1000' MIN_LOG2_POINTS='16' MAX_LOG2_POINTS='27' RADIUS='0.05':
     #!/usr/bin/env bash
     set -euo pipefail
