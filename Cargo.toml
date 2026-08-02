@@ -185,7 +185,9 @@ opt-level = 3
 debug = true
 lto = true
 codegen-units = 1
-opt-level = 2
+# Match profile.release: benchmarks that measure hand-written SIMD kernels are
+# not comparable to a release build if they are compiled a level below it.
+opt-level = 3
 
 # Fast iteration profile for test/dev loops that still want near-release perf.
 [profile.fast-tests]
@@ -368,6 +370,11 @@ name = "profile_v6_archived_query_focus"
 path = "benches/profile_v6_archived_query_focus.rs"
 harness = false
 required-features = ["rkyv_08", "huge_pages"]
+
+[[example]]
+name = "batch_overhead_probe"
+path = "examples/batch_overhead_probe.rs"
+required-features = ["test_utils", "multi-threaded"]
 
 [[example]]
 name = "fuzz-case-repro"

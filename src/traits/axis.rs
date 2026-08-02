@@ -385,7 +385,7 @@ mod tests {
 
     #[test]
     fn float_axis_helpers_behave_as_expected() {
-        assert!(<f32 as Axis>::IS_SIGNED);
+        const { assert!(<f32 as Axis>::IS_SIGNED) };
         assert_eq!(<f32 as Axis>::zero(), 0.0);
         assert!(<f32 as Axis>::is_max_value(<f32 as Axis>::max_value()));
         assert_eq!(<f32 as Axis>::cmp(1.0, 2.0), std::cmp::Ordering::Less);
@@ -402,7 +402,7 @@ mod tests {
 
     #[test]
     fn unsigned_axis_helpers_behave_as_expected() {
-        assert!(!<u8 as Axis>::IS_SIGNED);
+        const { assert!(!<u8 as Axis>::IS_SIGNED) };
         assert_eq!(<u8 as Axis>::zero(), 0);
         assert_eq!(<u8 as Axis>::min_value(), 0);
         assert_eq!(<u8 as Axis>::max_value(), u8::MAX);
@@ -419,8 +419,8 @@ mod tests {
     #[cfg(feature = "fixed")]
     #[test]
     fn fixed_axis_helpers_behave_as_expected() {
-        assert!(<fixed::FixedI32<fixed::types::extra::U16> as Axis>::IS_SIGNED);
-        assert!(!<fixed::FixedU16<fixed::types::extra::U8> as Axis>::IS_SIGNED);
+        const { assert!(<fixed::FixedI32<fixed::types::extra::U16> as Axis>::IS_SIGNED) };
+        const { assert!(!<fixed::FixedU16<fixed::types::extra::U8> as Axis>::IS_SIGNED) };
         let a = fixed::FixedI32::<fixed::types::extra::U16>::from_num(1.5);
         let b = fixed::FixedI32::<fixed::types::extra::U16>::from_num(0.25);
         assert_eq!(
