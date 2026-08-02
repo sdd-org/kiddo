@@ -24,12 +24,29 @@ from typing import Any
 GROUP = "profile_kiddo_vs_pkdtree"
 SCALARS = ("f32", "f64")
 SAFE_LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+:-]*$")
+# More specific strategy prefixes must precede the bare "kiddo_" one: matching
+# is first-wins, and every strategy label below also starts with "kiddo_".
 LIBRARY_PREFIXES = (
-    ("kiddo_", "kiddo"),
+    ("kiddo_donnelly_cyclic_simd_full_", "kiddo DonnellyCyclicSimdFull"),
+    ("kiddo_donnelly_cyclic_simd_descent_", "kiddo DonnellyCyclicSimdDescent"),
+    ("kiddo_donnelly_unrolled_", "kiddo DonnellyUnrolled"),
+    ("kiddo_", "kiddo Eytzinger"),
     ("pkdtree_", "Pkd-tree"),
 )
-LIBRARY_ORDER = ("kiddo", "Pkd-tree")
-COLORS = {"kiddo": "#3264a8", "Pkd-tree": "#8e44ad"}
+LIBRARY_ORDER = (
+    "kiddo DonnellyCyclicSimdFull",
+    "kiddo DonnellyCyclicSimdDescent",
+    "kiddo DonnellyUnrolled",
+    "kiddo Eytzinger",
+    "Pkd-tree",
+)
+COLORS = {
+    "kiddo DonnellyCyclicSimdFull": "#0f6b48",
+    "kiddo DonnellyCyclicSimdDescent": "#8c5a1f",
+    "kiddo DonnellyUnrolled": "#7a1f8c",
+    "kiddo Eytzinger": "#3264a8",
+    "Pkd-tree": "#8e44ad",
+}
 
 
 @dataclass(frozen=True)
