@@ -14,8 +14,8 @@ use criterion::{
 use kiddo::kd_tree::KdTree;
 use kiddo::leaf_strategy::FlatVec;
 use kiddo::{
-    DonnellyCyclicSimdDescent, DonnellyCyclicSimdFull, EytzingerFlexPf, SquaredEuclidean,
-    StemStrategy,
+    DonnellyCyclicSimdDescent, DonnellyCyclicSimdFull, DonnellyUnrolled, EytzingerFlexPf,
+    SquaredEuclidean, StemStrategy,
 };
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -27,8 +27,9 @@ const DEFAULT_POOL_SIZES: [usize; 7] = [256, 512, 1_000, 2_048, 4_096, 8_192, 16
 const POINT_SEED: u64 = 0x5eed_0000_0000_0401;
 const QUERY_SEED: u64 = 0x5eed_0000_0000_0402;
 const SPLITMIX_GAMMA: u64 = 0x9e37_79b9_7f4a_7c15;
-const SUPPORTED_STRATEGIES: [&str; 3] = [
+const SUPPORTED_STRATEGIES: [&str; 4] = [
     "eytzinger",
+    "donnelly_unrolled",
     "donnelly_cyclic_simd_descent",
     "donnelly_cyclic_simd_full",
 ];
@@ -71,7 +72,8 @@ fn read_pool_sizes() -> Vec<usize> {
 
 fn strategies() -> Vec<String> {
     let value = std::env::var("KIDDO_CYCLIC_STRATEGIES").unwrap_or_else(|_| {
-        "eytzinger,donnelly_cyclic_simd_descent,donnelly_cyclic_simd_full".to_owned()
+        "eytzinger,donnelly_unrolled,donnelly_cyclic_simd_descent,donnelly_cyclic_simd_full"
+            .to_owned()
     });
     let requested: Vec<String> = value
         .split(',')
@@ -261,6 +263,9 @@ fn bench_f64<const K: usize>(
             "eytzinger" => bench_f64_strategy::<EytzingerComparator, K>(
                 &mut group, strategy, &points, &queries, pool_sizes, query_seed,
             ),
+            "donnelly_unrolled" => bench_f64_strategy::<DonnellyUnrolled<3>, K>(
+                &mut group, strategy, &points, &queries, pool_sizes, query_seed,
+            ),
             "donnelly_cyclic_simd_descent" => {
                 bench_f64_strategy::<DonnellyCyclicSimdDescent<3>, K>(
                     &mut group, strategy, &points, &queries, pool_sizes, query_seed,
@@ -297,6 +302,9 @@ fn bench_f32<const K: usize>(
     for strategy in enabled {
         match strategy.as_str() {
             "eytzinger" => bench_f32_strategy::<EytzingerComparator, K>(
+                &mut group, strategy, &points, &queries, pool_sizes, query_seed,
+            ),
+            "donnelly_unrolled" => bench_f32_strategy::<DonnellyUnrolled<4>, K>(
                 &mut group, strategy, &points, &queries, pool_sizes, query_seed,
             ),
             "donnelly_cyclic_simd_descent" => {

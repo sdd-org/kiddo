@@ -215,6 +215,9 @@ def render(
     else:
         scalar = axis
         dimensions = 3 if axis == "f64" else 4
+    block_height = 3 if scalar == "f64" else 4
+    padding = (-(point_log2 - 5)) % block_height
+    height_role = "exact block height" if padding == 0 else f"+{padding} root padding"
     present = {point.strategy for point in selected}
     if (
         "donnelly_unrolled_block_dim" in present
@@ -229,8 +232,132 @@ def render(
         experiment = "strategy screen"
     figure.suptitle(
         f"Exact nearest-one Donnelly variant screen — {dimensions}D {scalar}, "
-        f"2^{point_log2} points — {experiment}"
+        f"2^{point_log2} points ({height_role}) — {experiment}"
     )
+    figure.savefig(output, dpi=180)
+    plt.close(figure)
+
+
+def render_height_sweep(
+    points: list[Point],
+    controls: dict[tuple[str, int, int], float],
+    axis: str,
+    pool_size: int,
+    output: Path,
+) -> None:
+    matplotlib_config = Path(tempfile.gettempdir()) / "kiddo-matplotlib"
+    matplotlib_config.mkdir(exist_ok=True)
+    os.environ.setdefault("MPLCONFIGDIR", str(matplotlib_config))
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import FuncFormatter
+
+    selected = [
+        point
+        for point in points
+        if point.axis == axis and point.pool_size == pool_size
+    ]
+    point_counts = sorted({point.point_count for point in selected})
+    strategies = [
+        strategy
+        for strategy in STRATEGIES
+        if any(point.strategy == strategy for point in selected)
+    ]
+    figure, axes = plt.subplots(2, 2, figsize=(14, 10), sharex=True)
+    x = [round(math.log2(point_count)) for point_count in point_counts]
+
+    for row, mode in enumerate(("stored", "generated")):
+        timing = axes[row][0]
+        advantage = axes[row][1]
+        table = {
+            (point.strategy, point.point_count): point
+            for point in selected
+            if point.mode == mode
+        }
+        for strategy in strategies:
+            samples = [table[(strategy, point_count)] for point_count in point_counts]
+            timing.plot(
+                x,
+                [sample.query_ns for sample in samples],
+                label=STRATEGIES[strategy],
+                color=COLORS[strategy],
+                marker="o",
+                linewidth=2.0,
+            )
+            timing.fill_between(
+                x,
+                [sample.low_ns for sample in samples],
+                [sample.high_ns for sample in samples],
+                color=COLORS[strategy],
+                alpha=0.10,
+            )
+
+        timing.set_title(f"{mode.capitalize()} queries")
+        timing.set_ylabel("Criterion slope (ns/query)")
+        timing.grid(True, color="#dfe3e8", linewidth=0.8)
+        timing.legend(fontsize=8.5)
+
+        advantage.axhline(0.0, color="#555", linewidth=1.0)
+        eytzinger = [
+            table[("eytzinger", point_count)].query_ns
+            for point_count in point_counts
+        ]
+        if mode == "generated":
+            eytzinger = [
+                value - controls.get((axis, point_count, pool_size), 0.0)
+                for value, point_count in zip(eytzinger, point_counts)
+            ]
+        for strategy in strategies:
+            if strategy == "eytzinger":
+                continue
+            values = [
+                table[(strategy, point_count)].query_ns
+                for point_count in point_counts
+            ]
+            if mode == "generated":
+                values = [
+                    value - controls.get((axis, point_count, pool_size), 0.0)
+                    for value, point_count in zip(values, point_counts)
+                ]
+            advantage.plot(
+                x,
+                [
+                    (baseline / value - 1.0) * 100.0
+                    if baseline > 0.0 and value > 0.0
+                    else math.nan
+                    for baseline, value in zip(eytzinger, values)
+                ],
+                label=STRATEGIES[strategy],
+                color=COLORS[strategy],
+                marker="o",
+                linewidth=2.0,
+            )
+        advantage.set_ylabel("Advantage over Eytzinger")
+        advantage.yaxis.set_major_formatter(
+            FuncFormatter(lambda value, _: f"{value:+.0f}%")
+        )
+        advantage.grid(True, color="#dfe3e8", linewidth=0.8)
+
+    if "_k" in axis:
+        scalar, dimension_text = axis.split("_k", 1)
+        dimensions = int(dimension_text)
+    else:
+        scalar = axis
+        dimensions = 3 if axis == "f64" else 4
+    block_height = 3 if scalar == "f64" else 4
+    tick_labels = []
+    for height in x:
+        padding = (-(height - 5)) % block_height
+        role = "exact" if padding == 0 else f"+{padding} pad"
+        tick_labels.append(f"2^{height}\n{role}")
+    for row in axes:
+        for chart in row:
+            chart.set_xticks(x, tick_labels)
+            chart.set_xlabel("Tree points")
+    figure.suptitle(
+        f"Exact nearest-one height sweep — {dimensions}D {scalar}, "
+        f"{pool_size:,} distinct queries"
+    )
+    figure.tight_layout()
     figure.savefig(output, dpi=180)
     plt.close(figure)
 
@@ -241,9 +368,27 @@ def main() -> None:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     chart_names: list[str] = []
     for axis in sorted({point.axis for point in points}):
-        for point_count in sorted(
+        axis_point_counts = sorted(
             {point.point_count for point in points if point.axis == axis}
-        ):
+        )
+        common_pool_sizes = set.intersection(
+            *(
+                {
+                    point.pool_size
+                    for point in points
+                    if point.axis == axis and point.point_count == point_count
+                }
+                for point_count in axis_point_counts
+            )
+        )
+        for pool_size in sorted(common_pool_sizes):
+            name = f"donnelly-variant-height-sweep-{axis}-q{pool_size}.png"
+            render_height_sweep(
+                points, controls, axis, pool_size, args.output_dir / name
+            )
+            chart_names.append(name)
+
+        for point_count in axis_point_counts:
             point_log2 = round(math.log2(point_count))
             name = f"donnelly-variant-screen-{axis}-2p{point_log2}.png"
             render(points, controls, axis, point_count, args.output_dir / name)
