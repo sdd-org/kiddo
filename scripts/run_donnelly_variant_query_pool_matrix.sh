@@ -8,8 +8,13 @@ set -euo pipefail
 # 2. f32/4D/2^25: cyclic layouts only, at a useful cache-pressure size; and
 # 3. f32/4D/2^21: block-dimension strategies at their balanced supercycle.
 #
-# Run from the dedicated benchmark boot profile. Each tree-height interval is
-# pinned and IRQ-audited by bench-profile-run through the underlying just task.
+# Run from the SINGLE-CORE benchmark boot profile, provided by bench-profile:
+# https://github.com/sdd/bench-profile
+#
+# These measurements are sequential, so they want the maximum-isolation case:
+# one isolated core with scheduler load balancing disabled across the set, which
+# is exactly what that profile provides. Each tree-height interval is pinned and
+# IRQ-audited by bench-profile-run through the underlying just task.
 # Each cell has its own overridable strategy list. Every list must retain the
 # Eytzinger baseline because the generated charts plot advantage over it.
 
@@ -200,7 +205,11 @@ run_irq_retry_logged() {
 capture_profile_status() {
     local destination=$1 phase=$2 profile_status
     set +e
-    bench-profile-status >"$destination" 2>&1
+    # `bench-profile-status` with no argument is a report that never exits
+    # non-zero, so it cannot gate anything -- it exists to be logged beside
+    # results on any boot. The assertion form is `expect-<profile>`, and this
+    # suite is sequential and pinned to one core, so it wants single-core.
+    bench-profile-status expect-single-core >"$destination" 2>&1
     profile_status=$?
     set -e
     if (( profile_status != 0 )); then

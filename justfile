@@ -1002,7 +1002,12 @@ bench-v6-donnelly-vs-eytzinger-query-pool POINT_LOG2='27' POOL_SIZES='256,512,10
         profile_v6_query_pool
 
 # IRQ-audited variant. Compilation occurs first; the benchmark executable and
-# all Criterion records live on tmpfs during the CPU-8 measurement interval.
+# all Criterion records live on tmpfs during the measurement interval.
+#
+# Needs the SINGLE-CORE benchmark boot profile from bench-profile
+# (https://github.com/sdd/bench-profile), which supplies bench-profile-run.
+# That wrapper pins the command tree to the profile's benchmark CPU and exits
+# 125 if any hardware IRQ lands there during the run.
 bench-v6-donnelly-vs-eytzinger-query-pool-clean POINT_LOG2='27' POOL_SIZES='256,512,1000,2048,4096,8192,16384' WARMUP='3' MEASUREMENT='8' SAMPLE_SIZE='30' RESULT_KEY='query-pool' OUTPUT_DIR='./focused-results' AXIS='both':
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1177,6 +1182,9 @@ view-v6-donnelly-vs-eytzinger-query-pool RESULT_KEY RESULTS_DIR='./focused-resul
 # Fixed-work exact-NN counter run. Construction and warmup finish before the
 # benchmark SIGSTOPs; perf attaches to the stopped process and only then resumes
 # the measured query loop. Keep exact_query_stats disabled here.
+#
+# Also needs the single-core benchmark boot profile from bench-profile
+# (https://github.com/sdd/bench-profile) for bench-profile-run.
 perf-v6-donnelly-vs-eytzinger-query-pool POINT_LOG2='27' POOL_SIZE='2048' TOTAL_QUERIES='4000000' WARMUP_REPEATS='2' AXIS='f64' STRATEGY='eytzinger' EVENT_SET='cache' RESULT_KEY='query-pool-perf' OUTPUT_DIR='./focused-results':
     #!/usr/bin/env bash
     set -euo pipefail
