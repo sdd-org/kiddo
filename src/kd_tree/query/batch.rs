@@ -32,9 +32,57 @@
 use std::collections::BinaryHeap;
 use std::num::NonZeroUsize;
 use std::ops::{Deref, Index};
+#[cfg(feature = "multi-threaded")]
+use std::sync::Arc;
 
 #[cfg(feature = "multi-threaded")]
 use rayon::prelude::*;
+
+/// Re-exported so that callers of
+/// [`Executor::parallel_in_pool`] can name and build a pool without taking
+/// their own `rayon` dependency, which would have to be version-matched
+/// against the one Kiddo links.
+#[cfg(feature = "multi-threaded")]
+pub use rayon::{ThreadPool, ThreadPoolBuilder};
+
+/// Static chunks per pool thread used by
+/// [`Executor::with_default_static_chunking`].
+///
+/// Four is enough slack for the pool to even out uneven query costs, while
+/// still being far fewer tasks than adaptive splitting creates.
+#[cfg(feature = "multi-threaded")]
+pub const DEFAULT_STATIC_CHUNK_THREAD_MULTIPLIER: NonZeroUsize = NonZeroUsize::new(4).unwrap();
+
+/// Ceiling on the task-size floor imposed by
+/// [`Executor::with_static_chunk_thread_multiplier`].
+///
+/// A thread-proportional chunk count is constant in the batch size, so on a
+/// large batch each chunk is large, and load imbalance between chunks costs
+/// more than the dispatch coordination it saves. Measured on a 32-thread pool
+/// against a 2^24..2^27 `f64` sweep at 100,000 queries — where the uncapped
+/// floor works out at 781 — static chunking was 10-15% *slower* than letting
+/// rayon split adaptively, while at 1,000-4,000 queries it was 23-47% faster.
+/// Capping the floor keeps the small-batch win and lets large batches fall
+/// back to adaptive splitting, which is what work stealing needs.
+#[cfg(feature = "multi-threaded")]
+pub const MAX_STATIC_CHUNK_QUERIES: usize = 128;
+
+/// Batch size below which [`Executor::with_serial_fallback`] runs on the
+/// calling thread.
+///
+/// Parallel dispatch costs a fixed amount per batch, which a small enough
+/// batch never recovers. Measured on a 2^21-point 3D `f32` tree with
+/// [`with_default_static_chunking`](Executor::with_default_static_chunking)
+/// also enabled, `nearest_one` broke even at roughly 110 query points: at 96
+/// points serial reached 8.66 Melem/s against parallel's 7.99, and at 128 that
+/// had reversed to 8.77 against 9.69.
+///
+/// A query count is a crude proxy for the work in a batch, and this default is
+/// taken from the cheapest query there is. Costlier queries — a large `k`, or
+/// a high-dimensional tree — earn back the dispatch at far smaller batches, so
+/// prefer a lower threshold for those, or leave the fallback off entirely.
+#[cfg(feature = "multi-threaded")]
+pub const DEFAULT_SERIAL_FALLBACK_THRESHOLD: usize = 128;
 
 use super::builder::{
     ApproxQueryBuilder, BestNWithinQueryBuilder, ExclusiveBoundariesQueryBuilder,
@@ -55,40 +103,88 @@ use crate::results::query_result_item::QueryResultItem;
 /// between releases.
 ///
 /// Multi-threaded execution requires the `multi-threaded` crate feature, which
-/// is enabled by default. Without it `parallel` and
-/// `with_min_queries_per_task` are not compiled, and [`new`](Self::new) is
-/// equivalent to [`serial`](Self::serial).
+/// is enabled by default. Without it the parallel constructors and hints are
+/// not compiled, and [`new`](Self::new) is equivalent to
+/// [`serial`](Self::serial).
 ///
-/// To run a batch on a specific Rayon thread pool, use Rayon's own scoping:
+/// # Small batches
 ///
-/// ```ignore
-/// pool.install(|| tree.query_batch(&queries).nearest_one::<D>().execute());
-/// ```
+/// Splitting a batch across threads costs a fixed amount per call, so a batch
+/// small enough is faster to run on the calling thread. Two opt-in hints
+/// address that, both no-ops for [`serial`](Self::serial):
+///
+/// * [`with_default_static_chunking`](Self::with_default_static_chunking)
+///   stops the batch being split into tasks smaller than a size derived from
+///   the pool, instead of subdividing it as far as the splitter likes.
+/// * [`with_serial_fallback`](Self::with_serial_fallback) runs batches below a
+///   threshold on the calling thread, skipping the dispatch entirely.
 ///
 /// # Example
 ///
 /// ```
 /// # #[cfg(feature = "multi-threaded")] {
 /// use kiddo::batch::Executor;
-/// use std::num::NonZeroUsize;
 ///
 /// let executor = Executor::parallel()
-///     .with_min_queries_per_task(NonZeroUsize::new(256).unwrap());
+///     .with_default_static_chunking()
+///     .with_serial_fallback();
 /// # }
 /// ```
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct Executor {
     kind: ExecutorKind,
     #[cfg(feature = "multi-threaded")]
-    min_queries_per_task: Option<NonZeroUsize>,
+    static_chunk_thread_multiplier: Option<NonZeroUsize>,
+    #[cfg(feature = "multi-threaded")]
+    serial_fallback_threshold: Option<usize>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 enum ExecutorKind {
     Serial,
     #[cfg(feature = "multi-threaded")]
     Parallel,
+    /// Parallel, but confined to a pool the caller owns and configures.
+    #[cfg(feature = "multi-threaded")]
+    ParallelInPool(Arc<ThreadPool>),
 }
+
+impl PartialEq for ExecutorKind {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Serial, Self::Serial) => true,
+            #[cfg(feature = "multi-threaded")]
+            (Self::Parallel, Self::Parallel) => true,
+            // Thread pools have no equality of their own, so two executors are
+            // the same only when they name the very same pool.
+            #[cfg(feature = "multi-threaded")]
+            (Self::ParallelInPool(left), Self::ParallelInPool(right)) => Arc::ptr_eq(left, right),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for ExecutorKind {}
+
+impl PartialEq for Executor {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        #[cfg(feature = "multi-threaded")]
+        {
+            self.kind == other.kind
+                && self.static_chunk_thread_multiplier == other.static_chunk_thread_multiplier
+                && self.serial_fallback_threshold == other.serial_fallback_threshold
+        }
+
+        #[cfg(not(feature = "multi-threaded"))]
+        {
+            self.kind == other.kind
+        }
+    }
+}
+
+impl Eq for Executor {}
 
 impl Default for Executor {
     #[inline]
@@ -124,11 +220,14 @@ impl Executor {
         Self {
             kind: ExecutorKind::Serial,
             #[cfg(feature = "multi-threaded")]
-            min_queries_per_task: None,
+            static_chunk_thread_multiplier: None,
+            #[cfg(feature = "multi-threaded")]
+            serial_fallback_threshold: None,
         }
     }
 
-    /// Creates an executor that may spread queries across multiple threads.
+    /// Creates an executor that may spread queries across multiple threads,
+    /// using Rayon's global pool.
     ///
     /// Requires the `multi-threaded` feature.
     #[cfg(feature = "multi-threaded")]
@@ -136,34 +235,176 @@ impl Executor {
     pub fn parallel() -> Self {
         Self {
             kind: ExecutorKind::Parallel,
-            min_queries_per_task: None,
+            static_chunk_thread_multiplier: None,
+            serial_fallback_threshold: None,
         }
     }
 
-    /// Hints at the smallest number of query points worth handing to one task.
+    /// Creates an executor that runs every batch on `pool` rather than Rayon's
+    /// global pool.
     ///
-    /// This is advisory. It exists so that callers with unusually cheap or
-    /// unusually expensive queries can nudge the scheduler, and it may be
-    /// ignored entirely.
+    /// Use this to bound how many cores batch queries may take, to keep them
+    /// off a pool shared with latency-sensitive work, or to reuse one
+    /// configured pool across many batches. The pool is shared, not consumed,
+    /// so one pool can back any number of executors.
+    ///
+    /// Requires the `multi-threaded` feature.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # #[cfg(feature = "multi-threaded")] {
+    /// use kiddo::batch::{Executor, ThreadPoolBuilder};
+    /// use std::sync::Arc;
+    ///
+    /// let pool = Arc::new(ThreadPoolBuilder::new().num_threads(4).build().unwrap());
+    /// let executor = Executor::parallel_in_pool(Arc::clone(&pool));
+    /// # }
+    /// ```
+    #[cfg(feature = "multi-threaded")]
+    #[inline]
+    pub fn parallel_in_pool(pool: Arc<ThreadPool>) -> Self {
+        Self {
+            kind: ExecutorKind::ParallelInPool(pool),
+            static_chunk_thread_multiplier: None,
+            serial_fallback_threshold: None,
+        }
+    }
+
+    /// Stops the batch being split below `queries / (threads * multiplier)`,
+    /// rather than letting the work-stealing splitter subdivide it as far as
+    /// it likes.
+    ///
+    /// Adaptive splitting reacts to load imbalance, but pays coordination cost
+    /// per split. Bounding the split trades some of that reactivity for a
+    /// cheaper dispatch, which is what dominates on small batches. The bound
+    /// is derived from the pool size rather than given as an absolute, so it
+    /// always leaves at least `threads * multiplier` tasks and cannot starve
+    /// the pool, and is capped at [`MAX_STATIC_CHUNK_QUERIES`] so that it
+    /// stops applying to batches large enough to need work stealing instead.
+    ///
+    /// This helps small batches and does nothing for large ones. It is not a
+    /// general throughput knob.
+    ///
+    /// This is advisory, and a no-op for [`serial`](Self::serial).
     ///
     /// Requires the `multi-threaded` feature.
     #[cfg(feature = "multi-threaded")]
     #[inline]
-    pub fn with_min_queries_per_task(mut self, min_queries_per_task: NonZeroUsize) -> Self {
-        self.min_queries_per_task = Some(min_queries_per_task);
+    pub fn with_static_chunk_thread_multiplier(mut self, multiplier: NonZeroUsize) -> Self {
+        self.static_chunk_thread_multiplier = Some(multiplier);
         self
     }
 
+    /// Enables static chunking at
+    /// [`DEFAULT_STATIC_CHUNK_THREAD_MULTIPLIER`] chunks per thread.
+    ///
+    /// Requires the `multi-threaded` feature.
     #[cfg(feature = "multi-threaded")]
     #[inline]
-    fn is_parallel(&self) -> bool {
-        matches!(self.kind, ExecutorKind::Parallel)
+    pub fn with_default_static_chunking(self) -> Self {
+        self.with_static_chunk_thread_multiplier(DEFAULT_STATIC_CHUNK_THREAD_MULTIPLIER)
     }
 
+    /// Runs batches of fewer than `threshold` query points on the calling
+    /// thread, skipping parallel dispatch.
+    ///
+    /// # Choosing a threshold
+    ///
+    /// Parallel dispatch costs roughly a fixed amount per batch, so the
+    /// break-even point is where the batch's *total* work first exceeds it:
+    /// `threshold ≈ dispatch_cost / per_query_cost`. Dispatch cost is a
+    /// property of the machine and pool; per-query cost is a property of the
+    /// query, and is what varies. It rises with:
+    ///
+    /// * **`k`** — the dominant factor. A `nearest_n(50)` point costs several
+    ///   times a `nearest_one` point, so it breaks even at a proportionately
+    ///   smaller batch.
+    /// * **Tree size**, but only weakly: descent is logarithmic, and past the
+    ///   point where the tree stops fitting in cache the per-query cost is
+    ///   dominated by misses rather than by comparisons.
+    /// * **Dimensionality**, through both wider distance computations and less
+    ///   effective pruning.
+    /// * **Radius**, for the `within` family, since the cost scales with the
+    ///   number of matches rather than with the depth of the descent.
+    ///
+    /// The practical recipe is to time one batch each way at a size near the
+    /// suspected threshold, rather than to derive it. Failing that, scale
+    /// [`DEFAULT_SERIAL_FALLBACK_THRESHOLD`] down by the ratio of your query's
+    /// cost to a `nearest_one`: for `nearest_n`, dividing by `k` is a
+    /// serviceable first guess. Erring low is the safer direction — the
+    /// penalty for parallelising slightly too small a batch is a few
+    /// microseconds, while the penalty for serialising a large one is the
+    /// whole speedup.
+    ///
+    /// This is advisory, and a no-op for [`serial`](Self::serial).
+    ///
+    /// Requires the `multi-threaded` feature.
     #[cfg(feature = "multi-threaded")]
     #[inline]
-    fn min_len(&self) -> usize {
-        self.min_queries_per_task.map_or(1, NonZeroUsize::get)
+    pub fn with_serial_fallback_threshold(mut self, threshold: usize) -> Self {
+        self.serial_fallback_threshold = Some(threshold);
+        self
+    }
+
+    /// Enables the serial fallback at [`DEFAULT_SERIAL_FALLBACK_THRESHOLD`]
+    /// query points.
+    ///
+    /// Requires the `multi-threaded` feature.
+    #[cfg(feature = "multi-threaded")]
+    #[inline]
+    pub fn with_serial_fallback(self) -> Self {
+        self.with_serial_fallback_threshold(DEFAULT_SERIAL_FALLBACK_THRESHOLD)
+    }
+
+    /// Whether a batch of `query_count` points should run in parallel, which
+    /// requires a parallel executor and a batch above any serial-fallback
+    /// threshold.
+    #[cfg(feature = "multi-threaded")]
+    #[inline]
+    fn is_parallel(&self, query_count: usize) -> bool {
+        if matches!(self.kind, ExecutorKind::Serial) {
+            return false;
+        }
+        self.serial_fallback_threshold
+            .is_none_or(|threshold| query_count >= threshold)
+    }
+
+    /// The pool to run on, or `None` for Rayon's global pool.
+    #[cfg(feature = "multi-threaded")]
+    #[inline]
+    fn pool(&self) -> Option<&ThreadPool> {
+        match &self.kind {
+            ExecutorKind::ParallelInPool(pool) => Some(pool),
+            _ => None,
+        }
+    }
+
+    /// Smallest number of queries a task may be split down to.
+    ///
+    /// Returns 1 — rayon's own default, i.e. split as finely as the scheduler
+    /// likes — unless static chunking asked for a coarser floor. Because the
+    /// floor is derived from the pool size, it always leaves at least
+    /// `threads * multiplier` tasks available, so it can never starve the pool
+    /// the way a caller-supplied absolute minimum could.
+    ///
+    /// The floor is additionally capped at [`MAX_STATIC_CHUNK_QUERIES`], so it
+    /// stops binding on large batches. A fixed number of chunks means each one
+    /// grows with the batch, and past a point the imbalance between chunks
+    /// costs more than the dispatch it saves.
+    #[cfg(feature = "multi-threaded")]
+    #[inline]
+    fn static_chunk_len(&self, query_count: usize) -> usize {
+        let Some(multiplier) = self.static_chunk_thread_multiplier else {
+            return 1;
+        };
+        let threads = self
+            .pool()
+            .map_or_else(rayon::current_num_threads, ThreadPool::current_num_threads);
+        let chunks = threads.max(1).saturating_mul(multiplier.get());
+        query_count
+            .div_ceil(chunks)
+            .clamp(1, MAX_STATIC_CHUNK_QUERIES)
     }
 }
 
@@ -716,13 +957,21 @@ where
         };
 
         #[cfg(feature = "multi-threaded")]
-        if self.executor.is_parallel() {
-            let results = self
-                .queries
-                .par_iter()
-                .with_min_len(self.executor.min_len())
-                .map(run)
-                .collect::<Vec<_>>();
+        if self.executor.is_parallel(self.queries.len()) {
+            // Bounding the split length rather than pre-splitting keeps the
+            // iterator indexed, so rayon writes results straight into the
+            // output instead of collecting through per-task lists.
+            let collect = || {
+                self.queries
+                    .par_iter()
+                    .with_min_len(self.executor.static_chunk_len(self.queries.len()))
+                    .map(run)
+                    .collect::<Vec<_>>()
+            };
+            let results = match self.executor.pool() {
+                Some(pool) => pool.install(collect),
+                None => collect(),
+            };
 
             return <Qb::Output as BatchCollect>::collect_batch(results);
         }
@@ -785,12 +1034,18 @@ where
         };
 
         #[cfg(feature = "multi-threaded")]
-        if self.executor.is_parallel() {
-            self.queries
-                .par_iter()
-                .enumerate()
-                .with_min_len(self.executor.min_len())
-                .for_each(run);
+        if self.executor.is_parallel(self.queries.len()) {
+            let visit = || {
+                self.queries
+                    .par_iter()
+                    .enumerate()
+                    .with_min_len(self.executor.static_chunk_len(self.queries.len()))
+                    .for_each(run)
+            };
+            match self.executor.pool() {
+                Some(pool) => pool.install(visit),
+                None => visit(),
+            }
 
             return;
         }
@@ -832,7 +1087,31 @@ mod tests {
     fn executors() -> Vec<Executor> {
         #[cfg(feature = "multi-threaded")]
         {
-            vec![Executor::serial(), Executor::parallel(), Executor::new()]
+            // Every scheduling path must produce identical, correctly indexed
+            // results, including the ones that change how the batch is split.
+            vec![
+                Executor::serial(),
+                Executor::parallel(),
+                Executor::new(),
+                Executor::parallel().with_default_static_chunking(),
+                // A multiplier of one is the coarsest legal chunking, and a
+                // deliberately odd one exercises a ragged final chunk.
+                Executor::parallel()
+                    .with_static_chunk_thread_multiplier(NonZeroUsize::new(1).unwrap()),
+                Executor::parallel()
+                    .with_static_chunk_thread_multiplier(NonZeroUsize::new(7).unwrap()),
+                // Thresholds either side of the test batch sizes, so both the
+                // fallback and the parallel path are taken.
+                Executor::parallel().with_serial_fallback_threshold(usize::MAX),
+                Executor::parallel().with_serial_fallback_threshold(0),
+                Executor::parallel_in_pool(std::sync::Arc::new(
+                    rayon::ThreadPoolBuilder::new()
+                        .num_threads(3)
+                        .build()
+                        .unwrap(),
+                ))
+                .with_default_static_chunking(),
+            ]
         }
 
         #[cfg(not(feature = "multi-threaded"))]
@@ -1201,7 +1480,7 @@ mod tests {
 
     #[cfg(feature = "multi-threaded")]
     #[test]
-    fn min_queries_per_task_hint_does_not_change_results() {
+    fn scheduling_hints_do_not_change_results() {
         let (tree, queries) = tree_and_queries(1024, 200);
 
         let baseline = tree
@@ -1210,18 +1489,151 @@ mod tests {
             .with_executor(&Executor::serial())
             .execute();
 
-        for min in [1usize, 7, 64, 4096] {
-            let executor =
-                Executor::parallel().with_min_queries_per_task(NonZeroUsize::new(min).unwrap());
-
+        for executor in executors() {
             let hinted = tree
                 .query_batch(&queries)
                 .nearest_one::<SquaredEuclidean<f64>>()
                 .with_executor(&executor)
                 .execute();
 
-            assert_eq!(hinted.as_slice(), baseline.as_slice(), "min_len {min}");
+            assert_eq!(
+                hinted.as_slice(),
+                baseline.as_slice(),
+                "executor {executor:?}"
+            );
         }
+    }
+
+    /// A ragged final chunk is the case most likely to misindex results, so
+    /// walk batch sizes that do not divide evenly by the chunk count.
+    #[cfg(feature = "multi-threaded")]
+    #[test]
+    fn static_chunking_indexes_ragged_batches_correctly() {
+        for query_count in [1usize, 2, 3, 5, 17, 63, 64, 65, 257] {
+            let (tree, queries) = tree_and_queries(512, query_count);
+
+            let baseline = tree
+                .query_batch(&queries)
+                .nearest_one::<SquaredEuclidean<f64>>()
+                .with_executor(&Executor::serial())
+                .execute();
+
+            for multiplier in [1usize, 3, 4, 16] {
+                let executor = Executor::parallel()
+                    .with_static_chunk_thread_multiplier(NonZeroUsize::new(multiplier).unwrap());
+
+                let chunked = tree
+                    .query_batch(&queries)
+                    .nearest_one::<SquaredEuclidean<f64>>()
+                    .with_executor(&executor)
+                    .execute();
+
+                assert_eq!(
+                    chunked.as_slice(),
+                    baseline.as_slice(),
+                    "{query_count} queries, multiplier {multiplier}"
+                );
+            }
+        }
+    }
+
+    /// `for_each` reports indices itself rather than returning a positional
+    /// collection, so it needs its own ragged-batch check.
+    #[cfg(feature = "multi-threaded")]
+    #[test]
+    fn static_chunking_for_each_reports_correct_indices() {
+        use std::sync::Mutex;
+
+        for query_count in [1usize, 5, 17, 63, 65, 257] {
+            let (tree, queries) = tree_and_queries(512, query_count);
+
+            let expected: Vec<_> = queries
+                .iter()
+                .map(|query| {
+                    tree.query(query)
+                        .nearest_one::<SquaredEuclidean<f64>>()
+                        .execute()
+                })
+                .collect();
+
+            let seen = Mutex::new(vec![None; query_count]);
+            tree.query_batch(&queries)
+                .nearest_one::<SquaredEuclidean<f64>>()
+                .with_executor(&Executor::parallel().with_default_static_chunking())
+                .for_each(|index, result| {
+                    seen.lock().unwrap()[index] = Some(result);
+                });
+
+            let seen = seen.into_inner().unwrap();
+            for (index, (actual, expected)) in seen.iter().zip(expected.iter()).enumerate() {
+                assert_eq!(
+                    actual.as_ref(),
+                    Some(expected),
+                    "{query_count} queries, index {index}"
+                );
+            }
+        }
+    }
+
+    #[cfg(feature = "multi-threaded")]
+    #[test]
+    fn serial_fallback_threshold_selects_the_calling_thread() {
+        let (tree, queries) = tree_and_queries(1024, 64);
+
+        // Above the threshold the batch goes parallel, below it stays here;
+        // either way the results must be identical.
+        for threshold in [0usize, 32, 64, 65, usize::MAX] {
+            let executor = Executor::parallel().with_serial_fallback_threshold(threshold);
+            assert_eq!(
+                executor.is_parallel(queries.len()),
+                queries.len() >= threshold
+            );
+
+            let results = tree
+                .query_batch(&queries)
+                .nearest_one::<SquaredEuclidean<f64>>()
+                .with_executor(&executor)
+                .execute();
+
+            assert_eq!(results.len(), queries.len());
+        }
+    }
+
+    #[cfg(feature = "multi-threaded")]
+    #[test]
+    fn caller_supplied_pool_bounds_the_thread_count() {
+        use std::collections::HashSet;
+        use std::sync::Mutex;
+
+        let (tree, queries) = tree_and_queries(4096, 512);
+        let pool = std::sync::Arc::new(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(2)
+                .build()
+                .unwrap(),
+        );
+
+        let threads = Mutex::new(HashSet::new());
+        tree.query_batch(&queries)
+            .nearest_one::<SquaredEuclidean<f64>>()
+            .with_executor(&Executor::parallel_in_pool(std::sync::Arc::clone(&pool)))
+            .for_each(|_index, _result| {
+                threads
+                    .lock()
+                    .unwrap()
+                    .insert(rayon::current_thread_index());
+            });
+
+        // Assert on the indices rather than on how many are distinct: the
+        // calling thread is not a pool worker, so if it ran a chunk itself it
+        // would contribute a `None` and inflate a count-based check.
+        let threads = threads.into_inner().unwrap();
+        assert!(
+            threads
+                .iter()
+                .all(|index| index.is_none_or(|index| index < 2)),
+            "work escaped the caller-supplied 2-thread pool: {threads:?}"
+        );
     }
 
     #[test]

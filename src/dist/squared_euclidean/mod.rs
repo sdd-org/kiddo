@@ -39,48 +39,6 @@ where
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::SquaredEuclidean;
-    use crate::dist::DistanceMetricScalar;
-
-    #[test]
-    fn signed_dist1_squares_direct_delta_in_both_directions() {
-        type Metric = SquaredEuclidean<f64>;
-
-        assert_eq!(<Metric as DistanceMetricScalar<f64>>::dist1(5.0, 2.0), 9.0);
-        assert_eq!(<Metric as DistanceMetricScalar<f64>>::dist1(2.0, 5.0), 9.0);
-    }
-
-    #[test]
-    fn unsigned_dist1_uses_ordered_subtraction() {
-        type Metric = SquaredEuclidean<u16>;
-
-        assert_eq!(<Metric as DistanceMetricScalar<u16>>::dist1(5, 2), 9);
-        assert_eq!(<Metric as DistanceMetricScalar<u16>>::dist1(2, 5), 9);
-    }
-
-    #[cfg(feature = "fixed")]
-    #[test]
-    fn signed_fixed_dist1_squares_direct_delta() {
-        use fixed::{types::extra::U16, FixedI32};
-
-        type Output = FixedI32<U16>;
-        type Metric = SquaredEuclidean<Output>;
-        let a = Output::from_num(-1.5);
-        let b = Output::from_num(0.5);
-
-        assert_eq!(
-            <Metric as DistanceMetricScalar<Output>>::dist1(a, b),
-            Output::from_num(4)
-        );
-        assert_eq!(
-            <Metric as DistanceMetricScalar<Output>>::dist1(b, a),
-            Output::from_num(4)
-        );
-    }
-}
-
 impl<A, R> DistanceMetricAvx512<A> for SquaredEuclidean<R>
 where
     A: Copy,
@@ -132,5 +90,47 @@ pub mod cargo_asm {
     #[unsafe(no_mangle)]
     pub fn v6_squared_euclidean_dist1_u16_cargo_asm_hook(a: u16, b: u16) -> u16 {
         <SquaredEuclidean<u16> as DistanceMetricScalar<u16>>::dist1(a, b)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SquaredEuclidean;
+    use crate::dist::DistanceMetricScalar;
+
+    #[test]
+    fn signed_dist1_squares_direct_delta_in_both_directions() {
+        type Metric = SquaredEuclidean<f64>;
+
+        assert_eq!(<Metric as DistanceMetricScalar<f64>>::dist1(5.0, 2.0), 9.0);
+        assert_eq!(<Metric as DistanceMetricScalar<f64>>::dist1(2.0, 5.0), 9.0);
+    }
+
+    #[test]
+    fn unsigned_dist1_uses_ordered_subtraction() {
+        type Metric = SquaredEuclidean<u16>;
+
+        assert_eq!(<Metric as DistanceMetricScalar<u16>>::dist1(5, 2), 9);
+        assert_eq!(<Metric as DistanceMetricScalar<u16>>::dist1(2, 5), 9);
+    }
+
+    #[cfg(feature = "fixed")]
+    #[test]
+    fn signed_fixed_dist1_squares_direct_delta() {
+        use fixed::{types::extra::U16, FixedI32};
+
+        type Output = FixedI32<U16>;
+        type Metric = SquaredEuclidean<Output>;
+        let a = Output::from_num(-1.5);
+        let b = Output::from_num(0.5);
+
+        assert_eq!(
+            <Metric as DistanceMetricScalar<Output>>::dist1(a, b),
+            Output::from_num(4)
+        );
+        assert_eq!(
+            <Metric as DistanceMetricScalar<Output>>::dist1(b, a),
+            Output::from_num(4)
+        );
     }
 }

@@ -212,9 +212,10 @@
 //!   Disabling it drops that dependency and configures the threaded APIs out
 //!   rather than quietly downgrading them: `ParallelConstruction`,
 //!   `KdTreeBuilder::with_parallel_construction`,
-//!   the `*_parallel` constructors, `Executor::parallel` and
-//!   `Executor::with_min_queries_per_task` no longer exist, so code that used
-//!   them fails to compile instead of silently running on one thread. Whatever
+//!   the `*_parallel` constructors, `Executor::parallel`,
+//!   `Executor::parallel_in_pool` and the batch scheduling hints no longer
+//!   exist, so code that used them fails to compile instead of silently
+//!   running on one thread. Whatever
 //!   still compiles keeps working and produces identical trees and results.
 //!   Use it for WASM, embedded, or single-core targets, or wherever an extra
 //!   dependency is not worth it.
@@ -265,6 +266,11 @@ pub use kd_tree::{KdTreeBuilder, QueryScratch};
 pub mod batch {
     pub use crate::kd_tree::query::batch::{
         BatchGroups, BatchQueryBuilder, BatchResults, Executor, GroupIter,
+    };
+    #[cfg(feature = "multi-threaded")]
+    pub use crate::kd_tree::query::batch::{
+        ThreadPool, ThreadPoolBuilder, DEFAULT_SERIAL_FALLBACK_THRESHOLD,
+        DEFAULT_STATIC_CHUNK_THREAD_MULTIPLIER, MAX_STATIC_CHUNK_QUERIES,
     };
 }
 

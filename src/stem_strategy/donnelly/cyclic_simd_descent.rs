@@ -89,7 +89,7 @@ impl CyclicBlockCompare for f64 {
             let query_lanes = _mm512_permutexvar_pd(lane_indices, repeated);
             let pivots = _mm512_loadu_pd(stems.as_ptr().add(block_base_idx));
             let mask = _mm512_cmp_pd_mask(query_lanes, pivots, _CMP_GE_OQ);
-            return block3_child_from_mask(mask);
+            block3_child_from_mask(mask)
         }
 
         #[cfg(not(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f")))]
@@ -118,7 +118,7 @@ impl CyclicBlockCompare for f32 {
             let query_lanes = _mm512_permutexvar_ps(lane_indices, repeated);
             let pivots = _mm512_loadu_ps(stems.as_ptr().add(block_base_idx));
             let mask = _mm512_cmp_ps_mask(query_lanes, pivots, _CMP_GE_OQ);
-            return block4_child_from_mask(mask);
+            block4_child_from_mask(mask)
         }
 
         #[cfg(not(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f")))]

@@ -318,10 +318,12 @@ mod tests {
 
     #[test]
     fn canonical_variants_use_arithmetic_scalar_continuations() {
-        assert!(DonnellySimdDescent::<3>::SUPPORTS_ARITHMETIC_LEAF_RESOLUTION);
-        assert!(DonnellySimdDescent::<4>::SUPPORTS_ARITHMETIC_LEAF_RESOLUTION);
-        assert!(DonnellySimdDescent::<3>::USES_SIMD_BLOCK_DESCENT);
-        assert!(DonnellySimdDescent::<4>::USES_SIMD_BLOCK_DESCENT);
+        const {
+            assert!(DonnellySimdDescent::<3>::SUPPORTS_ARITHMETIC_LEAF_RESOLUTION);
+            assert!(DonnellySimdDescent::<4>::SUPPORTS_ARITHMETIC_LEAF_RESOLUTION);
+            assert!(DonnellySimdDescent::<3>::USES_SIMD_BLOCK_DESCENT);
+            assert!(DonnellySimdDescent::<4>::USES_SIMD_BLOCK_DESCENT);
+        }
     }
 
     #[test]
