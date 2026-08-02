@@ -73,7 +73,7 @@ jobs:
           version: "^0.8"
 
       - name: Install taplo
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@v2.85.5
         with:
           tool: taplo-cli
 
