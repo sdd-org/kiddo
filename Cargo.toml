@@ -19,7 +19,21 @@ resolver = "2"
 ignored = ["log"]
 
 [package.metadata.docs.rs]
-all-features = true
+features = [
+  "buffered_result_collection",
+  "csv",
+  "f16",
+  "fixed",
+  "huge_pages",
+  "las",
+  "leaf_nta_prefetch",
+  "logging_off",
+  "multi-threaded",
+  "rkyv_08",
+  "serde",
+  "simd",
+  "small_n_result_collectors",
+]
 
 [features]
 cargo_asm = ["dep:rand", "dep:rand_chacha"]

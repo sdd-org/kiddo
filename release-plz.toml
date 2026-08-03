@@ -3,5 +3,21 @@ changelog_config = "git-cliff.toml"             # use a custom git-cliff configu
 dependencies_update = true                      # update dependencies with `cargo update`
 git_release_type = "auto"                       # SemVer pre-release in the version will mark the release as not ready for prod
 pr_labels = ["release"]                         # add the `release` label to the release Pull Request
-publish_all_features = true
+publish_all_features = false
+# Verify releases with supported consumer-facing features. Nightly SIMD is
+# covered by CI; benchmark, fuzzing, simulation, and diagnostic features are omitted.
+publish_features = [
+  "buffered_result_collection",
+  "csv",
+  "f16",
+  "fixed",
+  "huge_pages",
+  "las",
+  "leaf_nta_prefetch",
+  "logging_off",
+  "multi-threaded",
+  "rkyv_08",
+  "serde",
+  "small_n_result_collectors",
+]
 release_commits = "^(feat|fix|perf|docs)!?[(:]"
