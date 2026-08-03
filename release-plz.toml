@@ -1,8 +1,8 @@
 [workspace]
-changelog_config = "git-cliff.toml"             # use a custom git-cliff configuration
-dependencies_update = true                      # update dependencies with `cargo update`
-git_release_type = "auto"                       # SemVer pre-release in the version will mark the release as not ready for prod
-pr_labels = ["release"]                         # add the `release` label to the release Pull Request
+changelog_config = "git-cliff.toml" # use a custom git-cliff configuration
+dependencies_update = true          # update dependencies with `cargo update`
+git_release_type = "auto"           # SemVer pre-release in the version will mark the release as not ready for prod
+pr_labels = ["release"]             # add the `release` label to the release Pull Request
 publish_all_features = false
 # Verify releases with supported consumer-facing features. Nightly SIMD is
 # covered by CI; benchmark, fuzzing, simulation, and diagnostic features are omitted.
