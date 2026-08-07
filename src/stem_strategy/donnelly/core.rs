@@ -523,12 +523,7 @@ impl<const BH: usize> DonnellyCore<BH> {
         next_base: u32,
         cache_line_count: usize,
     ) {
-        #[cfg(target_arch = "x86_64")]
         const BYTES_PER_LINE: usize = 64;
-
-        // TODO: auto-detect M2+ where this is 128 bytes
-        #[cfg(target_arch = "aarch64")]
-        const BYTES_PER_LINE: usize = 64; // 64 for most ARM, 128 for Apple M-series
 
         let base_ptr = unsafe {
             stems_ptr

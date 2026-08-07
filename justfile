@@ -26,6 +26,12 @@ test-fast-simd ARGS='':
 test-fast-lib FILTER:
     cargo test --profile fast-tests --lib {{FILTER}}
 
+# Compiles the consumer smoke crate, which constructs the default
+# ImmutableKdTree and performs a nearest-neighbour query. wasm32-unknown-unknown
+# cannot run binaries directly, so compilation is the regression check.
+wasm-smoke:
+    cargo build --manifest-path tests/wasm-smoke/Cargo.toml --target wasm32-unknown-unknown
+
 test-fast-v6-nearest-one-large-f32:
     cargo test --profile fast-tests --lib v6_query_nearest_one_large_f32
 

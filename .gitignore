@@ -1,5 +1,6 @@
 /target
 /Cargo.lock
+/tests/wasm-smoke/Cargo.lock
 /.idea
 /perf.data*
 /flamegraph.svg
