@@ -57,3 +57,14 @@ pub(crate) unsafe fn prefetch_t1(ptr: *const u8) {
 
     _mm_prefetch::<{ _MM_HINT_T1 }>(ptr as *const i8);
 }
+
+// Other targets, including wasm32, do not expose a portable hardware-prefetch
+// intrinsic. Keep the traversal strategies available there and let these calls
+// compile away.
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+#[inline(always)]
+pub(crate) unsafe fn prefetch_t0(_ptr: *const u8) {}
+
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+#[inline(always)]
+pub(crate) unsafe fn prefetch_t1(_ptr: *const u8) {}
