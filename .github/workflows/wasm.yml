@@ -5,9 +5,10 @@ on:
     branches:
       - master
       - v5.x.x
-  pull_request:
-    branches:
-      - "**"
+  # Pull requests reach these jobs through `PR Mergeable`, which aggregates every
+  # required check into a single status. Triggering here as well would double every
+  # run and leave two competing statuses on the PR.
+  workflow_call:
   workflow_dispatch:
 
 permissions:

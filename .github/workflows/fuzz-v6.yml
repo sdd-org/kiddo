@@ -44,11 +44,57 @@ on:
         default: true
         type: boolean
 
+  # Called by `PR Mergeable` on release PRs, where the full sweep blocks the merge.
+  workflow_call:
+    inputs:
+      cases:
+        description: Number of generated tree cases for the exact-query fuzz tests
+        required: false
+        default: "8"
+        type: string
+      query_count:
+        description: Queries per generated tree case
+        required: false
+        default: "100"
+        type: string
+      min_pow:
+        description: Minimum generated tree size as a power of two
+        required: false
+        default: "10"
+        type: string
+      max_pow:
+        description: Maximum generated tree size as a power of two
+        required: false
+        default: "20"
+        type: string
+      threads:
+        description: Query worker threads (large tree builds remain serial)
+        required: false
+        default: "4"
+        type: string
+      approx_cases:
+        description: Number of generated cases for the approximate-query quality sweep
+        required: false
+        default: "4"
+        type: string
+      approx_query_count:
+        description: Queries per approximate-query quality case
+        required: false
+        default: "128"
+        type: string
+      run_simd:
+        description: Run the SIMD matrix after the non-SIMD matrix
+        required: false
+        default: true
+        type: boolean
+
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Literal prefix, not `github.workflow`: under `workflow_call` that expands to the
+  # calling workflow's name, which would put this in the same group as its caller.
+  group: fuzz-v6-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
