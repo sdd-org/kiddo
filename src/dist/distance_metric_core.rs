@@ -97,6 +97,26 @@ pub trait DistanceMetricScalar<A: Copy> {
         Self::Output::saturating_add(rd - old_dist1, new_dist1)
     }
 
+    /// Bounding-box distance after replacing a single axis offset, for callers that only
+    /// have that axis's previous offset rather than the whole `off` array.
+    ///
+    /// The block-at-once traversals evaluate every sibling in a block from a single
+    /// `(rd, old_off)` pair, so they cannot use [`Self::rect_dist_after_update`].
+    /// Additive metrics recover the other axes' contribution exactly by subtracting the
+    /// old component. Metrics that aggregate differently must override, and may return an
+    /// under-estimate where the exact value is not recoverable: a lower bound only costs
+    /// extra subtrees visited, never correctness.
+    #[inline(always)]
+    fn rect_dist_after_axis_update(
+        rd: Self::Output,
+        old_off: Self::Output,
+        new_off: Self::Output,
+    ) -> Self::Output {
+        let new_dist1 = Self::dist1(new_off, Self::Output::zero());
+        let old_dist1 = Self::dist1(old_off, Self::Output::zero());
+        Self::Output::saturating_add(rd - old_dist1, new_dist1)
+    }
+
     /// Distance comparison helper.
     #[inline(always)]
     fn cmp(a: Self::Output, b: Self::Output) -> Ordering {

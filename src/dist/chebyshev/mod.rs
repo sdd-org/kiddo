@@ -58,6 +58,20 @@ where
 
         acc
     }
+
+    #[inline(always)]
+    fn rect_dist_after_axis_update(rd: R, old_off: R, new_off: R) -> R {
+        // `rd` is the largest offset across all axes. When this axis was not the largest,
+        // the other axes still account for `rd` and the update is exact. When it was (or
+        // tied for) the largest, the other axes' maximum is not recoverable from `rd`
+        // alone, so fall back to this axis alone: an under-estimate that keeps the sibling
+        // in the search rather than pruning it incorrectly.
+        if R::cmp(old_off, rd) == core::cmp::Ordering::Less {
+            R::max(rd, new_off)
+        } else {
+            new_off
+        }
+    }
 }
 
 impl<A, R> DistanceMetricAvx512<A> for Chebyshev<R>
