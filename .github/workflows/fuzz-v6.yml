@@ -1,8 +1,18 @@
 name: Fuzz / v6
 
+run-name: Fuzz / v6 for ${{ inputs.head_sha || github.ref_name }}
+
 on:
   workflow_dispatch:
     inputs:
+      pr_number:
+        description: "Pull request number for comment-dispatched fuzz runs"
+        required: false
+        type: string
+      head_sha:
+        description: "Head commit SHA to fuzz"
+        required: false
+        type: string
       cases:
         description: Number of generated tree cases for the exact-query fuzz tests
         required: false
@@ -47,13 +57,13 @@ on:
   # Called by `PR Mergeable` on release PRs, where the full sweep blocks the merge.
   workflow_call:
     inputs:
-      ref:
-        description: >-
-          Git ref to check out. Callers triggered by `issue_comment` run in the context
-          of the default branch, so they must pass the pull request's head ref to fuzz
-          the proposed code rather than master. Empty checks out the triggering ref.
+      pr_number:
+        description: "Pull request number for comment-dispatched fuzz runs"
         required: false
-        default: ""
+        type: string
+      head_sha:
+        description: "Head commit SHA to fuzz"
+        required: false
         type: string
       cases:
         description: Number of generated tree cases for the exact-query fuzz tests
@@ -98,11 +108,12 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 concurrency:
   # Literal prefix, not `github.workflow`: under `workflow_call` that expands to the
   # calling workflow's name, which would put this in the same group as its caller.
-  group: fuzz-v6-${{ inputs.ref || github.ref }}
+  group: fuzz-v6-${{ inputs.head_sha || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -123,10 +134,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          # Falls back to the triggering ref, which is what `PR Mergeable` and a bare
+          # dispatch want. A `/fuzz` comment supplies the pull request's head commit,
+          # which is reachable here even when the pull request comes from a fork.
+          ref: ${{ inputs.head_sha || github.sha }}
           show-progress: false
-          # Empty falls back to the triggering ref, which is what push and
-          # workflow_dispatch runs want.
-          ref: ${{ inputs.ref }}
 
       - name: Cache Cargo
         uses: actions/cache@v6
@@ -156,6 +168,27 @@ jobs:
       - name: Run SIMD fuzz suite
         if: inputs.run_simd
         run: just fuzz-kd-tree-v6-simd
+
+      - name: Comment the outcome on the pull request
+        if: always() && inputs.pr_number != ''
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const outcome = "${{ job.status }}";
+            const summary =
+              outcome === "success"
+                ? "✅ v6 fuzz suite passed"
+                : outcome === "cancelled"
+                  ? "⚠️ v6 fuzz suite was cancelled"
+                  : "❌ v6 fuzz suite failed";
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: Number("${{ inputs.pr_number }}"),
+              body: `${summary} for \`${{ inputs.head_sha }}\`.\n\n[View run](${runUrl})\n\nOn failure the run uploads \`kd_tree_fuzz_v6_report.txt\` as an artifact, listing the failing seeds. Each is replayable locally with \`just fuzz-case-repro <repro-id>\`.`,
+            });
 
       - name: Upload fuzz failure report
         if: always()
