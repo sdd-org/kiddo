@@ -160,6 +160,7 @@ where
             terminal_leaf_budget,
             &mut leaf_ranges,
             parallel_threshold,
+            [A::max_value(); K],
         )?;
         for (stem_idx, parallel_stem) in parallel_stems.into_iter().enumerate() {
             if let Some(value) = parallel_stem.into_inner() {
@@ -195,6 +196,7 @@ where
         leaf_budget: usize,
         leaf_ranges: &mut [(usize, usize)],
         parallel_threshold: usize,
+        upper_bounds: [A; K],
     ) -> Result<usize, ConstructionError>
     where
         A: Send + Sync,
@@ -227,13 +229,21 @@ where
             (left_leaf_budget, right_leaf_budget, pivot)
         };
 
-        if pivot < chunk_length {
-            let pivot_value = axis_at(&source[sort_index[pivot].as_usize()], dim);
-            assert!(
-                parallel_stems[stem_index].set(pivot_value).is_ok(),
-                "parallel construction wrote stem {stem_index} more than once"
-            );
-        }
+        // See `populate_recursive_soft`: a node that cannot split stores its own interval
+        // upper bound so that the key-ordered pivot sequence stays non-decreasing for the
+        // block-at-once SIMD descent.
+        let pivot_value = if pivot < chunk_length {
+            axis_at(&source[sort_index[pivot].as_usize()], dim)
+        } else {
+            upper_bounds[dim]
+        };
+        assert!(
+            parallel_stems[stem_index].set(pivot_value).is_ok(),
+            "parallel construction wrote stem {stem_index} more than once"
+        );
+
+        let mut left_upper_bounds = upper_bounds;
+        left_upper_bounds[dim] = pivot_value;
 
         let right_stem_ordering = stem_ordering.branch::<A, K>();
         let (lower_sort_index, upper_sort_index) = sort_index.split_at_mut(pivot);
@@ -251,6 +261,7 @@ where
                 left_leaf_budget,
                 lower_leaf_ranges,
                 parallel_threshold,
+                left_upper_bounds,
             )
         };
         let recurse_right = || {
@@ -265,6 +276,7 @@ where
                 right_leaf_budget,
                 upper_leaf_ranges,
                 parallel_threshold,
+                upper_bounds,
             )
         };
 
