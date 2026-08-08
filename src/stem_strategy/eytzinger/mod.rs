@@ -84,8 +84,9 @@ impl<const PF1: isize, const PF2: isize> StemStrategy for EytzingerFlexPf<PF1, P
     const ROOT_IDX: usize = 1;
 
     type DeferredState = EytzingerFlexDeferred;
-    type StackContext<A> = crate::kd_tree::query_stack::QueryStackContext<A, Self::DeferredState>;
-    type Stack<A> = crate::kd_tree::query_stack::QueryStack<A, Self>;
+    type StackContext<A, const K: usize> =
+        crate::kd_tree::query_stack::QueryStackContext<A, Self::DeferredState>;
+    type Stack<A, const K: usize> = crate::kd_tree::query_stack::QueryStack<A, Self, K>;
 
     fn new(stems_ptr: NonNull<u8>) -> Self {
         Self {

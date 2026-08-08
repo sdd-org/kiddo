@@ -308,8 +308,8 @@ macro_rules! impl_cyclic_simd_descent {
             const USES_PREPARED_BLOCK_QUERY: bool = true;
 
             type DeferredState = DonnellyCoreDeferred;
-            type StackContext<A> = $stack_context;
-            type Stack<A> = $stack_type;
+            type StackContext<A, const K: usize> = $stack_context;
+            type Stack<A, const K: usize> = $stack_type;
 
             #[inline(always)]
             fn new(stems_ptr: NonNull<u8>) -> Self {
@@ -511,7 +511,7 @@ macro_rules! impl_cyclic_simd_descent {
             >(
                 $tree: &Tree,
                 $query_ctx: &mut QC,
-                $stack: &mut Self::Stack<O>,
+                $stack: &mut Self::Stack<O, K2>,
                 $process_leaf: impl FnMut(usize, &[O; K2], &mut QC),
             ) where
                 Self: Sized,
@@ -527,7 +527,7 @@ macro_rules! impl_cyclic_simd_descent {
                 D: DistanceMetric<A, Output = O>,
                 QC: QueryContext<A, O, K2>,
                 LS: LeafStrategy<A, T, Self, K2, B>,
-                Self::Stack<O>: crate::kd_tree::query_stack::StackTrait<O, Self>,
+                Self::Stack<O, K2>: crate::kd_tree::query_stack::StackTrait<O, Self, K2>,
             $arithmetic
         }
     };
@@ -538,7 +538,7 @@ impl_cyclic_simd_descent!(
     3,
     1,
     QueryStackContext<A, Self::DeferredState>,
-    QueryStack<A, Self>,
+    QueryStack<A, Self, K>,
     tree,
     query_ctx,
     stack,
@@ -552,7 +552,7 @@ impl_cyclic_simd_descent!(
     4,
     7,
     QueryStackContext<A, Self::DeferredState>,
-    QueryStack<A, Self>,
+    QueryStack<A, Self, K>,
     tree,
     query_ctx,
     stack,

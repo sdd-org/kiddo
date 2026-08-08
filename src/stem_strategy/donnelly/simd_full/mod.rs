@@ -342,7 +342,7 @@ where
     O: Axis<Coord = O>,
     D: crate::dist::DistanceMetricCore<A, Output = O>,
 {
-    let (new_off, effective_lower, effective_upper) = selected_block3_child_state::<A, O, D>(
+    let (raw_new_off, effective_lower, effective_upper) = selected_block3_child_state::<A, O, D>(
         stems,
         block_base_idx,
         child_idx,
@@ -350,6 +350,12 @@ where
         parent_lower_bound,
         parent_upper_bound,
     );
+    // Deliberately not raised to `old_off`: a child on the block's outer edge can look
+    // nearer than the subtree it sits in, but `off` is no more restorable across
+    // backtracking than the slab bounds were, so clamping to it can over-estimate and
+    // prune a live subtree. Under-estimating is safe - the same value is subtracted again
+    // by the next update on this axis, so `rd` stays a valid lower bound, just a looser one.
+    let new_off = raw_new_off;
     let rd_far = D::rect_dist_after_axis_update(rd, old_off, new_off);
 
     (rd_far, new_off, effective_lower, effective_upper)
@@ -511,7 +517,7 @@ pub mod cargo_asm {
         rd: f64,
         max_stem_level: i32,
         best_dist: f64,
-        stack: &mut <DonnellySimdFull<3> as StemStrategy>::Stack<f64>,
+        stack: &mut <DonnellySimdFull<3> as StemStrategy>::Stack<f64, 3>,
     ) -> bool {
         stem_strat.backtracking_traverse_step_with_bounds::<f64, f64, SquaredEuclidean<f64>, 3>(
             stems,
@@ -619,10 +625,12 @@ impl StemStrategy for DonnellySimdFull<3> {
     const BLOCK_SIZE: usize = 3;
 
     type DeferredState = Self;
-    type StackContext<A> = crate::kd_tree::query_stack_simd::Block3SimdQueryStackContext<A, Self>;
-    type Stack<A> = crate::kd_tree::query_stack_simd::Block3ExactQueryStack<
+    type StackContext<A, const K: usize> =
+        crate::kd_tree::query_stack_simd::Block3SimdQueryStackContext<A, Self, K>;
+    type Stack<A, const K: usize> = crate::kd_tree::query_stack_simd::Block3ExactQueryStack<
         A,
         Self,
+        K,
         { crate::kd_tree::query_stack_simd::BLOCK3_EXACT_INLINE_SIMD_QUERY_STACK_CAPACITY },
     >;
 
@@ -739,7 +747,7 @@ impl StemStrategy for DonnellySimdFull<3> {
         rd: O,
         max_stem_level: i32,
         best_dist: O,
-        stack: &mut Self::Stack<O>,
+        stack: &mut Self::Stack<O, K2>,
     ) -> bool
     where
         Self: Sized,
@@ -807,8 +815,8 @@ impl StemStrategy for DonnellySimdFull<3> {
                     stack.push(Block3SimdQueryStackContext::Single {
                         stem_strat: far_ctx,
                         dim: dim_val,
-                        lower_bound,
-                        upper_bound,
+                        lower_snapshot: *lower,
+                        upper_snapshot: *upper,
                         old_off: new_off,
                         rd: rd_far,
                     });
@@ -909,7 +917,7 @@ impl StemStrategy for DonnellySimdFull<3> {
                     rd,
                     best_dist,
                 ) & !(1u8 << child_idx);
-                let (selected_new_off, selected_lower_bound, selected_upper_bound) =
+                let (selected_raw_off, selected_lower_bound, selected_upper_bound) =
                     selected_block3_child_state::<A, O, D>(
                         stems,
                         block_base_idx,
@@ -918,6 +926,8 @@ impl StemStrategy for DonnellySimdFull<3> {
                         lower_bound,
                         upper_bound,
                     );
+                // Not raised to `old_off_val`; see `selected_block3_child_state_and_rd`.
+                let selected_new_off = selected_raw_off;
                 (
                     candidate_mask,
                     selected_new_off,
@@ -929,7 +939,7 @@ impl StemStrategy for DonnellySimdFull<3> {
         if candidate_mask != 0 {
             use crate::kd_tree::query_stack_simd::Block3ExactStackContext;
 
-            stack.push(<Self::StackContext<O> as Block3ExactStackContext<
+            stack.push(<Self::StackContext<O, K2> as Block3ExactStackContext<
                 O,
                 Self,
                 K2,
@@ -958,7 +968,7 @@ impl StemStrategy for DonnellySimdFull<3> {
     fn backtracking_query_with_scratch<Tree, A, T, O, D, QC, LS, const K2: usize, const B: usize>(
         tree: &Tree,
         query_ctx: &mut QC,
-        stack: &mut Self::Stack<O>,
+        stack: &mut Self::Stack<O, K2>,
         process_leaf: impl FnMut(usize, &[O; K2], &mut QC),
     ) where
         Self: Sized,
@@ -1092,8 +1102,9 @@ impl crate::StemStrategy for DonnellySimdFull<4> {
     const BLOCK_SIZE: usize = 4;
 
     type DeferredState = Self;
-    type StackContext<A> = crate::kd_tree::query_stack_simd::SimdQueryStackContext<A, Self>;
-    type Stack<A> = crate::kd_tree::query_stack_simd::SimdQueryStack<A, Self>;
+    type StackContext<A, const K: usize> =
+        crate::kd_tree::query_stack_simd::SimdQueryStackContext<A, Self, K>;
+    type Stack<A, const K: usize> = crate::kd_tree::query_stack_simd::SimdQueryStack<A, Self, K>;
 
     #[inline]
     fn new(stems_ptr: std::ptr::NonNull<u8>) -> Self {
@@ -1217,7 +1228,7 @@ impl crate::StemStrategy for DonnellySimdFull<4> {
         rd: O,
         max_stem_level: i32,
         best_dist: O,
-        stack: &mut Self::Stack<O>,
+        stack: &mut Self::Stack<O, K2>,
     ) -> bool
     where
         Self: Sized,
@@ -1286,11 +1297,17 @@ impl crate::StemStrategy for DonnellySimdFull<4> {
                 };
 
                 if O::cmp(rd_far, best_dist) != std::cmp::Ordering::Greater {
+                    // Snapshot every axis' slab, overriding this one with the far child's:
+                    // the other axes cannot be rebuilt when this entry is popped.
+                    let mut far_lower_snapshot = *lower;
+                    let mut far_upper_snapshot = *upper;
+                    far_lower_snapshot[dim_val] = far_lower;
+                    far_upper_snapshot[dim_val] = far_upper;
                     stack.push(SimdQueryStackContext::Single {
                         stem_strat: far_ctx,
                         dim: dim_val,
-                        lower_bound: far_lower,
-                        upper_bound: far_upper,
+                        lower_snapshot: far_lower_snapshot,
+                        upper_snapshot: far_upper_snapshot,
                         old_off: new_off,
                         rd: rd_far,
                     });
@@ -1308,8 +1325,8 @@ impl crate::StemStrategy for DonnellySimdFull<4> {
                     stack.push(SimdQueryStackContext::Single {
                         stem_strat: far_ctx,
                         dim: dim_val,
-                        lower_bound,
-                        upper_bound,
+                        lower_snapshot: *lower,
+                        upper_snapshot: *upper,
                         old_off: old_off_val,
                         rd,
                     });
@@ -1365,8 +1382,8 @@ impl crate::StemStrategy for DonnellySimdFull<4> {
                 high_mask,
                 dim_val,
                 old_off_val,
-                lower_bound,
-                upper_bound,
+                *lower,
+                *upper,
             ));
         }
 
@@ -1390,8 +1407,8 @@ impl crate::StemStrategy for DonnellySimdFull<4> {
                 low_mask,
                 dim_val,
                 old_off_val,
-                lower_bound,
-                upper_bound,
+                *lower,
+                *upper,
             ));
         }
 
@@ -1411,7 +1428,7 @@ impl crate::StemStrategy for DonnellySimdFull<4> {
     fn backtracking_query_with_scratch<Tree, A, T, O, D, QC, LS, const K2: usize, const B: usize>(
         tree: &Tree,
         query_ctx: &mut QC,
-        stack: &mut Self::Stack<O>,
+        stack: &mut Self::Stack<O, K2>,
         process_leaf: impl FnMut(usize, &[O; K2], &mut QC),
     ) where
         Self: Sized,
@@ -1948,7 +1965,7 @@ mod tests {
         let mut upper = [f64::INFINITY; 3];
         let mut off = [0.0; 3];
         let mut dim = 0usize;
-        let mut stack = <Strat as StemStrategy>::Stack::<f64>::default();
+        let mut stack = <Strat as StemStrategy>::Stack::<f64, 3>::default();
 
         let child_idx = compare_block3(&pivots, query[0], 0);
         let expected_mask = backtrack_block3_with_bounds::<f64, f64, SquaredEuclidean<f64>, 3>(
@@ -1993,7 +2010,7 @@ mod tests {
         assert_eq!(dim, strat.dim::<3>());
 
         let popped = stack.pop().expect("pending block3 context");
-        type Block3Ctx = <Strat as StemStrategy>::StackContext<f64>;
+        type Block3Ctx = <Strat as StemStrategy>::StackContext<f64, 3>;
         let state =
             <Block3Ctx as Block3ExactStackContext<f64, Strat, 3>>::into_block3_exact_state(popped);
         match state {
@@ -2017,7 +2034,7 @@ mod tests {
         let mut upper = [f64::INFINITY; 3];
         let mut off = [0.0; 3];
         let mut dim = 0usize;
-        let mut stack = <Strat as StemStrategy>::Stack::<f64>::default();
+        let mut stack = <Strat as StemStrategy>::Stack::<f64, 3>::default();
 
         let stepped = strat
             .backtracking_traverse_step_with_bounds::<f64, f64, SquaredEuclidean<f64>, 3>(
@@ -2036,7 +2053,7 @@ mod tests {
 
         assert!(stepped);
         let popped = stack.pop().expect("single fallback context");
-        type Block3Ctx = <Strat as StemStrategy>::StackContext<f64>;
+        type Block3Ctx = <Strat as StemStrategy>::StackContext<f64, 3>;
         let state =
             <Block3Ctx as Block3ExactStackContext<f64, Strat, 3>>::into_block3_exact_state(popped);
         match state {
@@ -2062,7 +2079,7 @@ mod tests {
         let mut upper = [f32::INFINITY; 3];
         let mut off = [0.0; 3];
         let mut dim = 0usize;
-        let mut stack = <Strat as StemStrategy>::Stack::<f32>::default();
+        let mut stack = <Strat as StemStrategy>::Stack::<f32, 3>::default();
 
         let child_idx = compare_block4(&pivots, query[0], 0);
         let mut expected_off_values = [0.0; 16];
@@ -2138,7 +2155,7 @@ mod tests {
         let mut upper = [f32::INFINITY; 3];
         let mut off = [0.0; 3];
         let mut dim = 0usize;
-        let mut stack = <Strat as StemStrategy>::Stack::<f32>::default();
+        let mut stack = <Strat as StemStrategy>::Stack::<f32, 3>::default();
 
         let stepped = strat
             .backtracking_traverse_step_with_bounds::<f32, f32, SquaredEuclidean<f32>, 3>(
@@ -2180,7 +2197,7 @@ mod tests {
         let mut upper = [f64::INFINITY; 3];
         let mut off = [0.0; 3];
         let mut dim = 0usize;
-        let mut stack = <Strat as StemStrategy>::Stack::<f64>::default();
+        let mut stack = <Strat as StemStrategy>::Stack::<f64, 3>::default();
 
         crate::test_utils::exact_query_trace::set_enabled(true);
         let stepped = strat

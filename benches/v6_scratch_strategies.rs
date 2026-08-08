@@ -58,7 +58,7 @@ fn run_reused_scratch(
     tree: &Tree,
     queries: &[[f64; K]],
     max_qty: NonZeroUsize,
-    scratch: &mut QueryScratch<Eytzinger, f64>,
+    scratch: &mut QueryScratch<Eytzinger, f64, K>,
 ) -> (usize, u64, f64) {
     let mut checksum_len = 0usize;
     let mut checksum_item = 0u64;

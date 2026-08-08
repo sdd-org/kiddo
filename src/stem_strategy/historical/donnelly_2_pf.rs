@@ -41,8 +41,8 @@ impl<const L: u32, const CL: u32, const VB: u32, const K: usize> StemStrategy
     const ROOT_IDX: usize = 0;
 
     type DeferredState = Self;
-    type StackContext<A> = crate::kd_tree::query_stack::QueryStackContext<A, Self::DeferredState>;
-    type Stack<A> = crate::kd_tree::query_stack::QueryStack<A, Self>;
+    type StackContext<A, const K: usize> = crate::kd_tree::query_stack::QueryStackContext<A, Self::DeferredState>;
+    type Stack<A, const K: usize> = crate::kd_tree::query_stack::QueryStack<A, Self, K>;
 
     fn new(stems_ptr: NonNull<u8>) -> Self {
         debug_assert!(L >= 2 && L <= 8);

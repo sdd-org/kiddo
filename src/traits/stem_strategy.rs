@@ -81,7 +81,7 @@ pub trait StemStrategy: Clone + Sync + Send + 'static {
     ///
     /// Non-block strategies use simple scalar stack context (QueryStackContext).
     /// Block-based SIMD strategies use SimdQueryStackContext.
-    type StackContext<A>: Sized
+    type StackContext<A, const K: usize>: Sized
         + crate::kd_tree::query_stack::ScalarStackContext<A, Self::DeferredState>
     where
         Self: Sized;
@@ -90,7 +90,7 @@ pub trait StemStrategy: Clone + Sync + Send + 'static {
     ///
     /// Non-block strategies use simple scalar stack (QueryStack).
     /// Block-based SIMD strategies use SimdQueryStack.
-    type Stack<A>: Default + crate::kd_tree::query_stack::StackTrait<A, Self>
+    type Stack<A, const K: usize>: Default + crate::kd_tree::query_stack::StackTrait<A, Self, K>
     where
         Self: Sized;
 
@@ -338,14 +338,14 @@ pub trait StemStrategy: Clone + Sync + Send + 'static {
         rd: O,
         max_stem_level: i32,
         best_dist: O,
-        stack: &mut Self::Stack<O>,
+        stack: &mut Self::Stack<O, K>,
     ) -> bool
     where
         Self: Sized,
         A: Axis<Coord = A>,
         O: Axis<Coord = O> + BacktrackBlock3 + BacktrackBlock4,
         D: crate::dist::DistanceMetric<A, Output = O>,
-        Self::Stack<O>: StackTrait<O, Self>,
+        Self::Stack<O, K>: StackTrait<O, Self, K>,
     {
         // Default implementation for scalar strategies
         // SIMD strategies override this entire method
@@ -426,7 +426,7 @@ pub trait StemStrategy: Clone + Sync + Send + 'static {
 
             // Only push if the sibling is worth exploring
             if O::cmp(rd_far, best_dist) != std::cmp::Ordering::Greater {
-                stack.push(Self::StackContext::<O>::from_parts_with_restore_dim(
+                stack.push(Self::StackContext::<O, K>::from_parts_with_restore_dim(
                     far_ctx.deferred_state(),
                     *dim,
                     new_off,
@@ -463,7 +463,7 @@ pub trait StemStrategy: Clone + Sync + Send + 'static {
         rd: O,
         max_stem_level: i32,
         best_dist: O,
-        stack: &mut Self::Stack<O>,
+        stack: &mut Self::Stack<O, K>,
     ) -> bool
     where
         Self: Sized,
@@ -473,7 +473,7 @@ pub trait StemStrategy: Clone + Sync + Send + 'static {
             + BacktrackBlock3
             + BacktrackBlock4,
         D: crate::dist::DistanceMetric<A, Output = O>,
-        Self::Stack<O>: StackTrait<O, Self>,
+        Self::Stack<O, K>: StackTrait<O, Self, K>,
     {
         let _ = lower;
         let _ = upper;
@@ -501,7 +501,7 @@ pub trait StemStrategy: Clone + Sync + Send + 'static {
     fn backtracking_query_with_scratch<Tree, A, T, O, D, QC, LS, const K2: usize, const B: usize>(
         tree: &Tree,
         query_ctx: &mut QC,
-        stack: &mut Self::Stack<O>,
+        stack: &mut Self::Stack<O, K2>,
         process_leaf: impl FnMut(usize, &[O; K2], &mut QC),
     ) where
         Self: Sized,
@@ -517,7 +517,7 @@ pub trait StemStrategy: Clone + Sync + Send + 'static {
         D: crate::dist::DistanceMetric<A, Output = O>,
         QC: crate::kd_tree::query_context::QueryContext<A, O, K2>,
         LS: crate::LeafStrategy<A, T, Self, K2, B>,
-        Self::Stack<O>: StackTrait<O, Self>,
+        Self::Stack<O, K2>: StackTrait<O, Self, K2>,
     {
         tree.backtracking_query_with_scratch_impl::<QC, O, D>(query_ctx, stack, process_leaf);
     }
@@ -531,7 +531,7 @@ pub trait StemStrategy: Clone + Sync + Send + 'static {
     fn arithmetic_query_with_scratch<Tree, A, T, O, D, QC, LS, const K2: usize, const B: usize>(
         tree: &Tree,
         query_ctx: &mut QC,
-        stack: &mut Self::Stack<O>,
+        stack: &mut Self::Stack<O, K2>,
         process_leaf: impl FnMut(usize, &[O; K2], &mut QC),
     ) where
         Self: Sized,
@@ -547,7 +547,7 @@ pub trait StemStrategy: Clone + Sync + Send + 'static {
         D: crate::dist::DistanceMetric<A, Output = O>,
         QC: crate::kd_tree::query_context::QueryContext<A, O, K2>,
         LS: crate::LeafStrategy<A, T, Self, K2, B>,
-        Self::Stack<O>: StackTrait<O, Self>,
+        Self::Stack<O, K2>: StackTrait<O, Self, K2>,
     {
         tree.arithmetic_query_with_scratch_impl::<QC, O, D>(query_ctx, stack, process_leaf);
     }
@@ -578,12 +578,12 @@ mod tests {
 
     impl StemStrategy for TestStemStrategy {
         type DeferredState = TestStemState;
-        type StackContext<A>
+        type StackContext<A, const K: usize>
             = QueryStackContext<A, Self::DeferredState>
         where
             Self: Sized;
-        type Stack<A>
-            = QueryStack<A, Self>
+        type Stack<A, const K: usize>
+            = QueryStack<A, Self, K>
         where
             Self: Sized;
 
@@ -684,7 +684,7 @@ mod tests {
         let mut upper = [f32::INFINITY; 2];
         let mut off = [0.0f32; 2];
         let mut dim = 0usize;
-        let mut stack = QueryStack::<f32, TestStemStrategy>::default();
+        let mut stack = QueryStack::<f32, TestStemStrategy, 2>::default();
 
         let should_continue = strat
             .backtracking_traverse_step_with_bounds::<f32, f32, SquaredEuclidean<f32>, 2>(
@@ -731,7 +731,7 @@ mod tests {
         let query_wide = [7.0f64, 1.0f64];
         let mut off = [0.0f64; 2];
         let mut dim = 0usize;
-        let mut stack = QueryStack::<f64, TestStemStrategy>::default();
+        let mut stack = QueryStack::<f64, TestStemStrategy, 2>::default();
 
         crate::test_utils::exact_query_trace::set_enabled(true);
 

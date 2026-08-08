@@ -266,7 +266,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + Default + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + Default + 'static,
         SS: 'static;
 
     fn qb_approx_nearest_one<D>(&self, query: &[A; K]) -> (D::Output, T)
@@ -289,7 +289,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static;
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static;
 
     fn qb_nearest_n_within<D, const EXCLUSIVE: bool>(
         &self,
@@ -307,7 +307,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static;
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static;
 
     fn qb_within<D, const EXCLUSIVE: bool>(
         &self,
@@ -324,7 +324,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static;
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static;
 
     fn qb_within_unsorted_visit<D, F, const EXCLUSIVE: bool>(
         &self,
@@ -340,7 +340,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
         F: FnMut(QueryResultItem<(), T, D::Output>);
 
     fn qb_within_unsorted_visit_with_points<D, F, const EXCLUSIVE: bool>(
@@ -357,7 +357,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
         F: FnMut(QueryResultItem<[A; K], T, D::Output>);
 
     #[inline]
@@ -377,7 +377,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
         F: FnMut(QueryResultItem<(), T, D::Output>) -> R,
     {
         let mut results = Vec::with_capacity(
@@ -406,7 +406,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
         F: FnMut([A; K], T, D::Output) -> R,
     {
         let mut results = Vec::with_capacity(
@@ -433,7 +433,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static;
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static;
 }
 
 pub(crate) trait QueryBuilderScratchTreeOps<A, T, SS, LS, const K: usize, const B: usize>:
@@ -447,7 +447,7 @@ where
     fn qb_nearest_one_with_scratch<D>(
         &self,
         query: &[A; K],
-        stack: &mut SS::Stack<D::Output>,
+        stack: &mut SS::Stack<D::Output, K>,
     ) -> (D::Output, T)
     where
         T: PartialOrd,
@@ -458,14 +458,14 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>;
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>;
 
     fn qb_nearest_n_with_scratch<D>(
         &self,
         query: &[A; K],
         max_qty: NonZeroUsize,
         sorted: bool,
-        stack: &mut SS::Stack<D::Output>,
+        stack: &mut SS::Stack<D::Output, K>,
     ) -> Vec<QueryResultItem<(), T, D::Output>>
     where
         T: PartialOrd,
@@ -476,7 +476,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>;
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>;
 
     fn qb_nearest_n_within_with_scratch<D, const EXCLUSIVE: bool>(
         &self,
@@ -484,7 +484,7 @@ where
         radius: D::Output,
         max_qty: NonZeroUsize,
         sorted: bool,
-        stack: &mut SS::Stack<D::Output>,
+        stack: &mut SS::Stack<D::Output, K>,
     ) -> Vec<QueryResultItem<(), T, D::Output>>
     where
         T: PartialOrd,
@@ -495,14 +495,14 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>;
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>;
 
     fn qb_within_with_scratch<D, const EXCLUSIVE: bool>(
         &self,
         query: &[A; K],
         radius: D::Output,
         result_capacity: Option<NonZeroUsize>,
-        stack: &mut SS::Stack<D::Output>,
+        stack: &mut SS::Stack<D::Output, K>,
     ) -> Vec<QueryResultItem<(), T, D::Output>>
     where
         T: PartialOrd,
@@ -513,14 +513,14 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>;
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>;
 
     fn qb_within_unsorted_visit_with_scratch<D, F, const EXCLUSIVE: bool>(
         &self,
         query: &[A; K],
         radius: D::Output,
         visitor: F,
-        stack: &mut SS::Stack<D::Output>,
+        stack: &mut SS::Stack<D::Output, K>,
     ) where
         T: PartialOrd,
         D: DistanceMetric<A>,
@@ -530,7 +530,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
         F: FnMut(QueryResultItem<(), T, D::Output>);
 
     #[inline]
@@ -540,7 +540,7 @@ where
         radius: D::Output,
         result_capacity: Option<NonZeroUsize>,
         mut project: F,
-        stack: &mut SS::Stack<D::Output>,
+        stack: &mut SS::Stack<D::Output, K>,
     ) -> Vec<R>
     where
         T: PartialOrd,
@@ -551,7 +551,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
         F: FnMut(QueryResultItem<(), T, D::Output>) -> R,
     {
         let mut results = Vec::with_capacity(
@@ -571,7 +571,7 @@ where
         query: &[A; K],
         radius: D::Output,
         max_qty: NonZero<usize>,
-        stack: &mut SS::Stack<D::Output>,
+        stack: &mut SS::Stack<D::Output, K>,
     ) -> BinaryHeap<BestQueryResultItem<(), T, D::Output>>
     where
         T: PartialOrd,
@@ -582,7 +582,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>;
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>;
 }
 
 impl<A, T, SS, LS, const K: usize, const B: usize> QueryBuilderTreeOps<A, T, SS, LS, K, B>
@@ -603,7 +603,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + Default + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + Default + 'static,
         SS: 'static,
     {
         self.nearest_one::<D>(query)
@@ -634,7 +634,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
     {
         self.nearest_n::<D>(query, max_qty, sorted)
     }
@@ -656,7 +656,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
     {
         self.nearest_n_within_impl::<D, EXCLUSIVE>(query, radius, max_qty, sorted)
     }
@@ -677,7 +677,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
     {
         self.within_impl::<D, EXCLUSIVE>(query, radius, result_capacity)
     }
@@ -697,7 +697,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
         F: FnMut(QueryResultItem<(), T, D::Output>),
     {
         self.within_unsorted_visit_impl::<D, F, EXCLUSIVE>(query, radius, visitor)
@@ -718,7 +718,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
         F: FnMut(QueryResultItem<[A; K], T, D::Output>),
     {
         self.within_unsorted_visit_with_points_impl::<D, F, EXCLUSIVE>(query, radius, visitor)
@@ -740,7 +740,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
     {
         self.best_n_within_impl::<D, EXCLUSIVE>(query, radius, max_qty)
     }
@@ -758,7 +758,7 @@ where
     fn qb_nearest_one_with_scratch<D>(
         &self,
         query: &[A; K],
-        stack: &mut SS::Stack<D::Output>,
+        stack: &mut SS::Stack<D::Output, K>,
     ) -> (D::Output, T)
     where
         T: PartialOrd,
@@ -769,7 +769,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
     {
         self.nearest_one_with_scratch::<D>(query, stack)
     }
@@ -780,7 +780,7 @@ where
         query: &[A; K],
         max_qty: NonZeroUsize,
         sorted: bool,
-        stack: &mut SS::Stack<D::Output>,
+        stack: &mut SS::Stack<D::Output, K>,
     ) -> Vec<QueryResultItem<(), T, D::Output>>
     where
         T: PartialOrd,
@@ -791,7 +791,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
     {
         self.nearest_n_with_scratch::<D>(query, max_qty, sorted, stack)
     }
@@ -803,7 +803,7 @@ where
         radius: D::Output,
         max_qty: NonZeroUsize,
         sorted: bool,
-        stack: &mut SS::Stack<D::Output>,
+        stack: &mut SS::Stack<D::Output, K>,
     ) -> Vec<QueryResultItem<(), T, D::Output>>
     where
         T: PartialOrd,
@@ -814,7 +814,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
     {
         self.nearest_n_within_impl_with_scratch::<D, EXCLUSIVE>(
             query, radius, max_qty, sorted, stack,
@@ -827,7 +827,7 @@ where
         query: &[A; K],
         radius: D::Output,
         result_capacity: Option<NonZeroUsize>,
-        stack: &mut SS::Stack<D::Output>,
+        stack: &mut SS::Stack<D::Output, K>,
     ) -> Vec<QueryResultItem<(), T, D::Output>>
     where
         T: PartialOrd,
@@ -838,7 +838,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
     {
         self.within_impl_with_scratch::<D, EXCLUSIVE>(query, radius, result_capacity, stack)
     }
@@ -849,7 +849,7 @@ where
         query: &[A; K],
         radius: D::Output,
         visitor: F,
-        stack: &mut SS::Stack<D::Output>,
+        stack: &mut SS::Stack<D::Output, K>,
     ) where
         T: PartialOrd,
         D: DistanceMetric<A>,
@@ -859,7 +859,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
         F: FnMut(QueryResultItem<(), T, D::Output>),
     {
         self.within_unsorted_visit_impl_with_scratch::<D, F, EXCLUSIVE>(
@@ -873,7 +873,7 @@ where
         query: &[A; K],
         radius: D::Output,
         max_qty: NonZero<usize>,
-        stack: &mut SS::Stack<D::Output>,
+        stack: &mut SS::Stack<D::Output, K>,
     ) -> BinaryHeap<BestQueryResultItem<(), T, D::Output>>
     where
         T: PartialOrd,
@@ -884,7 +884,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
     {
         self.best_n_within_impl_with_scratch::<D, EXCLUSIVE>(query, radius, max_qty, stack)
     }
@@ -911,7 +911,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + Default + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + Default + 'static,
         SS: 'static,
     {
         self.nearest_one::<D>(query)
@@ -942,7 +942,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
     {
         self.nearest_n::<D>(query, max_qty, sorted)
     }
@@ -964,7 +964,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
     {
         self.nearest_n_within_impl::<D, EXCLUSIVE>(query, radius, max_qty, sorted)
     }
@@ -985,7 +985,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
     {
         self.within_impl::<D, EXCLUSIVE>(query, radius, result_capacity)
     }
@@ -1005,7 +1005,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
         F: FnMut(QueryResultItem<(), T, D::Output>),
     {
         self.within_unsorted_visit_impl::<D, F, EXCLUSIVE>(query, radius, visitor)
@@ -1026,7 +1026,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
         F: FnMut(QueryResultItem<[A; K], T, D::Output>),
     {
         self.within_unsorted_visit_with_points_impl::<D, F, EXCLUSIVE>(query, radius, visitor)
@@ -1048,7 +1048,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
     {
         self.best_n_within_impl::<D, EXCLUSIVE>(query, radius, max_qty)
     }
@@ -1069,7 +1069,7 @@ where
     fn qb_nearest_one_with_scratch<D>(
         &self,
         query: &[A; K],
-        stack: &mut SS::Stack<D::Output>,
+        stack: &mut SS::Stack<D::Output, K>,
     ) -> (D::Output, T)
     where
         T: PartialOrd,
@@ -1080,7 +1080,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
     {
         self.nearest_one_with_scratch::<D>(query, stack)
     }
@@ -1091,7 +1091,7 @@ where
         query: &[A; K],
         max_qty: NonZeroUsize,
         sorted: bool,
-        stack: &mut SS::Stack<D::Output>,
+        stack: &mut SS::Stack<D::Output, K>,
     ) -> Vec<QueryResultItem<(), T, D::Output>>
     where
         T: PartialOrd,
@@ -1102,7 +1102,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
     {
         self.nearest_n_with_scratch::<D>(query, max_qty, sorted, stack)
     }
@@ -1114,7 +1114,7 @@ where
         radius: D::Output,
         max_qty: NonZeroUsize,
         sorted: bool,
-        stack: &mut SS::Stack<D::Output>,
+        stack: &mut SS::Stack<D::Output, K>,
     ) -> Vec<QueryResultItem<(), T, D::Output>>
     where
         T: PartialOrd,
@@ -1125,7 +1125,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
     {
         self.nearest_n_within_impl_with_scratch::<D, EXCLUSIVE>(
             query, radius, max_qty, sorted, stack,
@@ -1138,7 +1138,7 @@ where
         query: &[A; K],
         radius: D::Output,
         result_capacity: Option<NonZeroUsize>,
-        stack: &mut SS::Stack<D::Output>,
+        stack: &mut SS::Stack<D::Output, K>,
     ) -> Vec<QueryResultItem<(), T, D::Output>>
     where
         T: PartialOrd,
@@ -1149,7 +1149,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
     {
         self.within_impl_with_scratch::<D, EXCLUSIVE>(query, radius, result_capacity, stack)
     }
@@ -1160,7 +1160,7 @@ where
         query: &[A; K],
         radius: D::Output,
         visitor: F,
-        stack: &mut SS::Stack<D::Output>,
+        stack: &mut SS::Stack<D::Output, K>,
     ) where
         T: PartialOrd,
         D: DistanceMetric<A>,
@@ -1170,7 +1170,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
         F: FnMut(QueryResultItem<(), T, D::Output>),
     {
         self.within_unsorted_visit_impl_with_scratch::<D, F, EXCLUSIVE>(
@@ -1184,7 +1184,7 @@ where
         query: &[A; K],
         radius: D::Output,
         max_qty: NonZero<usize>,
-        stack: &mut SS::Stack<D::Output>,
+        stack: &mut SS::Stack<D::Output, K>,
     ) -> BinaryHeap<BestQueryResultItem<(), T, D::Output>>
     where
         T: PartialOrd,
@@ -1195,7 +1195,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
     {
         self.best_n_within_impl_with_scratch::<D, EXCLUSIVE>(query, radius, max_qty, stack)
     }
@@ -1578,7 +1578,7 @@ pub trait ExecuteQueryBuilder {
 }
 
 #[doc(hidden)]
-pub trait ExecuteQueryBuilderWithScratch<SS, O>
+pub trait ExecuteQueryBuilderWithScratch<SS, O, const K: usize>
 where
     SS: StemStrategy,
 {
@@ -1586,26 +1586,26 @@ where
     type Output;
 
     #[doc(hidden)]
-    fn execute_with_scratch(self, scratch: &mut QueryScratch<SS, O>) -> Self::Output;
+    fn execute_with_scratch(self, scratch: &mut QueryScratch<SS, O, K>) -> Self::Output;
 }
 
 /// Query builder adapter that uses caller-owned reusable query scratch.
-pub struct ScratchQueryBuilder<'s, B, SS, O>
+pub struct ScratchQueryBuilder<'s, B, SS, O, const K: usize>
 where
     SS: StemStrategy,
 {
     builder: B,
-    scratch: &'s mut QueryScratch<SS, O>,
+    scratch: &'s mut QueryScratch<SS, O, K>,
 }
 
-impl<B, SS, O> ScratchQueryBuilder<'_, B, SS, O>
+impl<B, SS, O, const K: usize> ScratchQueryBuilder<'_, B, SS, O, K>
 where
     SS: StemStrategy,
-    B: ExecuteQueryBuilderWithScratch<SS, O>,
+    B: ExecuteQueryBuilderWithScratch<SS, O, K>,
 {
     /// Executes the configured query with caller-owned reusable scratch storage.
     #[inline]
-    pub fn execute(self) -> <B as ExecuteQueryBuilderWithScratch<SS, O>>::Output {
+    pub fn execute(self) -> <B as ExecuteQueryBuilderWithScratch<SS, O, K>>::Output {
         self.builder.execute_with_scratch(self.scratch)
     }
 }
@@ -1645,6 +1645,7 @@ impl<
         >,
         SS,
         D::Output,
+        K,
     >
 where
     A: Axis<Coord = A> + 'static,
@@ -1659,7 +1660,7 @@ where
         + BacktrackBlock4
         + TlsLeafScratch
         + 'static,
-    SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+    SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
     I: ProjectionField<T> + 'a,
     Dp: ProjectionField<D::Output> + 'a,
 {
@@ -1765,7 +1766,7 @@ where
         + BacktrackBlock4
         + TlsLeafScratch
         + 'static,
-    SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+    SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
     I: ProjectionField<T>,
     Dp: ProjectionField<D::Output>,
     Family: ConfigurableScratchQueryFamily,
@@ -1782,8 +1783,8 @@ where
     #[inline]
     pub fn with_scratch<'s>(
         self,
-        scratch: &'s mut QueryScratch<SS, D::Output>,
-    ) -> ScratchQueryBuilder<'s, Self, SS, D::Output> {
+        scratch: &'s mut QueryScratch<SS, D::Output, K>,
+    ) -> ScratchQueryBuilder<'s, Self, SS, D::Output, K> {
         ScratchQueryBuilder {
             builder: self,
             scratch,
@@ -2176,7 +2177,7 @@ where
         + BacktrackBlock4
         + TlsLeafScratch
         + 'static,
-    SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+    SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
 {
     Inclusive(WithinUnsortedIter<'a, Tree, A, T, SS, LS, D, false, K, B>),
     Exclusive(WithinUnsortedIter<'a, Tree, A, T, SS, LS, D, true, K, B>),
@@ -2197,7 +2198,7 @@ where
         + BacktrackBlock4
         + TlsLeafScratch
         + 'static,
-    SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+    SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
 {
     type Item = QueryResultItem<(), T, D::Output>;
 
@@ -2223,9 +2224,9 @@ pub(crate) fn boundary_accepts<O: Axis<Coord = O>>(
 }
 
 #[inline(always)]
-fn with_cleared_scratch<SS, O, R>(
-    scratch: &mut QueryScratch<SS, O>,
-    f: impl FnOnce(&mut SS::Stack<O>) -> R,
+fn with_cleared_scratch<SS, O, R, const K: usize>(
+    scratch: &mut QueryScratch<SS, O, K>,
+    f: impl FnOnce(&mut SS::Stack<O, K>) -> R,
 ) -> R
 where
     SS: StemStrategy,
@@ -2500,7 +2501,7 @@ where
     /// assert_eq!(nearest_items, vec![12, 11, 12]);
     /// ```
     #[inline]
-    pub fn create_scratch<D>(&self) -> QueryScratch<SS, D::Output>
+    pub fn create_scratch<D>(&self) -> QueryScratch<SS, D::Output, K>
     where
         D: DistanceMetric<A>,
     {
@@ -2564,7 +2565,7 @@ where
     /// Scratch strategy selection is experimental during the 6.0.0 alpha; see
     /// the [`QueryBuilder` scratch strategy section](QueryBuilder#scratch-strategy).
     #[inline]
-    pub fn create_scratch<D>(&self) -> QueryScratch<SS, D::Output>
+    pub fn create_scratch<D>(&self) -> QueryScratch<SS, D::Output, K>
     where
         D: DistanceMetric<A>,
     {
@@ -3807,7 +3808,7 @@ impl<
         const EXCLUSIVE: bool,
         const K: usize,
         const B: usize,
-    > ExecuteQueryBuilderWithScratch<SS, D::Output>
+    > ExecuteQueryBuilderWithScratch<SS, D::Output, K>
     for QueryBuilder<
         'a,
         Tree,
@@ -3831,14 +3832,14 @@ where
     LS: LeafStrategy<A, T, SS, K, B>,
     Tree: QueryBuilderScratchTreeOps<A, T, SS, LS, K, B>,
     D: QueryMetric<A>,
-    SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+    SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
     I: ProjectionField<T>,
     Dp: ProjectionField<D::Output>,
 {
     type Output = QueryResultItem<(), I::Output, Dp::Output>;
 
     #[inline]
-    fn execute_with_scratch(self, scratch: &mut QueryScratch<SS, D::Output>) -> Self::Output {
+    fn execute_with_scratch(self, scratch: &mut QueryScratch<SS, D::Output, K>) -> Self::Output {
         let (distance, item) = with_cleared_scratch(scratch, |stack| {
             self.tree
                 .qb_nearest_one_with_scratch::<D>(self.query, stack)
@@ -3863,7 +3864,7 @@ impl<
         const EXCLUSIVE: bool,
         const K: usize,
         const B: usize,
-    > ExecuteQueryBuilderWithScratch<SS, D::Output>
+    > ExecuteQueryBuilderWithScratch<SS, D::Output, K>
     for QueryBuilder<
         'a,
         Tree,
@@ -3887,14 +3888,14 @@ where
     LS: LeafStrategy<A, T, SS, K, B>,
     Tree: QueryBuilderScratchTreeOps<A, T, SS, LS, K, B>,
     D: QueryMetric<A>,
-    SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+    SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
     I: ProjectionField<T>,
     Dp: ProjectionField<D::Output>,
 {
     type Output = Vec<QueryResultItem<(), I::Output, Dp::Output>>;
 
     #[inline]
-    fn execute_with_scratch(self, scratch: &mut QueryScratch<SS, D::Output>) -> Self::Output {
+    fn execute_with_scratch(self, scratch: &mut QueryScratch<SS, D::Output, K>) -> Self::Output {
         with_cleared_scratch(scratch, |stack| {
             self.tree
                 .qb_nearest_n_with_scratch::<D>(
@@ -3924,7 +3925,7 @@ impl<
         const EXCLUSIVE: bool,
         const K: usize,
         const B: usize,
-    > ExecuteQueryBuilderWithScratch<SS, D::Output>
+    > ExecuteQueryBuilderWithScratch<SS, D::Output, K>
     for QueryBuilder<
         'a,
         Tree,
@@ -3948,14 +3949,14 @@ where
     LS: LeafStrategy<A, T, SS, K, B>,
     Tree: QueryBuilderScratchTreeOps<A, T, SS, LS, K, B>,
     D: QueryMetric<A>,
-    SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+    SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
     I: ProjectionField<T>,
     Dp: ProjectionField<D::Output>,
 {
     type Output = Vec<QueryResultItem<(), I::Output, Dp::Output>>;
 
     #[inline]
-    fn execute_with_scratch(self, scratch: &mut QueryScratch<SS, D::Output>) -> Self::Output {
+    fn execute_with_scratch(self, scratch: &mut QueryScratch<SS, D::Output, K>) -> Self::Output {
         with_cleared_scratch(scratch, |stack| {
             self.tree
                 .qb_nearest_n_within_with_scratch::<D, EXCLUSIVE>(
@@ -3986,7 +3987,7 @@ impl<
         const EXCLUSIVE: bool,
         const K: usize,
         const B: usize,
-    > ExecuteQueryBuilderWithScratch<SS, D::Output>
+    > ExecuteQueryBuilderWithScratch<SS, D::Output, K>
     for QueryBuilder<
         'a,
         Tree,
@@ -4010,14 +4011,14 @@ where
     LS: LeafStrategy<A, T, SS, K, B>,
     Tree: QueryBuilderScratchTreeOps<A, T, SS, LS, K, B>,
     D: QueryMetric<A>,
-    SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+    SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
     I: ProjectionField<T>,
     Dp: ProjectionField<D::Output>,
 {
     type Output = Vec<QueryResultItem<(), I::Output, Dp::Output>>;
 
     #[inline]
-    fn execute_with_scratch(self, scratch: &mut QueryScratch<SS, D::Output>) -> Self::Output {
+    fn execute_with_scratch(self, scratch: &mut QueryScratch<SS, D::Output, K>) -> Self::Output {
         with_cleared_scratch(scratch, |stack| {
             if SORTED {
                 self.tree
@@ -4058,7 +4059,7 @@ impl<
         const EXCLUSIVE: bool,
         const K: usize,
         const B: usize,
-    > ExecuteQueryBuilderWithScratch<SS, D::Output>
+    > ExecuteQueryBuilderWithScratch<SS, D::Output, K>
     for QueryBuilder<
         'a,
         Tree,
@@ -4088,7 +4089,7 @@ where
         + BacktrackBlock4
         + TlsLeafScratch
         + 'static,
-    SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+    SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
     I: ProjectionField<T>,
     Dp: ProjectionField<D::Output>,
     BestQueryResultItem<(), I::Output, Dp::Output>: Ord,
@@ -4096,7 +4097,7 @@ where
     type Output = BinaryHeap<BestQueryResultItem<(), I::Output, Dp::Output>>;
 
     #[inline]
-    fn execute_with_scratch(self, scratch: &mut QueryScratch<SS, D::Output>) -> Self::Output {
+    fn execute_with_scratch(self, scratch: &mut QueryScratch<SS, D::Output, K>) -> Self::Output {
         with_cleared_scratch(scratch, |stack| {
             self.tree
                 .qb_best_n_within_with_scratch::<D, EXCLUSIVE>(
@@ -4580,7 +4581,7 @@ where
     LS: LeafStrategy<A, T, SS, K, B>,
     Tree: QueryBuilderTreeOps<A, T, SS, LS, K, B>,
     D: QueryMetric<A>,
-    SS::Stack<D::Output>: StackTrait<D::Output, SS> + Default + 'static,
+    SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + Default + 'static,
     P: PointProjectionField<A, K>,
     I: ProjectionField<T>,
     Dp: ProjectionField<D::Output>,
@@ -4703,7 +4704,7 @@ where
         + BacktrackBlock4
         + TlsLeafScratch
         + 'static,
-    SS::Stack<D::Output>: StackTrait<D::Output, SS> + Default + 'static,
+    SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + Default + 'static,
     P: PointProjectionField<A, K>,
     I: ProjectionField<T>,
     Dp: ProjectionField<D::Output>,
@@ -4765,7 +4766,7 @@ where
         + BacktrackBlock4
         + TlsLeafScratch
         + 'static,
-    SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+    SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
     P: PointProjectionField<A, K>,
     I: ProjectionField<T>,
     Dp: ProjectionField<D::Output>,
@@ -4842,7 +4843,7 @@ where
         + BacktrackBlock4
         + TlsLeafScratch
         + 'static,
-    SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+    SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
     P: PointProjectionField<A, K>,
     I: ProjectionField<T>,
     Dp: ProjectionField<D::Output>,
@@ -4919,7 +4920,7 @@ where
         + BacktrackBlock4
         + TlsLeafScratch
         + 'static,
-    SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+    SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
     P: PointProjectionField<A, K>,
     I: ProjectionField<T>,
     Dp: ProjectionField<D::Output>,
@@ -5010,7 +5011,7 @@ where
         + BacktrackBlock4
         + TlsLeafScratch
         + 'static,
-    SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+    SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
     P: PointProjectionField<A, K>,
     I: ProjectionField<T>,
     Dp: ProjectionField<D::Output>,
@@ -5101,7 +5102,7 @@ where
         + BacktrackBlock4
         + TlsLeafScratch
         + 'static,
-    SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+    SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
     P: PointProjectionField<A, K>,
     I: ProjectionField<T>,
     Dp: ProjectionField<D::Output>,
@@ -5184,7 +5185,7 @@ where
         + BacktrackBlock4
         + TlsLeafScratch
         + 'static,
-    SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+    SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
     P: PointProjectionField<A, K>,
     I: ProjectionField<T>,
     Dp: ProjectionField<D::Output>,
@@ -5257,7 +5258,7 @@ where
         + BacktrackBlock4
         + TlsLeafScratch
         + 'static,
-    SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+    SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
     P: PointProjectionField<A, K> + 'a,
     I: ProjectionField<T> + 'a,
     Dp: ProjectionField<D::Output> + 'a,
@@ -5532,7 +5533,7 @@ where
         + BacktrackBlock4
         + TlsLeafScratch
         + 'static,
-    SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+    SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
     P: PointProjectionField<A, K>,
     I: ProjectionField<T>,
     Dp: ProjectionField<D::Output>,

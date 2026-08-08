@@ -17,29 +17,31 @@ pub(crate) const BLOCK3_EXACT_INLINE_DIM_CAPACITY: usize = 16;
 pub struct SimdQueryStack<
     A,
     SS: StemStrategy,
+    const K: usize,
     const INLINE_CAPACITY: usize = DEFAULT_INLINE_SIMD_QUERY_STACK_CAPACITY,
 > {
-    stack: [MaybeUninit<SS::StackContext<A>>; INLINE_CAPACITY],
-    spill: Vec<SS::StackContext<A>>,
+    stack: [MaybeUninit<SS::StackContext<A, K>>; INLINE_CAPACITY],
+    spill: Vec<SS::StackContext<A, K>>,
     len: usize,
 }
 
 #[derive(Debug)]
 pub struct Block3ExactQueryStack<
     A,
-    SS: StemStrategy<StackContext<A> = Block3SimdQueryStackContext<A, SS>>,
+    SS: StemStrategy<StackContext<A, K> = Block3SimdQueryStackContext<A, SS, K>>,
+    const K: usize,
     const INLINE_CAPACITY: usize = BLOCK3_EXACT_INLINE_SIMD_QUERY_STACK_CAPACITY,
 > {
-    stack: [MaybeUninit<Block3SimdQueryStackContext<A, SS>>; INLINE_CAPACITY],
+    stack: [MaybeUninit<Block3SimdQueryStackContext<A, SS, K>>; INLINE_CAPACITY],
     len: usize,
 }
 
-pub trait SimdIntervalStackContext<A, SS: StemStrategy>: Sized {
+pub trait SimdIntervalStackContext<A, SS: StemStrategy, const K: usize>: Sized {
     fn new_single_with_bounds(
         stem_strat: SS,
         dim: usize,
-        lower_bound: A,
-        upper_bound: A,
+        lower_snapshot: [A; K],
+        upper_snapshot: [A; K],
         old_off: A,
         rd: A,
     ) -> Self;
@@ -50,8 +52,8 @@ pub enum Block3ExactStackContextState<A, SS, const K: usize> {
     Single {
         stem_strat: SS,
         dim: usize,
-        lower_bound: A,
-        upper_bound: A,
+        lower_snapshot: [A; K],
+        upper_snapshot: [A; K],
         old_off: A,
         rd: A,
     },
@@ -131,8 +133,8 @@ pub trait Block3ExactStackContext<A, SS: StemStrategy, const K: usize>: Sized {
     fn into_block3_exact_state(self) -> Block3ExactStackContextState<A, SS, K>;
 }
 
-impl<A, SS: StemStrategy, const INLINE_CAPACITY: usize> Default
-    for SimdQueryStack<A, SS, INLINE_CAPACITY>
+impl<A, SS: StemStrategy, const K: usize, const INLINE_CAPACITY: usize> Default
+    for SimdQueryStack<A, SS, K, INLINE_CAPACITY>
 {
     fn default() -> Self {
         Self::new()
@@ -141,9 +143,10 @@ impl<A, SS: StemStrategy, const INLINE_CAPACITY: usize> Default
 
 impl<
         A,
-        SS: StemStrategy<StackContext<A> = Block3SimdQueryStackContext<A, SS>>,
+        SS: StemStrategy<StackContext<A, K> = Block3SimdQueryStackContext<A, SS, K>>,
+        const K: usize,
         const INLINE_CAPACITY: usize,
-    > Default for Block3ExactQueryStack<A, SS, INLINE_CAPACITY>
+    > Default for Block3ExactQueryStack<A, SS, K, INLINE_CAPACITY>
 {
     fn default() -> Self {
         Self::new()
@@ -151,12 +154,12 @@ impl<
 }
 
 #[derive(Debug)]
-pub enum SimdQueryStackContext<A, SS> {
+pub enum SimdQueryStackContext<A, SS, const K: usize> {
     Single {
         stem_strat: SS,
         dim: usize,
-        lower_bound: A,
-        upper_bound: A,
+        lower_snapshot: [A; K],
+        upper_snapshot: [A; K],
         old_off: A,
         rd: A,
     },
@@ -169,8 +172,8 @@ pub enum SimdQueryStackContext<A, SS> {
         pending_mask: u8,
         dim: usize,
         old_off: A,
-        lower_bound: A,
-        upper_bound: A,
+        lower_snapshot: [A; K],
+        upper_snapshot: [A; K],
     },
     DeferredBlock {
         base: SS,
@@ -182,8 +185,8 @@ pub enum SimdQueryStackContext<A, SS> {
         sibling_mask: u8,
         dim: usize,
         old_off: A,
-        lower_bound: A,
-        upper_bound: A,
+        lower_snapshot: [A; K],
+        upper_snapshot: [A; K],
     },
     Block {
         siblings: [SS; 8],
@@ -194,18 +197,18 @@ pub enum SimdQueryStackContext<A, SS> {
         sibling_mask: u8,
         dim: usize,
         old_off: A,
-        lower_bound: A,
-        upper_bound: A,
+        lower_snapshot: [A; K],
+        upper_snapshot: [A; K],
     },
 }
 
 #[derive(Debug)]
-pub enum Block3SimdQueryStackContext<A, SS> {
+pub enum Block3SimdQueryStackContext<A, SS, const K: usize> {
     Single {
         stem_strat: SS,
         dim: usize,
-        lower_bound: A,
-        upper_bound: A,
+        lower_snapshot: [A; K],
+        upper_snapshot: [A; K],
         old_off: A,
         rd: A,
     },
@@ -252,11 +255,11 @@ where
     dst
 }
 
-impl<A, SS: StemStrategy, const INLINE_CAPACITY: usize> StackTrait<A, SS>
-    for SimdQueryStack<A, SS, INLINE_CAPACITY>
+impl<A, SS: StemStrategy, const K: usize, const INLINE_CAPACITY: usize> StackTrait<A, SS, K>
+    for SimdQueryStack<A, SS, K, INLINE_CAPACITY>
 {
     #[inline]
-    fn push(&mut self, item: SS::StackContext<A>) {
+    fn push(&mut self, item: SS::StackContext<A, K>) {
         if self.len < INLINE_CAPACITY {
             unsafe { self.stack.get_unchecked_mut(self.len) }.write(item);
         } else {
@@ -269,7 +272,7 @@ impl<A, SS: StemStrategy, const INLINE_CAPACITY: usize> StackTrait<A, SS>
     }
 
     #[inline]
-    fn pop(&mut self) -> Option<SS::StackContext<A>> {
+    fn pop(&mut self) -> Option<SS::StackContext<A, K>> {
         if self.len == 0 {
             None
         } else {
@@ -298,12 +301,13 @@ impl<A, SS: StemStrategy, const INLINE_CAPACITY: usize> StackTrait<A, SS>
 
 impl<
         A,
-        SS: StemStrategy<StackContext<A> = Block3SimdQueryStackContext<A, SS>>,
+        SS: StemStrategy<StackContext<A, K> = Block3SimdQueryStackContext<A, SS, K>>,
+        const K: usize,
         const INLINE_CAPACITY: usize,
-    > StackTrait<A, SS> for Block3ExactQueryStack<A, SS, INLINE_CAPACITY>
+    > StackTrait<A, SS, K> for Block3ExactQueryStack<A, SS, K, INLINE_CAPACITY>
 {
     #[inline]
-    fn push(&mut self, item: SS::StackContext<A>) {
+    fn push(&mut self, item: SS::StackContext<A, K>) {
         debug_assert!(
             self.len < INLINE_CAPACITY,
             "Block3 exact stack overflow: len={}, capacity={INLINE_CAPACITY}. Increase BLOCK3_EXACT_INLINE_SIMD_QUERY_STACK_CAPACITY.",
@@ -319,7 +323,7 @@ impl<
     }
 
     #[inline]
-    fn pop(&mut self) -> Option<SS::StackContext<A>> {
+    fn pop(&mut self) -> Option<SS::StackContext<A, K>> {
         if self.len == 0 {
             None
         } else {
@@ -337,7 +341,9 @@ impl<
     }
 }
 
-impl<A, SS: StemStrategy, const INLINE_CAPACITY: usize> SimdQueryStack<A, SS, INLINE_CAPACITY> {
+impl<A, SS: StemStrategy, const K: usize, const INLINE_CAPACITY: usize>
+    SimdQueryStack<A, SS, K, INLINE_CAPACITY>
+{
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -348,13 +354,13 @@ impl<A, SS: StemStrategy, const INLINE_CAPACITY: usize> SimdQueryStack<A, SS, IN
     }
 
     #[inline]
-    pub fn push(&mut self, item: SS::StackContext<A>) {
-        <Self as StackTrait<A, SS>>::push(self, item);
+    pub fn push(&mut self, item: SS::StackContext<A, K>) {
+        <Self as StackTrait<A, SS, K>>::push(self, item);
     }
 
     #[inline]
-    pub fn pop(&mut self) -> Option<SS::StackContext<A>> {
-        <Self as StackTrait<A, SS>>::pop(self)
+    pub fn pop(&mut self) -> Option<SS::StackContext<A, K>> {
+        <Self as StackTrait<A, SS, K>>::pop(self)
     }
 
     /// Push directly into inline storage when the caller can prove that this
@@ -365,7 +371,7 @@ impl<A, SS: StemStrategy, const INLINE_CAPACITY: usize> SimdQueryStack<A, SS, IN
     /// `self.len` must be less than `INLINE_CAPACITY`, and the stack must not
     /// currently contain spill entries.
     #[inline(always)]
-    pub(crate) unsafe fn push_inline_unchecked(&mut self, item: SS::StackContext<A>) {
+    pub(crate) unsafe fn push_inline_unchecked(&mut self, item: SS::StackContext<A, K>) {
         debug_assert!(self.spill.is_empty());
         debug_assert!(self.len < INLINE_CAPACITY);
         unsafe { core::hint::assert_unchecked(self.len < INLINE_CAPACITY) };
@@ -384,7 +390,7 @@ impl<A, SS: StemStrategy, const INLINE_CAPACITY: usize> SimdQueryStack<A, SS, IN
     /// The stack must not contain spill entries and `self.len` must not exceed
     /// `INLINE_CAPACITY`.
     #[inline(always)]
-    pub(crate) unsafe fn pop_inline_unchecked(&mut self) -> Option<SS::StackContext<A>> {
+    pub(crate) unsafe fn pop_inline_unchecked(&mut self) -> Option<SS::StackContext<A, K>> {
         debug_assert!(self.spill.is_empty());
         debug_assert!(self.len <= INLINE_CAPACITY);
         unsafe { core::hint::assert_unchecked(self.len <= INLINE_CAPACITY) };
@@ -399,9 +405,10 @@ impl<A, SS: StemStrategy, const INLINE_CAPACITY: usize> SimdQueryStack<A, SS, IN
 
 impl<
         A,
-        SS: StemStrategy<StackContext<A> = Block3SimdQueryStackContext<A, SS>>,
+        SS: StemStrategy<StackContext<A, K> = Block3SimdQueryStackContext<A, SS, K>>,
+        const K: usize,
         const INLINE_CAPACITY: usize,
-    > Block3ExactQueryStack<A, SS, INLINE_CAPACITY>
+    > Block3ExactQueryStack<A, SS, K, INLINE_CAPACITY>
 {
     #[inline]
     pub fn new() -> Self {
@@ -412,18 +419,18 @@ impl<
     }
 
     #[inline]
-    pub fn push(&mut self, item: SS::StackContext<A>) {
-        <Self as StackTrait<A, SS>>::push(self, item);
+    pub fn push(&mut self, item: SS::StackContext<A, K>) {
+        <Self as StackTrait<A, SS, K>>::push(self, item);
     }
 
     #[inline]
-    pub fn pop(&mut self) -> Option<SS::StackContext<A>> {
-        <Self as StackTrait<A, SS>>::pop(self)
+    pub fn pop(&mut self) -> Option<SS::StackContext<A, K>> {
+        <Self as StackTrait<A, SS, K>>::pop(self)
     }
 }
 
-impl<A, SS: StemStrategy, const INLINE_CAPACITY: usize> Drop
-    for SimdQueryStack<A, SS, INLINE_CAPACITY>
+impl<A, SS: StemStrategy, const K: usize, const INLINE_CAPACITY: usize> Drop
+    for SimdQueryStack<A, SS, K, INLINE_CAPACITY>
 {
     fn drop(&mut self) {
         self.clear();
@@ -432,21 +439,22 @@ impl<A, SS: StemStrategy, const INLINE_CAPACITY: usize> Drop
 
 impl<
         A,
-        SS: StemStrategy<StackContext<A> = Block3SimdQueryStackContext<A, SS>>,
+        SS: StemStrategy<StackContext<A, K> = Block3SimdQueryStackContext<A, SS, K>>,
+        const K: usize,
         const INLINE_CAPACITY: usize,
-    > Drop for Block3ExactQueryStack<A, SS, INLINE_CAPACITY>
+    > Drop for Block3ExactQueryStack<A, SS, K, INLINE_CAPACITY>
 {
     fn drop(&mut self) {
         self.clear();
     }
 }
 
-impl<A: Axis<Coord = A>, SS: StemStrategy> SimdQueryStackContext<A, SS> {
-    pub fn new_single<const K: usize>(stem_strat: SS) -> Self {
+impl<A: Axis<Coord = A>, SS: StemStrategy, const K: usize> SimdQueryStackContext<A, SS, K> {
+    pub fn new_single(stem_strat: SS) -> Self {
         Self::Single {
             dim: stem_strat.dim::<K>(),
-            lower_bound: A::min_value(),
-            upper_bound: A::max_value(),
+            lower_snapshot: [A::min_value(); K],
+            upper_snapshot: [A::max_value(); K],
             stem_strat,
             old_off: A::zero(),
             rd: A::zero(),
@@ -462,8 +470,8 @@ impl<A: Axis<Coord = A>, SS: StemStrategy> SimdQueryStackContext<A, SS> {
         sibling_mask: u8,
         dim: usize,
         old_off: A,
-        lower_bound: A,
-        upper_bound: A,
+        lower_snapshot: [A; K],
+        upper_snapshot: [A; K],
     ) -> Self {
         Self::Block {
             siblings,
@@ -474,8 +482,8 @@ impl<A: Axis<Coord = A>, SS: StemStrategy> SimdQueryStackContext<A, SS> {
             sibling_mask,
             dim,
             old_off,
-            lower_bound,
-            upper_bound,
+            lower_snapshot,
+            upper_snapshot,
         }
     }
 
@@ -489,8 +497,8 @@ impl<A: Axis<Coord = A>, SS: StemStrategy> SimdQueryStackContext<A, SS> {
         sibling_mask: u8,
         dim: usize,
         old_off: A,
-        lower_bound: A,
-        upper_bound: A,
+        lower_snapshot: [A; K],
+        upper_snapshot: [A; K],
     ) -> Self {
         Self::DeferredBlock {
             base,
@@ -502,8 +510,8 @@ impl<A: Axis<Coord = A>, SS: StemStrategy> SimdQueryStackContext<A, SS> {
             sibling_mask,
             dim,
             old_off,
-            lower_bound,
-            upper_bound,
+            lower_snapshot,
+            upper_snapshot,
         }
     }
 
@@ -516,8 +524,8 @@ impl<A: Axis<Coord = A>, SS: StemStrategy> SimdQueryStackContext<A, SS> {
         pending_mask: u8,
         dim: usize,
         old_off: A,
-        lower_bound: A,
-        upper_bound: A,
+        lower_snapshot: [A; K],
+        upper_snapshot: [A; K],
     ) -> Self {
         Self::Block3Pending {
             base,
@@ -528,8 +536,8 @@ impl<A: Axis<Coord = A>, SS: StemStrategy> SimdQueryStackContext<A, SS> {
             pending_mask,
             dim,
             old_off,
-            lower_bound,
-            upper_bound,
+            lower_snapshot,
+            upper_snapshot,
         }
     }
 
@@ -538,8 +546,8 @@ impl<A: Axis<Coord = A>, SS: StemStrategy> SimdQueryStackContext<A, SS> {
             Self::Single {
                 stem_strat,
                 dim: _,
-                lower_bound: _,
-                upper_bound: _,
+                lower_snapshot: _,
+                upper_snapshot: _,
                 old_off,
                 rd,
             } => (stem_strat, old_off, rd),
@@ -550,7 +558,7 @@ impl<A: Axis<Coord = A>, SS: StemStrategy> SimdQueryStackContext<A, SS> {
     }
 }
 
-impl<A, SS> SimdIntervalStackContext<A, SS> for SimdQueryStackContext<A, SS>
+impl<A, SS, const K: usize> SimdIntervalStackContext<A, SS, K> for SimdQueryStackContext<A, SS, K>
 where
     SS: StemStrategy,
 {
@@ -558,28 +566,28 @@ where
     fn new_single_with_bounds(
         stem_strat: SS,
         dim: usize,
-        lower_bound: A,
-        upper_bound: A,
+        lower_snapshot: [A; K],
+        upper_snapshot: [A; K],
         old_off: A,
         rd: A,
     ) -> Self {
         Self::Single {
             stem_strat,
             dim,
-            lower_bound,
-            upper_bound,
+            lower_snapshot,
+            upper_snapshot,
             old_off,
             rd,
         }
     }
 }
 
-impl<A: Axis<Coord = A>, SS: StemStrategy> Block3SimdQueryStackContext<A, SS> {
-    pub fn new_single<const K: usize>(stem_strat: SS) -> Self {
+impl<A: Axis<Coord = A>, SS: StemStrategy, const K: usize> Block3SimdQueryStackContext<A, SS, K> {
+    pub fn new_single(stem_strat: SS) -> Self {
         Self::Single {
             dim: stem_strat.dim::<K>(),
-            lower_bound: A::min_value(),
-            upper_bound: A::max_value(),
+            lower_snapshot: [A::min_value(); K],
+            upper_snapshot: [A::max_value(); K],
             stem_strat,
             old_off: A::zero(),
             rd: A::zero(),
@@ -609,8 +617,8 @@ impl<A: Axis<Coord = A>, SS: StemStrategy> Block3SimdQueryStackContext<A, SS> {
             Self::Single {
                 stem_strat,
                 dim: _,
-                lower_bound: _,
-                upper_bound: _,
+                lower_snapshot: _,
+                upper_snapshot: _,
                 old_off,
                 rd,
             } => (stem_strat, old_off, rd),
@@ -619,7 +627,8 @@ impl<A: Axis<Coord = A>, SS: StemStrategy> Block3SimdQueryStackContext<A, SS> {
     }
 }
 
-impl<A, SS, const K: usize> Block3ExactStackContext<A, SS, K> for Block3SimdQueryStackContext<A, SS>
+impl<A, SS, const K: usize> Block3ExactStackContext<A, SS, K>
+    for Block3SimdQueryStackContext<A, SS, K>
 where
     A: Axis<Coord = A>,
     SS: StemStrategy,
@@ -629,7 +638,7 @@ where
     where
         A: Axis<Coord = A>,
     {
-        Block3SimdQueryStackContext::new_single::<K>(stem_strat)
+        Block3SimdQueryStackContext::new_single(stem_strat)
     }
 
     #[inline(always)]
@@ -659,15 +668,15 @@ where
             Self::Single {
                 stem_strat,
                 dim,
-                lower_bound,
-                upper_bound,
+                lower_snapshot,
+                upper_snapshot,
                 old_off,
                 rd,
             } => Block3ExactStackContextState::Single {
                 stem_strat,
                 dim,
-                lower_bound,
-                upper_bound,
+                lower_snapshot,
+                upper_snapshot,
                 old_off,
                 rd,
             },
@@ -689,7 +698,8 @@ where
     }
 }
 
-impl<A, SS> SimdIntervalStackContext<A, SS> for Block3SimdQueryStackContext<A, SS>
+impl<A, SS, const K: usize> SimdIntervalStackContext<A, SS, K>
+    for Block3SimdQueryStackContext<A, SS, K>
 where
     SS: StemStrategy,
 {
@@ -697,23 +707,23 @@ where
     fn new_single_with_bounds(
         stem_strat: SS,
         dim: usize,
-        lower_bound: A,
-        upper_bound: A,
+        lower_snapshot: [A; K],
+        upper_snapshot: [A; K],
         old_off: A,
         rd: A,
     ) -> Self {
         Self::Single {
             stem_strat,
             dim,
-            lower_bound,
-            upper_bound,
+            lower_snapshot,
+            upper_snapshot,
             old_off,
             rd,
         }
     }
 }
 
-impl<A, SS, S> ScalarStackContext<A, S> for SimdQueryStackContext<A, SS> {
+impl<A, SS, S, const K: usize> ScalarStackContext<A, S> for SimdQueryStackContext<A, SS, K> {
     #[inline(always)]
     fn from_parts(_stem_state: S, _old_off: A, _rd: A) -> Self {
         unreachable!("SIMD stack contexts do not support scalar stack packing")
@@ -725,7 +735,7 @@ impl<A, SS, S> ScalarStackContext<A, S> for SimdQueryStackContext<A, SS> {
     }
 }
 
-impl<A, SS, S> ScalarStackContext<A, S> for Block3SimdQueryStackContext<A, SS> {
+impl<A, SS, S, const K: usize> ScalarStackContext<A, S> for Block3SimdQueryStackContext<A, SS, K> {
     #[inline(always)]
     fn from_parts(_stem_state: S, _old_off: A, _rd: A) -> Self {
         unreachable!("SIMD stack contexts do not support scalar stack packing")
@@ -819,8 +829,8 @@ mod tests {
             0b1010_0101,
             2,
             9.5,
-            -10.0,
-            10.0,
+            [-10.0; 3],
+            [10.0; 3],
         );
 
         match ctx {
@@ -833,8 +843,8 @@ mod tests {
                 sibling_mask,
                 dim,
                 old_off,
-                lower_bound,
-                upper_bound,
+                lower_snapshot,
+                upper_snapshot,
             } => {
                 assert_eq!(stored_siblings[0].stem_idx(), siblings[0].stem_idx());
                 assert_eq!(stored_siblings[7].stem_idx(), siblings[7].stem_idx());
@@ -848,8 +858,8 @@ mod tests {
                 assert_eq!(sibling_mask, 0b1010_0101);
                 assert_eq!(dim, 2);
                 assert_eq!(old_off, 9.5);
-                assert_eq!(lower_bound, -10.0);
-                assert_eq!(upper_bound, 10.0);
+                assert_eq!(lower_snapshot, [-10.0; 3]);
+                assert_eq!(upper_snapshot, [10.0; 3]);
             }
             _ => panic!("expected block context"),
         }
@@ -868,8 +878,8 @@ mod tests {
             0b0011_0110,
             1,
             4.25,
-            -12.0,
-            12.0,
+            [-12.0; 3],
+            [12.0; 3],
         );
 
         match ctx {
@@ -882,8 +892,8 @@ mod tests {
                 pending_mask,
                 dim,
                 old_off,
-                lower_bound,
-                upper_bound,
+                lower_snapshot,
+                upper_snapshot,
             } => {
                 assert_eq!(stored_base.stem_idx(), base.stem_idx());
                 assert_eq!(rd_values, [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5]);
@@ -896,8 +906,8 @@ mod tests {
                 assert_eq!(pending_mask, 0b0011_0110);
                 assert_eq!(dim, 1);
                 assert_eq!(old_off, 4.25);
-                assert_eq!(lower_bound, -12.0);
-                assert_eq!(upper_bound, 12.0);
+                assert_eq!(lower_snapshot, [-12.0; 3]);
+                assert_eq!(upper_snapshot, [12.0; 3]);
             }
             _ => panic!("expected block3 pending context"),
         }
@@ -906,11 +916,11 @@ mod tests {
     #[test]
     fn simd_query_stack_context_into_parts_extracts_single_fields() {
         let stem = test_stem();
-        let ctx = SimdQueryStackContext::<f32, TestStem>::Single {
+        let ctx = SimdQueryStackContext::<f32, TestStem, 3>::Single {
             stem_strat: stem.clone(),
             dim: 1,
-            lower_bound: -5.0,
-            upper_bound: 5.0,
+            lower_snapshot: [-5.0; 3],
+            upper_snapshot: [5.0; 3],
             old_off: 1.25,
             rd: 2.5,
         };
@@ -925,11 +935,11 @@ mod tests {
     #[test]
     fn block3_simd_query_stack_context_into_parts_extracts_single_fields() {
         let stem = test_stem();
-        let ctx = Block3SimdQueryStackContext::<f32, TestStem>::Single {
+        let ctx = Block3SimdQueryStackContext::<f32, TestStem, 3>::Single {
             stem_strat: stem.clone(),
             dim: 2,
-            lower_bound: -3.0,
-            upper_bound: 7.0,
+            lower_snapshot: [-3.0; 3],
+            upper_snapshot: [7.0; 3],
             old_off: 0.75,
             rd: 1.5,
         };
@@ -944,24 +954,25 @@ mod tests {
     #[test]
     fn block3_simd_query_stack_context_new_single_with_bounds_sets_single_variant() {
         let stem = test_stem();
-        let ctx = <Block3SimdQueryStackContext<f32, TestStem> as SimdIntervalStackContext<
+        let ctx = <Block3SimdQueryStackContext<f32, TestStem, 3> as SimdIntervalStackContext<
             f32,
             TestStem,
-        >>::new_single_with_bounds(stem.clone(), 2, -4.0, 9.0, 1.0, 3.0);
+            3,
+        >>::new_single_with_bounds(stem.clone(), 2, [-4.0; 3], [9.0; 3], 1.0, 3.0);
 
         match ctx {
             Block3SimdQueryStackContext::Single {
                 stem_strat,
                 dim,
-                lower_bound,
-                upper_bound,
+                lower_snapshot,
+                upper_snapshot,
                 old_off,
                 rd,
             } => {
                 assert_eq!(stem_strat.stem_idx(), stem.stem_idx());
                 assert_eq!(dim, 2);
-                assert_eq!(lower_bound, -4.0);
-                assert_eq!(upper_bound, 9.0);
+                assert_eq!(lower_snapshot, [-4.0; 3]);
+                assert_eq!(upper_snapshot, [9.0; 3]);
                 assert_eq!(old_off, 1.0);
                 assert_eq!(rd, 3.0);
             }

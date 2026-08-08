@@ -20,9 +20,9 @@ macro_rules! impl_donnelly_unrolled_strategy {
             const USES_UNROLLED_SCALAR_TRAVERSAL: bool = true;
 
             type DeferredState = DonnellyCoreDeferred;
-            type StackContext<A> =
+            type StackContext<A, const K: usize> =
                 crate::kd_tree::query_stack::QueryStackContext<A, Self::DeferredState>;
-            type Stack<A> = crate::kd_tree::query_stack::QueryStack<A, Self>;
+            type Stack<A, const K: usize> = crate::kd_tree::query_stack::QueryStack<A, Self, K>;
 
             #[inline(always)]
             fn new(stems_ptr: NonNull<u8>) -> Self {

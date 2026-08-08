@@ -42,8 +42,8 @@ macro_rules! impl_donnelly_simd_descent {
             const SIMD_BLOCK_DESCENT_ON_BACKTRACK: bool = $simd_on_backtrack;
 
             type DeferredState = DonnellyCoreDeferred;
-            type StackContext<A> = QueryStackContext<A, Self::DeferredState>;
-            type Stack<A> = QueryStack<A, Self>;
+            type StackContext<A, const K: usize> = QueryStackContext<A, Self::DeferredState>;
+            type Stack<A, const K: usize> = QueryStack<A, Self, K>;
 
             #[inline(always)]
             fn new(stems_ptr: NonNull<u8>) -> Self {
