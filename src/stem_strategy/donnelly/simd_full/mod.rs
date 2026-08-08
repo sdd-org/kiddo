@@ -400,7 +400,13 @@ where
         lower_bounds[sibling_idx] = effective_lower;
         upper_bounds[sibling_idx] = effective_upper;
 
-        if O::cmp(effective_lower, effective_upper) == std::cmp::Ordering::Greater {
+        // A child whose interval starts at the +inf sentinel sits to the right of a
+        // structural padding pivot, so the subtree does not exist: descending into it
+        // would resolve a leaf index beyond the tree's leaf count. Treat it exactly like
+        // an empty interval so it never enters the backtrack mask.
+        if O::cmp(effective_lower, effective_upper) == std::cmp::Ordering::Greater
+            || O::is_max_value(effective_lower)
+        {
             new_off_values[sibling_idx] = O::max_value();
             rd_values[sibling_idx] = O::max_value();
             continue;
