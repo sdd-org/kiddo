@@ -47,6 +47,14 @@ on:
   # Called by `PR Mergeable` on release PRs, where the full sweep blocks the merge.
   workflow_call:
     inputs:
+      ref:
+        description: >-
+          Git ref to check out. Callers triggered by `issue_comment` run in the context
+          of the default branch, so they must pass the pull request's head ref to fuzz
+          the proposed code rather than master. Empty checks out the triggering ref.
+        required: false
+        default: ""
+        type: string
       cases:
         description: Number of generated tree cases for the exact-query fuzz tests
         required: false
@@ -94,7 +102,7 @@ permissions:
 concurrency:
   # Literal prefix, not `github.workflow`: under `workflow_call` that expands to the
   # calling workflow's name, which would put this in the same group as its caller.
-  group: fuzz-v6-${{ github.ref }}
+  group: fuzz-v6-${{ inputs.ref || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -116,6 +124,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           show-progress: false
+          # Empty falls back to the triggering ref, which is what push and
+          # workflow_dispatch runs want.
+          ref: ${{ inputs.ref }}
 
       - name: Cache Cargo
         uses: actions/cache@v6
