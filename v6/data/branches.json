@@ -72,6 +72,15 @@
     "run_count": 1
   },
   {
+    "benchmark_variant": "construction",
+    "branch_path_key": "fixes-from-fuzzing",
+    "latest_run_id": "20260808T210418Z-43fe39306ae7",
+    "latest_run_page_path": "branches/fixes-from-fuzzing/history/20260808T210418Z-43fe39306ae7/index.html",
+    "latest_run_page_url": "https://sdd-org.github.io/kiddo/v6/branches/fixes-from-fuzzing/history/20260808T210418Z-43fe39306ae7/index.html",
+    "ref_name": "fixes-from-fuzzing",
+    "run_count": 1
+  },
+  {
     "benchmark_variant": "basic",
     "branch_path_key": "perf-threshold-vec-res-col-linear-insertion",
     "latest_run_id": "20260721T070908Z-bef5d8efa605",
