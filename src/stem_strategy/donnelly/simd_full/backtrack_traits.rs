@@ -692,11 +692,8 @@ where
         // Compute interval distance
         let interval_dist = interval_distance_1d::<A>(query_wide, lower_val, upper_val);
 
-        // Update rd via per-dimension contribution swap:
-        // rd_far = rd - dist1(old_off, 0) + dist1(new_off, 0)
-        let old_dist1 = D::dist1(old_off, A::zero());
-        let new_dist1 = D::dist1(interval_dist, A::zero());
-        let rd_far = rd - old_dist1 + new_dist1;
+        // Update rd by swapping this dimension's contribution for the new one.
+        let rd_far = D::rect_dist_after_axis_update(rd, old_off, interval_dist);
 
         if rd_far <= best_dist {
             mask |= 1 << sibling_idx;
@@ -762,12 +759,11 @@ where
             continue;
         }
 
+        // Deliberately not raised to `old_off`; see `selected_block3_child_state_and_rd`.
         let new_off = interval_distance_1d(query_wide, effective_lower, effective_upper);
         new_off_values[sibling_idx as usize] = new_off;
 
-        let old_dist1 = D::dist1(old_off, O::zero());
-        let new_dist1 = D::dist1(new_off, O::zero());
-        let rd_far = O::saturating_add(rd - old_dist1, new_dist1);
+        let rd_far = D::rect_dist_after_axis_update(rd, old_off, new_off);
         rd_values[sibling_idx as usize] = rd_far;
 
         if rd_far <= best_dist {
@@ -826,9 +822,7 @@ where
         }
 
         let new_off = interval_distance_1d(query_wide, effective_lower, effective_upper);
-        let old_dist1 = D::dist1(old_off, O::zero());
-        let new_dist1 = D::dist1(new_off, O::zero());
-        let rd_far = O::saturating_add(rd - old_dist1, new_dist1);
+        let rd_far = D::rect_dist_after_axis_update(rd, old_off, new_off);
 
         if rd_far <= best_dist {
             mask |= 1 << sibling_idx;
@@ -882,11 +876,8 @@ where
         // Compute interval distance
         let interval_dist = interval_distance_1d::<A>(query_wide, lower_val, upper_val);
 
-        // Update rd via per-dimension contribution swap:
-        // rd_far = rd - dist1(old_off, 0) + dist1(new_off, 0)
-        let old_dist1 = D::dist1(old_off, A::zero());
-        let new_dist1 = D::dist1(interval_dist, A::zero());
-        let rd_far = rd - old_dist1 + new_dist1;
+        // Update rd by swapping this dimension's contribution for the new one.
+        let rd_far = D::rect_dist_after_axis_update(rd, old_off, interval_dist);
 
         if rd_far <= best_dist {
             mask |= 1 << sibling_idx;

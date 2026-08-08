@@ -350,9 +350,7 @@ where
         parent_lower_bound,
         parent_upper_bound,
     );
-    let new_dist1 = D::dist1(new_off, O::zero());
-    let old_dist1 = D::dist1(old_off, O::zero());
-    let rd_far = O::saturating_add(rd - old_dist1, new_dist1);
+    let rd_far = D::rect_dist_after_axis_update(rd, old_off, new_off);
 
     (rd_far, new_off, effective_lower, effective_upper)
 }
@@ -377,7 +375,6 @@ where
     O: Axis<Coord = O>,
     D: crate::dist::DistanceMetricCore<A, Output = O>,
 {
-    let old_dist1 = D::dist1(old_off, O::zero());
     let mut mask = 0u16;
 
     for sibling_idx in 0..16 {
@@ -412,8 +409,7 @@ where
         let new_off = interval_distance_1d(query_wide, effective_lower, effective_upper);
         new_off_values[sibling_idx] = new_off;
 
-        let new_dist1 = D::dist1(new_off, O::zero());
-        let rd_far = O::saturating_add(rd - old_dist1, new_dist1);
+        let rd_far = D::rect_dist_after_axis_update(rd, old_off, new_off);
         rd_values[sibling_idx] = rd_far;
 
         if O::cmp(rd_far, best_dist) != std::cmp::Ordering::Greater {
