@@ -50,6 +50,7 @@ where
             max_leaf_len,
             leaf_scratch,
             item_at,
+            [A::max_value(); K],
         )
     }
 }
@@ -76,6 +77,7 @@ where
         max_leaf_len: &mut usize,
         leaf_scratch: &mut ConstructionLeafScratch<A, T, K>,
         item_at: &mut FI,
+        upper_bounds: [A; K],
     ) -> Result<(), ConstructionError>
     where
         I: ConstructionIndex,
@@ -125,13 +127,27 @@ where
             (left_leaf_budget, right_leaf_budget, pivot)
         };
 
-        if pivot < chunk_length {
-            debug_assert!(
-                A::Coord::is_max_value(stems[stem_index]),
-                "Wrote to stem #{stem_index:?} for a second time",
-            );
-            stems[stem_index] = axis_at(&source[sort_index[pivot].as_usize()], dim);
-        }
+        debug_assert!(
+            A::Coord::is_max_value(stems[stem_index]),
+            "Wrote to stem #{stem_index:?} for a second time",
+        );
+
+        // Nodes that cannot split (an unsplittable run, or a subtree with a single leaf
+        // budget) send every query left. Storing this node's own interval upper bound for
+        // its split dimension rather than leaving the +inf sentinel keeps the pivots
+        // non-decreasing in key order, which the block-at-once SIMD descent relies on: it
+        // derives the child index by counting the pivots in a block that are <= the query
+        // value. A query that reaches this node is always below the bound, so it still
+        // descends left, exactly as it would have against the sentinel.
+        let pivot_value = if pivot < chunk_length {
+            axis_at(&source[sort_index[pivot].as_usize()], dim)
+        } else {
+            upper_bounds[dim]
+        };
+        stems[stem_index] = pivot_value;
+
+        let mut left_upper_bounds = upper_bounds;
+        left_upper_bounds[dim] = pivot_value;
 
         let right_stem_ordering = stem_ordering.branch::<A, K>();
         let split_idx = pivot.min(chunk_length);
@@ -150,6 +166,7 @@ where
             max_leaf_len,
             leaf_scratch,
             item_at,
+            left_upper_bounds,
         )?;
 
         Self::populate_recursive_soft(
@@ -165,6 +182,7 @@ where
             max_leaf_len,
             leaf_scratch,
             item_at,
+            upper_bounds,
         )?;
 
         Ok(())
