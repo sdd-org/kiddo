@@ -1,0 +1,106 @@
+name: CI
+
+# Single aggregated status for branch protection. `needs:` cannot reach across
+# workflows, so every check that must block a merge is invoked from here as a
+# reusable workflow and collected by the final `PR Mergeable` job. Configure the
+# repository to require only that check.
+#
+# Which checks block depends on the kind of PR: release PRs additionally run the
+# full v6 fuzz suite, including the long-running sweeps that ordinary CI marks
+# `#[ignore]`. release-plz labels its PRs via `pr_labels` in release-plz.toml.
+#
+# Checks deliberately left outside this gate, because they are advisory or carry
+# their own semantics: Test Coverage, CodeQL, Dependency Review.
+#
+# A nested check is reported as `<this workflow> / <job id> / <job in the called
+# workflow>`. Naming this workflow `CI` and the calling jobs after the workflows they
+# call keeps that reading identical to a push run - `CI / Common / Commit Lint` - since
+# the called workflows are themselves named `CI / Common` and friends.
+
+on:
+  pull_request:
+    branches:
+      - "**"
+    # `labeled`/`unlabeled` matter because the release-PR decision below reads the
+    # labels: a PR that gains or loses the `release` label must re-evaluate.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+concurrency:
+  group: pr-mergeable-${{ github.ref }}
+  cancel-in-progress: true
+
+# A called workflow's permissions can only narrow the caller's, never widen them, so
+# this must cover the union of what the called workflows ask for: `pull-requests: read`
+# for commit linting, `checks: write` for the clippy annotations. Each called job still
+# declares its own narrower set.
+permissions:
+  contents: read
+  pull-requests: read
+  checks: write
+
+jobs:
+  Common:
+    uses: ./.github/workflows/build-common.yml
+    secrets: inherit
+
+  Stable:
+    uses: ./.github/workflows/build-stable.yml
+    secrets: inherit
+
+  Nightly:
+    uses: ./.github/workflows/build-nightly.yml
+    secrets: inherit
+
+  MSRV:
+    uses: ./.github/workflows/build-msrv.yml
+    secrets: inherit
+
+  WASM:
+    uses: ./.github/workflows/wasm.yml
+    secrets: inherit
+
+  Fuzz:
+    # Release PRs only. The sweeps take far too long for every feature PR, and the
+    # non-ignored fuzz tests already run as part of the normal test job.
+    #
+    # Two signals, either of which marks a release PR: the `release` label from
+    # `pr_labels` in release-plz.toml, and the branch release-plz pushes to. The label
+    # alone would stop gating if someone removed it by hand.
+    if: >-
+      contains(github.event.pull_request.labels.*.name, 'release')
+      || startsWith(github.head_ref, 'release-plz-')
+    uses: ./.github/workflows/fuzz-v6.yml
+    secrets: inherit
+
+  pr-mergeable:
+    name: PR Mergeable
+    needs: [Common, Stable, Nightly, MSRV, WASM, Fuzz]
+    # Runs even when a dependency fails, so the status is always reported and
+    # branch protection never waits forever on a check that will not arrive.
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify every required check passed
+        env:
+          # `needs` carries each dependency's result: success, failure, cancelled
+          # or skipped. Passed as JSON rather than interpolated into the script so
+          # a job name can never be read as shell.
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+
+          # `skipped` is a pass: `fuzz` is skipped on every non-release PR, by design.
+          # Anything that ran and did not succeed blocks the merge.
+          blocking=$(echo "$NEEDS" | jq -r '
+            to_entries[]
+            | select(.value.result == "failure" or .value.result == "cancelled")
+            | .key
+          ')
+
+          if [ -n "$blocking" ]; then
+            echo "::error::Required checks did not pass: $(echo "$blocking" | tr '\n' ' ')"
+            exit 1
+          fi
+
+          echo "All required checks passed."
