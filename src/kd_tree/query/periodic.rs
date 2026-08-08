@@ -171,8 +171,8 @@ where
         + BacktrackBlock4
         + crate::leaf_view::TlsLeafScratch
         + 'static,
-    SS::Stack<D::Output>:
-        crate::kd_tree::query_stack::StackTrait<D::Output, SS> + Default + 'static,
+    SS::Stack<D::Output, K>:
+        crate::kd_tree::query_stack::StackTrait<D::Output, SS, K> + Default + 'static,
 {
     assert!(
         A::periodic_box_is_valid(box_size),

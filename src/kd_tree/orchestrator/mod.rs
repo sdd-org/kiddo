@@ -218,7 +218,7 @@ where
             + BacktrackBlock3
             + BacktrackBlock4,
         D: DistanceMetric<A, Output = O>,
-        SS::Stack<O>: StackTrait<O, SS> + Default,
+        SS::Stack<O, K>: StackTrait<O, SS, K> + Default,
     {
         if self.stem_leaf_resolution().uses_arithmetic() && SS::SUPPORTS_ARITHMETIC_LEAF_RESOLUTION
         {
@@ -226,7 +226,7 @@ where
             return;
         }
 
-        let mut stack = SS::Stack::<O>::default();
+        let mut stack = SS::Stack::<O, K>::default();
         self.backtracking_query_with_scratch::<QC, O, D>(query_ctx, &mut stack, process_leaf);
     }
 
@@ -235,7 +235,7 @@ where
     fn backtracking_query_with_scratch<QC, O, D>(
         &self,
         query_ctx: &mut QC,
-        stack: &mut SS::Stack<O>,
+        stack: &mut SS::Stack<O, K>,
         process_leaf: impl FnMut(usize, &[O; K], &mut QC),
     ) where
         QC: QueryContext<A, O, K>,
@@ -245,7 +245,7 @@ where
             + BacktrackBlock3
             + BacktrackBlock4,
         D: DistanceMetric<A, Output = O>,
-        SS::Stack<O>: StackTrait<O, SS>,
+        SS::Stack<O, K>: StackTrait<O, SS, K>,
     {
         if self.stem_leaf_resolution().uses_arithmetic() && SS::SUPPORTS_ARITHMETIC_LEAF_RESOLUTION
         {
@@ -268,14 +268,14 @@ where
     fn backtracking_query_with_scratch_impl<QC, O, D>(
         &self,
         query_ctx: &mut QC,
-        stack: &mut SS::Stack<O>,
+        stack: &mut SS::Stack<O, K>,
         mut process_leaf: impl FnMut(usize, &[O; K], &mut QC),
     ) where
         QC: QueryContext<A, O, K>,
         O: Axis<Coord = O> + BacktrackBlock3 + BacktrackBlock4,
         D: DistanceMetric<A, Output = O>,
-        SS::Stack<O>: StackTrait<O, SS>,
-        SS::StackContext<O>: ScalarStackContext<O, SS::DeferredState>,
+        SS::Stack<O, K>: StackTrait<O, SS, K>,
+        SS::StackContext<O, K>: ScalarStackContext<O, SS::DeferredState>,
     {
         let stems_ptr = NonNull::new(self.stems().as_ptr() as *mut u8).unwrap();
         let mut stem_strat: SS = SS::new(stems_ptr);
@@ -287,7 +287,7 @@ where
         }
 
         let mut off = [O::zero(); K];
-        stack.push(SS::StackContext::<O>::from_parts(
+        stack.push(SS::StackContext::<O, K>::from_parts(
             stem_strat.deferred_state(),
             O::zero(),
             O::zero(),
@@ -302,7 +302,7 @@ where
             crate::results::exact_query_stats::record_scalar_stack_pop();
 
             let (stem_state, restore_dim, old_off, rd) =
-                SS::StackContext::<O>::into_parts_with_restore_dim(stack_ctx);
+                SS::StackContext::<O, K>::into_parts_with_restore_dim(stack_ctx);
             stem_strat.rehydrate_deferred_state(stem_state);
             let mut dim = stem_strat.dim::<K>();
             let restore_dim = restore_dim.unwrap_or(dim);
@@ -361,9 +361,9 @@ where
             + BacktrackBlock3
             + BacktrackBlock4,
         D: DistanceMetric<A, Output = O>,
-        SS::Stack<O>: StackTrait<O, SS> + Default,
+        SS::Stack<O, K>: StackTrait<O, SS, K> + Default,
     {
-        let mut stack = SS::Stack::<O>::default();
+        let mut stack = SS::Stack::<O, K>::default();
         self.arithmetic_query_with_scratch::<QC, O, D>(query_ctx, &mut stack, process_leaf);
     }
 
@@ -372,7 +372,7 @@ where
     fn arithmetic_query_with_scratch<QC, O, D>(
         &self,
         query_ctx: &mut QC,
-        stack: &mut SS::Stack<O>,
+        stack: &mut SS::Stack<O, K>,
         process_leaf: impl FnMut(usize, &[O; K], &mut QC),
     ) where
         QC: QueryContext<A, O, K>,
@@ -382,8 +382,8 @@ where
             + BacktrackBlock3
             + BacktrackBlock4,
         D: DistanceMetric<A, Output = O>,
-        SS::Stack<O>: StackTrait<O, SS>,
-        SS::StackContext<O>: ScalarStackContext<O, SS::DeferredState>,
+        SS::Stack<O, K>: StackTrait<O, SS, K>,
+        SS::StackContext<O, K>: ScalarStackContext<O, SS::DeferredState>,
     {
         SS::arithmetic_query_with_scratch::<Self, A, T, O, D, QC, LS, K, B>(
             self,
@@ -399,13 +399,13 @@ where
     fn arithmetic_query_with_scratch_impl<QC, O, D>(
         &self,
         query_ctx: &mut QC,
-        stack: &mut SS::Stack<O>,
+        stack: &mut SS::Stack<O, K>,
         mut process_leaf: impl FnMut(usize, &[O; K], &mut QC),
     ) where
         QC: QueryContext<A, O, K>,
         O: Axis<Coord = O> + BacktrackBlock3 + BacktrackBlock4,
         D: DistanceMetric<A, Output = O>,
-        SS::Stack<O>: StackTrait<O, SS>,
+        SS::Stack<O, K>: StackTrait<O, SS, K>,
     {
         if self.size() == 0 {
             return;
@@ -785,13 +785,13 @@ where
         dim: &mut usize,
         rd: O,
         best_dist: O,
-        stack: &mut SS::Stack<O>,
+        stack: &mut SS::Stack<O, K>,
     ) -> Option<usize>
     where
         O: Axis<Coord = O> + BacktrackBlock3 + BacktrackBlock4,
         D: DistanceMetric<A, Output = O>,
-        SS::Stack<O>: StackTrait<O, SS>,
-        SS::StackContext<O>: ScalarStackContext<O, SS::DeferredState>,
+        SS::Stack<O, K>: StackTrait<O, SS, K>,
+        SS::StackContext<O, K>: ScalarStackContext<O, SS::DeferredState>,
     {
         loop {
             // Check if current stem points directly to a leaf
@@ -820,20 +820,6 @@ where
             }
         }
 
-        // if !self.subtree_may_contain_leaf(
-        //     stem_strat.stem_idx(),
-        //     stem_strat.level(),
-        //     stem_strat.leaf_idx(),
-        // ) {
-        //     tracing::warn!(
-        //         stem_idx = stem_strat.stem_idx(),
-        //         level = stem_strat.level(),
-        //         leaf_idx_prefix = stem_strat.leaf_idx(),
-        //         "traverse_to_leaf reached structurally invalid subtree; skipping leaf"
-        //     );
-        //     return None;
-        // }
-
         Some(
             self.stem_leaf_resolution()
                 .resolve_terminal_stem_idx(stem_strat.stem_idx(), stem_strat.leaf_idx()),
@@ -846,7 +832,7 @@ where
     fn backtracking_query_with_block3_simd_stack_impl<QC, O, D>(
         &self,
         query_ctx: &mut QC,
-        stack: &mut SS::Stack<O>,
+        stack: &mut SS::Stack<O, K>,
         mut process_leaf: impl FnMut(usize, &[O; K], &mut QC),
     ) where
         QC: QueryContext<A, O, K>,
@@ -857,8 +843,8 @@ where
             + BacktrackBlock4,
         D: DistanceMetric<A, Output = O>,
         SS: StemStrategy + crate::stem_strategy::donnelly::simd_full::DeferredBlockTraversal,
-        SS::StackContext<O>: crate::kd_tree::query_stack_simd::Block3ExactStackContext<O, SS, K>
-            + crate::kd_tree::query_stack_simd::SimdIntervalStackContext<O, SS>,
+        SS::StackContext<O, K>: crate::kd_tree::query_stack_simd::Block3ExactStackContext<O, SS, K>
+            + crate::kd_tree::query_stack_simd::SimdIntervalStackContext<O, SS, K>,
     {
         use crate::kd_tree::query_stack_simd::{
             Block3ExactStackContext, Block3ExactStackContextState,
@@ -874,24 +860,28 @@ where
         }
 
         let mut off = [O::zero(); K];
-        let mut lower = [O::min_value(); K];
-        let mut upper = [O::max_value(); K];
+        // Both are restored from the popped entry's snapshot before any read; the root
+        // entry carries the unbounded slab, so these initial values are never observed.
+        let mut lower: [O; K];
+        let mut upper: [O; K];
 
-        stack.push(
-            <SS::StackContext<O> as Block3ExactStackContext<O, SS, K>>::new_single(stem_strat),
-        );
+        stack.push(<SS::StackContext<O, K> as Block3ExactStackContext<
+            O,
+            SS,
+            K,
+        >>::new_single(stem_strat));
         #[cfg(feature = "result_collection_stats")]
         crate::results::result_collection_stats::record_query_stack_push();
 
         while let Some(ctx) = stack.pop() {
             #[cfg(feature = "result_collection_stats")]
             crate::results::result_collection_stats::record_query_stack_pop();
-            match <SS::StackContext<O> as Block3ExactStackContext<O, SS, K>>::into_block3_exact_state(ctx) {
+            match <SS::StackContext<O, K> as Block3ExactStackContext<O, SS, K>>::into_block3_exact_state(ctx) {
                 Block3ExactStackContextState::Single {
                     stem_strat: mut ss,
                     dim: dim_val,
-                    lower_bound,
-                    upper_bound,
+                    lower_snapshot,
+                    upper_snapshot,
                     old_off,
                     rd,
                 } => {
@@ -921,10 +911,10 @@ where
                         continue;
                     }
 
+                    lower = lower_snapshot;
+                    upper = upper_snapshot;
                     unsafe {
                         *off.get_unchecked_mut(restore_dim) = old_off;
-                        *lower.get_unchecked_mut(restore_dim) = lower_bound;
-                        *upper.get_unchecked_mut(restore_dim) = upper_bound;
                     }
 
                     let best_dist = query_ctx.max_dist();
@@ -1168,7 +1158,7 @@ where
 
                     if remaining_mask != 0 {
                         stack.push(
-                            <SS::StackContext<O> as Block3ExactStackContext<O, SS, K>>::new_block3_pending_from_state(
+                            <SS::StackContext<O, K> as Block3ExactStackContext<O, SS, K>>::new_block3_pending_from_state(
                                 base,
                                 remaining_mask,
                                 rd,
@@ -1215,7 +1205,7 @@ where
     fn backtracking_query_with_simd_stack_impl<QC, O, D>(
         &self,
         query_ctx: &mut QC,
-        stack: &mut SS::Stack<O>,
+        stack: &mut SS::Stack<O, K>,
         mut process_leaf: impl FnMut(usize, &[O; K], &mut QC),
     ) where
         QC: QueryContext<A, O, K>,
@@ -1226,7 +1216,11 @@ where
             + BacktrackBlock4,
         D: DistanceMetric<A, Output = O>,
         SS: StemStrategy<
-                StackContext<O> = crate::kd_tree::query_stack_simd::SimdQueryStackContext<O, SS>,
+                StackContext<O, K> = crate::kd_tree::query_stack_simd::SimdQueryStackContext<
+                    O,
+                    SS,
+                    K,
+                >,
             > + crate::stem_strategy::donnelly::simd_full::DeferredBlockTraversal,
     {
         use crate::kd_tree::query_stack_simd::SimdQueryStackContext;
@@ -1241,10 +1235,12 @@ where
         }
 
         let mut off = [O::zero(); K];
-        let mut lower = [O::min_value(); K];
-        let mut upper = [O::max_value(); K];
+        // Both are restored from the popped entry's snapshot before any read; the root
+        // entry carries the unbounded slab, so these initial values are never observed.
+        let mut lower: [O; K];
+        let mut upper: [O; K];
 
-        stack.push(SimdQueryStackContext::new_single::<K>(stem_strat));
+        stack.push(SimdQueryStackContext::new_single(stem_strat));
         #[cfg(feature = "result_collection_stats")]
         crate::results::result_collection_stats::record_query_stack_push();
 
@@ -1256,8 +1252,8 @@ where
                 SimdQueryStackContext::Single {
                     stem_strat: mut ss,
                     dim: dim_val,
-                    lower_bound,
-                    upper_bound,
+                    lower_snapshot,
+                    upper_snapshot,
                     old_off,
                     rd,
                 } => {
@@ -1288,10 +1284,10 @@ where
                     tracing::trace!(%rd, %max_dist, "SIMD Prune check: VISIT");
 
                     tracing::trace!("Restoring interval state for dim {}", restore_dim);
+                    lower = lower_snapshot;
+                    upper = upper_snapshot;
                     unsafe {
                         *off.get_unchecked_mut(restore_dim) = old_off;
-                        *lower.get_unchecked_mut(restore_dim) = lower_bound;
-                        *upper.get_unchecked_mut(restore_dim) = upper_bound;
                     }
 
                     let best_dist = query_ctx.max_dist();
@@ -1320,8 +1316,8 @@ where
                     pending_mask,
                     dim: dim_val,
                     old_off,
-                    lower_bound,
-                    upper_bound,
+                    lower_snapshot,
+                    upper_snapshot,
                 } => {
                     tracing::trace!(
                         %dim_val,
@@ -1332,9 +1328,9 @@ where
                     );
                     unsafe {
                         *off.get_unchecked_mut(dim_val) = old_off;
-                        *lower.get_unchecked_mut(dim_val) = lower_bound;
-                        *upper.get_unchecked_mut(dim_val) = upper_bound;
                     }
+                    lower = lower_snapshot;
+                    upper = upper_snapshot;
 
                     let Some(selection) = select_block3_pending_child(
                         &rd_values,
@@ -1357,8 +1353,8 @@ where
                             selection.remaining_mask,
                             dim_val,
                             old_off,
-                            lower_bound,
-                            upper_bound,
+                            lower,
+                            upper,
                         ));
                         #[cfg(feature = "result_collection_stats")]
                         crate::results::result_collection_stats::record_query_stack_push();
@@ -1401,16 +1397,16 @@ where
                     sibling_mask,
                     dim: dim_val,
                     old_off,
-                    lower_bound,
-                    upper_bound,
+                    lower_snapshot,
+                    upper_snapshot,
                 } => {
                     tracing::trace!(%dim_val, %old_off, ?rd_values, %sibling_mask, "Popped block context");
                     // Restore the parent split-dimension offset captured for this block context.
                     unsafe {
                         *off.get_unchecked_mut(dim_val) = old_off;
-                        *lower.get_unchecked_mut(dim_val) = lower_bound;
-                        *upper.get_unchecked_mut(dim_val) = upper_bound;
                     }
+                    lower = lower_snapshot;
+                    upper = upper_snapshot;
 
                     // SIMD pruning: check which siblings pass the backtrack test
                     let max_dist = query_ctx.max_dist();
@@ -1440,20 +1436,6 @@ where
                             let mut ss = siblings[sibling_idx];
                             let rd = rd_values[sibling_idx];
                             let new_off = new_off_values[sibling_idx];
-                            // if !self.subtree_may_contain_leaf(
-                            //     ss.stem_idx(),
-                            //     ss.level(),
-                            //     ss.leaf_idx(),
-                            // ) {
-                            //     tracing::warn!(
-                            //         sibling_idx,
-                            //         stem_idx = ss.stem_idx(),
-                            //         leaf_idx_prefix = ss.leaf_idx(),
-                            //         level = ss.level(),
-                            //         "SIMD block sibling points to structurally invalid leaf-prefix subtree; skipping"
-                            //     );
-                            //     continue;
-                            // }
                             let mut dim = ss.dim::<K>();
 
                             // Restore off array to saved state, then update the split dimension
@@ -1506,8 +1488,8 @@ where
                     sibling_mask,
                     dim: dim_val,
                     old_off,
-                    lower_bound,
-                    upper_bound,
+                    lower_snapshot,
+                    upper_snapshot,
                 } => {
                     tracing::trace!(
                         %dim_val,
@@ -1519,9 +1501,9 @@ where
                     );
                     unsafe {
                         *off.get_unchecked_mut(dim_val) = old_off;
-                        *lower.get_unchecked_mut(dim_val) = lower_bound;
-                        *upper.get_unchecked_mut(dim_val) = upper_bound;
                     }
+                    lower = lower_snapshot;
+                    upper = upper_snapshot;
 
                     let max_dist = query_ctx.max_dist();
                     let surviving_mask =
@@ -1590,13 +1572,14 @@ where
         dim: &mut usize,
         rd: O,
         best_dist: O,
-        stack: &mut SS::Stack<O>,
+        stack: &mut SS::Stack<O, K>,
     ) -> Option<usize>
     where
         O: Axis<Coord = O> + SimdSelectBestChildBlock3 + BacktrackBlock3 + BacktrackBlock4,
         D: DistanceMetric<A, Output = O>,
         SS: StemStrategy + crate::stem_strategy::donnelly::simd_full::DeferredBlockTraversal,
-        SS::StackContext<O>: crate::kd_tree::query_stack_simd::SimdIntervalStackContext<O, SS>,
+        SS::StackContext<O, K>:
+            crate::kd_tree::query_stack_simd::SimdIntervalStackContext<O, SS, K>,
     {
         let use_scalar_step = !self.stem_leaf_resolution().uses_arithmetic()
             && SS::BLOCK_SIZE != 3
@@ -1669,11 +1652,17 @@ where
                             );
 
                         if O::cmp(rd_far, best_dist) != std::cmp::Ordering::Greater {
-                            stack.push(<SS::StackContext<O> as crate::kd_tree::query_stack_simd::SimdIntervalStackContext<O, SS>>::new_single_with_bounds(
+                            // Snapshot every axis' slab, overriding this one with the far
+                            // child's: the other axes cannot be rebuilt on pop.
+                            let mut far_lower_snapshot = *lower;
+                            let mut far_upper_snapshot = *upper;
+                            far_lower_snapshot[dim_val] = far_lower;
+                            far_upper_snapshot[dim_val] = far_upper;
+                            stack.push(<SS::StackContext<O, K> as crate::kd_tree::query_stack_simd::SimdIntervalStackContext<O, SS, K>>::new_single_with_bounds(
                                 far_ctx,
                                 dim_val,
-                                far_lower,
-                                far_upper,
+                                far_lower_snapshot,
+                                far_upper_snapshot,
                                 new_off,
                                 rd_far,
                             ));
@@ -1721,20 +1710,6 @@ where
                 break;
             }
         }
-
-        // if !self.subtree_may_contain_leaf(
-        //     stem_strat.stem_idx(),
-        //     stem_strat.level(),
-        //     stem_strat.leaf_idx(),
-        // ) {
-        //     tracing::warn!(
-        //         stem_idx = stem_strat.stem_idx(),
-        //         level = stem_strat.level(),
-        //         leaf_idx_prefix = stem_strat.leaf_idx(),
-        //         "traverse_to_leaf_simd reached structurally invalid subtree; skipping leaf"
-        //     );
-        //     return None;
-        // }
 
         Some(
             self.stem_leaf_resolution()
@@ -1899,7 +1874,7 @@ mod tests {
             (child2.stem_idx(), 202),
         ]);
 
-        let mut stack = <TestStemStrategy as StemStrategy>::Stack::<f64>::default();
+        let mut stack = <TestStemStrategy as StemStrategy>::Stack::<f64, 3>::default();
         let rd_values = [3.0, 1.0, 2.0, 99.0, 99.0, 99.0, 99.0, 99.0];
         let new_off_values = [0.3, 0.1, 0.2, 9.9, 9.9, 9.9, 9.9, 9.9];
         let lower_bounds = [-3.0, -2.0, -1.0, -9.0, -9.0, -9.0, -9.0, -9.0];
@@ -1914,8 +1889,8 @@ mod tests {
             0b0000_0111,
             0,
             0.0,
-            f64::NEG_INFINITY,
-            f64::INFINITY,
+            [f64::NEG_INFINITY; 3],
+            [f64::INFINITY; 3],
         ));
 
         let mut query_ctx = TestQueryContext {
@@ -1943,7 +1918,7 @@ mod tests {
             (siblings[2].stem_idx(), 302),
         ]);
 
-        let mut stack = <TestStemStrategy as StemStrategy>::Stack::<f64>::default();
+        let mut stack = <TestStemStrategy as StemStrategy>::Stack::<f64, 3>::default();
         stack.push(SimdQueryStackContext::new_block(
             siblings,
             [0.1, 99.0, 0.2, 99.0, 99.0, 99.0, 99.0, 99.0],
@@ -1953,8 +1928,8 @@ mod tests {
             0b0000_0101,
             0,
             0.0,
-            f64::NEG_INFINITY,
-            f64::INFINITY,
+            [f64::NEG_INFINITY; 3],
+            [f64::INFINITY; 3],
         ));
 
         let mut query_ctx = TestQueryContext {
@@ -1983,7 +1958,7 @@ mod tests {
             (child2.stem_idx(), 402),
         ]);
 
-        let mut stack = <TestStemStrategy as StemStrategy>::Stack::<f64>::default();
+        let mut stack = <TestStemStrategy as StemStrategy>::Stack::<f64, 3>::default();
         stack.push(SimdQueryStackContext::new_deferred_block(
             root,
             0,
@@ -1994,8 +1969,8 @@ mod tests {
             0b0000_0101,
             0,
             0.0,
-            f64::NEG_INFINITY,
-            f64::INFINITY,
+            [f64::NEG_INFINITY; 3],
+            [f64::INFINITY; 3],
         ));
 
         let mut query_ctx = TestQueryContext {
@@ -2042,9 +2017,9 @@ mod tests {
             },
         };
 
-        let mut stack = <Block3StemStrategy as StemStrategy>::Stack::<f64>::default();
+        let mut stack = <Block3StemStrategy as StemStrategy>::Stack::<f64, 3>::default();
         stack.push(
-            <<Block3StemStrategy as StemStrategy>::StackContext<f64> as Block3ExactStackContext<
+            <<Block3StemStrategy as StemStrategy>::StackContext<f64, 3> as Block3ExactStackContext<
                 f64,
                 Block3StemStrategy,
                 3,

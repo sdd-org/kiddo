@@ -612,7 +612,7 @@ fn run_v6_mutable_case_f64<const K: usize, const B: usize, SO>(
 ) -> Result<(), String>
 where
     SO: StemStrategy + 'static,
-    <SO as StemStrategy>::Stack<f64>: 'static,
+    <SO as StemStrategy>::Stack<f64, K>: 'static,
 {
     let cfg = fuzz_config_from_env();
     let points = generate_points_f64::<K>(params, cfg)?;

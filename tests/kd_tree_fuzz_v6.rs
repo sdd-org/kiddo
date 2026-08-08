@@ -1087,7 +1087,7 @@ fn run_mutable_case_f32<const K: usize, const B: usize, SO>(
     meta: ReproMeta,
 ) where
     SO: StemStrategy + 'static,
-    <SO as StemStrategy>::Stack<f32>: 'static,
+    <SO as StemStrategy>::Stack<f32, 2>: 'static,
 {
     for case_idx in 0..cfg.cases {
         let content_seed = cfg.case_seed(case_idx);
@@ -1486,7 +1486,7 @@ fn run_mutable_case_f64<const K: usize, const B: usize, SO>(
     meta: ReproMeta,
 ) where
     SO: StemStrategy + 'static,
-    <SO as StemStrategy>::Stack<f64>: 'static,
+    <SO as StemStrategy>::Stack<f64, 2>: 'static,
 {
     for case_idx in 0..cfg.cases {
         let content_seed = cfg.case_seed(case_idx);
@@ -1885,7 +1885,7 @@ fn run_immutable_case_f32_with_leaf<const K: usize, const B: usize, SO, LS>(
     meta: ReproMeta,
 ) where
     SO: StemStrategy + 'static,
-    <SO as StemStrategy>::Stack<f32>: 'static,
+    <SO as StemStrategy>::Stack<f32, 2>: 'static,
     LS: LeafStrategy<f32, usize, SO, K, B> + ConstructibleLeafStrategy<f32, usize, SO, K, B> + Sync,
 {
     for case_idx in 0..cfg.cases {
@@ -2279,7 +2279,7 @@ fn run_immutable_case_f32<const K: usize, const B: usize, SO>(
     meta: ReproMeta,
 ) where
     SO: StemStrategy + 'static,
-    <SO as StemStrategy>::Stack<f32>: 'static,
+    <SO as StemStrategy>::Stack<f32, 2>: 'static,
 {
     run_immutable_case_f32_with_leaf::<K, B, SO, FlatVec<f32, usize, K, B>>(cfg, label, meta);
 }
@@ -2290,7 +2290,7 @@ fn run_immutable_case_f32_arenas<const K: usize, const B: usize, SO>(
     meta: ReproMeta,
 ) where
     SO: StemStrategy + 'static,
-    <SO as StemStrategy>::Stack<f32>: 'static,
+    <SO as StemStrategy>::Stack<f32, 2>: 'static,
 {
     run_immutable_case_f32_with_leaf::<K, B, SO, VecOfArenas<f32, usize, K, B>>(cfg, label, meta);
 }
@@ -2301,7 +2301,7 @@ fn run_immutable_case_f64_with_leaf<const K: usize, const B: usize, SO, LS>(
     meta: ReproMeta,
 ) where
     SO: StemStrategy + 'static,
-    <SO as StemStrategy>::Stack<f64>: 'static,
+    <SO as StemStrategy>::Stack<f64, 2>: 'static,
     LS: LeafStrategy<f64, usize, SO, K, B> + ConstructibleLeafStrategy<f64, usize, SO, K, B> + Sync,
 {
     for case_idx in 0..cfg.cases {
@@ -2695,7 +2695,7 @@ fn run_immutable_case_f64<const K: usize, const B: usize, SO>(
     meta: ReproMeta,
 ) where
     SO: StemStrategy + 'static,
-    <SO as StemStrategy>::Stack<f64>: 'static,
+    <SO as StemStrategy>::Stack<f64, 2>: 'static,
 {
     run_immutable_case_f64_with_leaf::<K, B, SO, FlatVec<f64, usize, K, B>>(cfg, label, meta);
 }
@@ -2706,7 +2706,7 @@ fn run_immutable_case_f64_arenas<const K: usize, const B: usize, SO>(
     meta: ReproMeta,
 ) where
     SO: StemStrategy + 'static,
-    <SO as StemStrategy>::Stack<f64>: 'static,
+    <SO as StemStrategy>::Stack<f64, 2>: 'static,
 {
     run_immutable_case_f64_with_leaf::<K, B, SO, VecOfArenas<f64, usize, K, B>>(cfg, label, meta);
 }
@@ -3617,7 +3617,7 @@ fn validate_result_projections_f32<SO, LS, const B: usize>(
     context: &str,
 ) where
     SO: StemStrategy + 'static,
-    <SO as StemStrategy>::Stack<f32>: 'static,
+    <SO as StemStrategy>::Stack<f32, 2>: 'static,
     LS: LeafStrategy<f32, usize, SO, 2, B>,
 {
     let full = tree
@@ -3792,7 +3792,7 @@ fn validate_result_projections_f64<SO, LS, const B: usize>(
     context: &str,
 ) where
     SO: StemStrategy + 'static,
-    <SO as StemStrategy>::Stack<f64>: 'static,
+    <SO as StemStrategy>::Stack<f64, 2>: 'static,
     LS: LeafStrategy<f64, usize, SO, 2, B>,
 {
     let full = tree
@@ -3966,7 +3966,7 @@ fn validate_adversarial_tree_f32<SO, LS, const B: usize>(
     context: &str,
 ) where
     SO: StemStrategy + 'static,
-    <SO as StemStrategy>::Stack<f32>: 'static,
+    <SO as StemStrategy>::Stack<f32, 2>: 'static,
     LS: LeafStrategy<f32, usize, SO, 2, B>,
 {
     let max_qty = ADVERSARIAL_MAX_QTY;
@@ -4263,7 +4263,7 @@ fn validate_adversarial_tree_f64<SO, LS, const B: usize>(
     context: &str,
 ) where
     SO: StemStrategy + 'static,
-    <SO as StemStrategy>::Stack<f64>: 'static,
+    <SO as StemStrategy>::Stack<f64, 2>: 'static,
     LS: LeafStrategy<f64, usize, SO, 2, B>,
 {
     let max_qty = ADVERSARIAL_MAX_QTY;
@@ -4555,7 +4555,7 @@ fn validate_adversarial_tree_f64<SO, LS, const B: usize>(
 fn run_adversarial_immutable_f32_with_leaf<SO, LS>(label: &str)
 where
     SO: StemStrategy + 'static,
-    <SO as StemStrategy>::Stack<f32>: 'static,
+    <SO as StemStrategy>::Stack<f32, 2>: 'static,
     LS: LeafStrategy<f32, usize, SO, 2, ADVERSARIAL_B>
         + ConstructibleLeafStrategy<f32, usize, SO, 2, ADVERSARIAL_B>,
 {
@@ -4596,7 +4596,7 @@ where
 fn run_adversarial_immutable_f32<SO>(label: &str)
 where
     SO: StemStrategy + 'static,
-    <SO as StemStrategy>::Stack<f32>: 'static,
+    <SO as StemStrategy>::Stack<f32, 2>: 'static,
 {
     run_adversarial_immutable_f32_with_leaf::<SO, FlatVec<f32, usize, 2, ADVERSARIAL_B>>(label);
 }
@@ -4604,7 +4604,7 @@ where
 fn run_adversarial_immutable_f32_arenas<SO>(label: &str)
 where
     SO: StemStrategy + 'static,
-    <SO as StemStrategy>::Stack<f32>: 'static,
+    <SO as StemStrategy>::Stack<f32, 2>: 'static,
 {
     run_adversarial_immutable_f32_with_leaf::<SO, VecOfArenas<f32, usize, 2, ADVERSARIAL_B>>(label);
 }
@@ -4612,7 +4612,7 @@ where
 fn run_adversarial_mutable_f32<SO>(label: &str)
 where
     SO: StemStrategy + 'static,
-    <SO as StemStrategy>::Stack<f32>: 'static,
+    <SO as StemStrategy>::Stack<f32, 2>: 'static,
 {
     let queries = adversarial_queries_f32();
 
@@ -4701,7 +4701,7 @@ where
 fn run_adversarial_immutable_f64_with_leaf<SO, LS>(label: &str)
 where
     SO: StemStrategy + 'static,
-    <SO as StemStrategy>::Stack<f64>: 'static,
+    <SO as StemStrategy>::Stack<f64, 2>: 'static,
     LS: LeafStrategy<f64, usize, SO, 2, ADVERSARIAL_B>
         + ConstructibleLeafStrategy<f64, usize, SO, 2, ADVERSARIAL_B>,
 {
@@ -4743,7 +4743,7 @@ where
 fn run_adversarial_immutable_f64<SO>(label: &str)
 where
     SO: StemStrategy + 'static,
-    <SO as StemStrategy>::Stack<f64>: 'static,
+    <SO as StemStrategy>::Stack<f64, 2>: 'static,
 {
     run_adversarial_immutable_f64_with_leaf::<SO, FlatVec<f64, usize, 2, ADVERSARIAL_B>>(label);
 }
@@ -4752,7 +4752,7 @@ where
 fn run_adversarial_immutable_f64_arenas<SO>(label: &str)
 where
     SO: StemStrategy + 'static,
-    <SO as StemStrategy>::Stack<f64>: 'static,
+    <SO as StemStrategy>::Stack<f64, 2>: 'static,
 {
     run_adversarial_immutable_f64_with_leaf::<SO, VecOfArenas<f64, usize, 2, ADVERSARIAL_B>>(label);
 }
@@ -4801,7 +4801,7 @@ fn assert_approx_invariants_f32<SO, LS, const B: usize>(
     context: &str,
 ) where
     SO: StemStrategy + 'static,
-    <SO as StemStrategy>::Stack<f32>: 'static,
+    <SO as StemStrategy>::Stack<f32, 2>: 'static,
     LS: LeafStrategy<f32, usize, SO, 2, B>,
 {
     if entries.is_empty() {
@@ -4928,7 +4928,7 @@ fn assert_approx_invariants_f64<SO, LS, const B: usize>(
     context: &str,
 ) where
     SO: StemStrategy + 'static,
-    <SO as StemStrategy>::Stack<f64>: 'static,
+    <SO as StemStrategy>::Stack<f64, 2>: 'static,
     LS: LeafStrategy<f64, usize, SO, 2, B>,
 {
     if entries.is_empty() {
@@ -5050,7 +5050,7 @@ fn assert_approx_invariants_f64<SO, LS, const B: usize>(
 fn run_approx_hard_immutable_f32<SO>(label: &str)
 where
     SO: StemStrategy + 'static,
-    <SO as StemStrategy>::Stack<f32>: 'static,
+    <SO as StemStrategy>::Stack<f32, 2>: 'static,
 {
     let queries = adversarial_queries_f32();
     for &size in &ADVERSARIAL_SIZES {
@@ -5091,7 +5091,7 @@ where
 fn run_approx_hard_mutable_f32<SO>(label: &str)
 where
     SO: StemStrategy + 'static,
-    <SO as StemStrategy>::Stack<f32>: 'static,
+    <SO as StemStrategy>::Stack<f32, 2>: 'static,
 {
     let queries = adversarial_queries_f32();
     for &size in &ADVERSARIAL_SIZES {
@@ -5176,7 +5176,7 @@ where
 fn run_approx_hard_immutable_f64<SO>(label: &str)
 where
     SO: StemStrategy + 'static,
-    <SO as StemStrategy>::Stack<f64>: 'static,
+    <SO as StemStrategy>::Stack<f64, 2>: 'static,
 {
     let queries = adversarial_queries_f64();
     for &size in &ADVERSARIAL_SIZES {

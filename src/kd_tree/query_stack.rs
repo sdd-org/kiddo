@@ -23,9 +23,9 @@ pub trait ScalarStackContext<A, S>: Sized {
 }
 
 /// Trait for query stack types to enable generic backtracking implementations
-pub trait StackTrait<A, SS: StemStrategy> {
-    fn push(&mut self, item: SS::StackContext<A>);
-    fn pop(&mut self) -> Option<SS::StackContext<A>>;
+pub trait StackTrait<A, SS: StemStrategy, const K: usize> {
+    fn push(&mut self, item: SS::StackContext<A, K>);
+    fn pop(&mut self) -> Option<SS::StackContext<A, K>>;
     fn clear(&mut self);
 }
 
@@ -34,23 +34,23 @@ pub trait StackTrait<A, SS: StemStrategy> {
 /// The concrete stack representation is selected by the stem strategy and is
 /// intentionally hidden so it can keep changing during the v6 alpha cycle.
 #[derive(Debug)]
-pub struct QueryScratch<SS: StemStrategy, O> {
-    stack: SS::Stack<O>,
+pub struct QueryScratch<SS: StemStrategy, O, const K: usize> {
+    stack: SS::Stack<O, K>,
 }
 
-impl<SS: StemStrategy, O> Default for QueryScratch<SS, O> {
+impl<SS: StemStrategy, O, const K: usize> Default for QueryScratch<SS, O, K> {
     #[inline]
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<SS: StemStrategy, O> QueryScratch<SS, O> {
+impl<SS: StemStrategy, O, const K: usize> QueryScratch<SS, O, K> {
     /// Creates empty query traversal scratch storage.
     #[inline]
     pub fn new() -> Self {
         Self {
-            stack: SS::Stack::<O>::default(),
+            stack: SS::Stack::<O, K>::default(),
         }
     }
 
@@ -60,7 +60,7 @@ impl<SS: StemStrategy, O> QueryScratch<SS, O> {
     }
 
     #[inline]
-    pub(crate) fn stack_mut(&mut self) -> &mut SS::Stack<O> {
+    pub(crate) fn stack_mut(&mut self) -> &mut SS::Stack<O, K> {
         &mut self.stack
     }
 }
@@ -121,13 +121,13 @@ pub(crate) struct ScalarContinuationFarStack<
 }
 
 #[derive(Debug)]
-pub struct QueryStack<A, SS: StemStrategy> {
-    stack: [MaybeUninit<SS::StackContext<A>>; INLINE_QUERY_STACK_CAPACITY],
-    spill: Vec<SS::StackContext<A>>,
+pub struct QueryStack<A, SS: StemStrategy, const K: usize> {
+    stack: [MaybeUninit<SS::StackContext<A, K>>; INLINE_QUERY_STACK_CAPACITY],
+    spill: Vec<SS::StackContext<A, K>>,
     len: usize,
 }
 
-impl<A, SS: StemStrategy> Default for QueryStack<A, SS> {
+impl<A, SS: StemStrategy, const K: usize> Default for QueryStack<A, SS, K> {
     fn default() -> Self {
         Self::new()
     }
@@ -159,9 +159,9 @@ pub struct QueryStackContext<A, S> {
     pub rd: A,
 }
 
-impl<A, SS: StemStrategy> StackTrait<A, SS> for QueryStack<A, SS> {
+impl<A, SS: StemStrategy, const K: usize> StackTrait<A, SS, K> for QueryStack<A, SS, K> {
     #[inline]
-    fn push(&mut self, item: SS::StackContext<A>) {
+    fn push(&mut self, item: SS::StackContext<A, K>) {
         if self.len < INLINE_QUERY_STACK_CAPACITY {
             unsafe { self.stack.get_unchecked_mut(self.len) }.write(item);
         } else {
@@ -171,7 +171,7 @@ impl<A, SS: StemStrategy> StackTrait<A, SS> for QueryStack<A, SS> {
     }
 
     #[inline]
-    fn pop(&mut self) -> Option<SS::StackContext<A>> {
+    fn pop(&mut self) -> Option<SS::StackContext<A, K>> {
         if self.len == 0 {
             None
         } else {
@@ -198,7 +198,7 @@ impl<A, SS: StemStrategy> StackTrait<A, SS> for QueryStack<A, SS> {
     }
 }
 
-impl<A, SS: StemStrategy> QueryStack<A, SS> {
+impl<A, SS: StemStrategy, const K: usize> QueryStack<A, SS, K> {
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -209,17 +209,17 @@ impl<A, SS: StemStrategy> QueryStack<A, SS> {
     }
 
     #[inline]
-    pub fn push(&mut self, item: SS::StackContext<A>) {
-        <Self as StackTrait<A, SS>>::push(self, item);
+    pub fn push(&mut self, item: SS::StackContext<A, K>) {
+        <Self as StackTrait<A, SS, K>>::push(self, item);
     }
 
     #[inline]
-    pub fn pop(&mut self) -> Option<SS::StackContext<A>> {
-        <Self as StackTrait<A, SS>>::pop(self)
+    pub fn pop(&mut self) -> Option<SS::StackContext<A, K>> {
+        <Self as StackTrait<A, SS, K>>::pop(self)
     }
 }
 
-impl<A, SS: StemStrategy> Drop for QueryStack<A, SS> {
+impl<A, SS: StemStrategy, const K: usize> Drop for QueryStack<A, SS, K> {
     fn drop(&mut self) {
         self.clear();
     }

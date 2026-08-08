@@ -71,7 +71,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
         F: FnMut(QueryResultItem<(), T, D::Output>),
     {
         let mut req_ctx = WithinUnsortedVisitReqCtx::<A, D::Output, EXCLUSIVE, K> {
@@ -109,7 +109,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
         F: FnMut(QueryResultItem<[A; K], T, D::Output>),
     {
         let mut req_ctx = WithinUnsortedVisitReqCtx::<A, D::Output, EXCLUSIVE, K> {
@@ -139,7 +139,7 @@ where
         query: &[A; K],
         max_dist: D::Output,
         mut visitor: F,
-        stack: &mut SS::Stack<D::Output>,
+        stack: &mut SS::Stack<D::Output, K>,
     ) where
         D: DistanceMetric<A>,
         D::Output: crate::stem_strategy::SimdPrune
@@ -148,7 +148,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
         F: FnMut(QueryResultItem<(), T, D::Output>),
     {
         let mut req_ctx = WithinUnsortedVisitReqCtx::<A, D::Output, EXCLUSIVE, K> {
@@ -199,7 +199,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
     {
         crate::kd_tree::WithinUnsortedIter::new(self, query, max_dist)
     }

@@ -99,7 +99,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
     {
         let max_qty = max_qty.into();
 
@@ -127,7 +127,7 @@ where
         query: &[A; K],
         max_dist: D::Output,
         max_qty: NonZero<usize>,
-        stack: &mut SS::Stack<D::Output>,
+        stack: &mut SS::Stack<D::Output, K>,
     ) -> BinaryHeap<BestQueryResultItem<(), T, D::Output>>
     where
         D: DistanceMetric<A>,
@@ -137,7 +137,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
     {
         let max_qty = max_qty.into();
 
@@ -175,7 +175,7 @@ where
             + TlsLeafScratch
             + 'static,
         R: BestNeighbourResultCollection<D::Output, T>,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
     {
         let mut req_ctx = BestNWithinReqCtx::<A, D::Output, R, EXCLUSIVE, K> {
             query,
@@ -200,7 +200,7 @@ where
         query: &[A; K],
         max_dist: D::Output,
         max_qty: usize,
-        stack: &mut SS::Stack<D::Output>,
+        stack: &mut SS::Stack<D::Output, K>,
     ) -> R
     where
         D: DistanceMetric<A>,
@@ -211,7 +211,7 @@ where
             + TlsLeafScratch
             + 'static,
         R: BestNeighbourResultCollection<D::Output, T>,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
     {
         let mut req_ctx = BestNWithinReqCtx::<A, D::Output, R, EXCLUSIVE, K> {
             query,

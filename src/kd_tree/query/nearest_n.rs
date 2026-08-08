@@ -32,7 +32,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
     {
         self.nearest_n_within::<D>(query, D::Output::max_value(), max_qty, sorted)
     }
@@ -42,7 +42,7 @@ where
         query: &[A; K],
         max_qty: NonZero<usize>,
         sorted: bool,
-        stack: &mut SS::Stack<D::Output>,
+        stack: &mut SS::Stack<D::Output, K>,
     ) -> Vec<QueryResultItem<(), T, D::Output>>
     where
         D: DistanceMetric<A>,
@@ -52,7 +52,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
     {
         self.nearest_n_within_with_scratch::<D>(
             query,

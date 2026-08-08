@@ -39,8 +39,9 @@ impl<const BH: usize> StemStrategy for DonnellyCore<BH> {
     const ROOT_IDX: usize = 0;
 
     type DeferredState = DonnellyCoreDeferred;
-    type StackContext<A> = crate::kd_tree::query_stack::QueryStackContext<A, Self::DeferredState>;
-    type Stack<A> = crate::kd_tree::query_stack::QueryStack<A, Self>;
+    type StackContext<A, const K: usize> =
+        crate::kd_tree::query_stack::QueryStackContext<A, Self::DeferredState>;
+    type Stack<A, const K: usize> = crate::kd_tree::query_stack::QueryStack<A, Self, K>;
 
     #[inline(always)]
     fn new(stems_ptr: NonNull<u8>) -> Self {

@@ -101,7 +101,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
     {
         self.nearest_n_within_impl::<D, false>(query, max_dist, max_qty, sorted)
     }
@@ -112,7 +112,7 @@ where
         max_dist: D::Output,
         max_qty: NonZeroUsize,
         sorted: bool,
-        stack: &mut SS::Stack<D::Output>,
+        stack: &mut SS::Stack<D::Output, K>,
     ) -> Vec<QueryResultItem<(), T, D::Output>>
     where
         D: DistanceMetric<A>,
@@ -122,7 +122,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
     {
         self.nearest_n_within_impl_with_scratch::<D, false>(query, max_dist, max_qty, sorted, stack)
     }
@@ -142,7 +142,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
     {
         let max_qty: usize = max_qty.get();
 
@@ -187,7 +187,7 @@ where
         max_dist: D::Output,
         max_qty: NonZeroUsize,
         sorted: bool,
-        stack: &mut SS::Stack<D::Output>,
+        stack: &mut SS::Stack<D::Output, K>,
     ) -> Vec<QueryResultItem<(), T, D::Output>>
     where
         D: DistanceMetric<A>,
@@ -197,7 +197,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
     {
         let max_qty: usize = max_qty.get();
 
@@ -259,7 +259,7 @@ where
             + BacktrackBlock4
             + TlsLeafScratch
             + 'static,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
     {
         let max_qty = max_qty.get();
         let max_dist = D::Output::max_value();
@@ -297,7 +297,7 @@ where
             + TlsLeafScratch
             + 'static,
         R: ResultCollection<D::Output, QueryResultItem<(), T, D::Output>>,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS> + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
     {
         let mut req_ctx = NearestNWithinReqCtx::<A, T, D::Output, R, EXCLUSIVE, K> {
             query,
@@ -335,7 +335,7 @@ where
         max_qty: usize,
         sorted: bool,
         result_capacity: Option<NonZeroUsize>,
-        stack: &mut SS::Stack<D::Output>,
+        stack: &mut SS::Stack<D::Output, K>,
     ) -> Vec<QueryResultItem<(), T, D::Output>>
     where
         D: DistanceMetric<A>,
@@ -346,7 +346,7 @@ where
             + TlsLeafScratch
             + 'static,
         R: ResultCollection<D::Output, QueryResultItem<(), T, D::Output>>,
-        SS::Stack<D::Output>: StackTrait<D::Output, SS>,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
     {
         let mut req_ctx = NearestNWithinReqCtx::<A, T, D::Output, R, EXCLUSIVE, K> {
             query,

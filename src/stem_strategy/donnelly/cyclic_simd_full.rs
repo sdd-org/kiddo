@@ -415,6 +415,7 @@ fn cyclic_simd_full_arithmetic_query<
     stack: &mut SimdQueryStack<
         O,
         DonnellyCyclicSimdFull<BH>,
+        K,
         CYCLIC_SIMD_FULL_INLINE_QUERY_STACK_CAPACITY,
     >,
     mut process_leaf: impl FnMut(usize, &[O; K], &mut QC),
@@ -433,10 +434,11 @@ fn cyclic_simd_full_arithmetic_query<
     LS: LeafStrategy<A, T, DonnellyCyclicSimdFull<BH>, K, B>,
     DonnellyCyclicSimdFull<BH>: StemStrategy<
         DeferredState = DonnellyCoreDeferred,
-        StackContext<O> = CyclicSimdFullQueryStackContext<O, DonnellyCoreDeferred>,
-        Stack<O> = SimdQueryStack<
+        StackContext<O, K> = CyclicSimdFullQueryStackContext<O, DonnellyCoreDeferred>,
+        Stack<O, K> = SimdQueryStack<
             O,
             DonnellyCyclicSimdFull<BH>,
+            K,
             CYCLIC_SIMD_FULL_INLINE_QUERY_STACK_CAPACITY,
         >,
     >,
@@ -573,8 +575,8 @@ macro_rules! impl_cyclic_simd_full {
             const USES_PREPARED_BLOCK_QUERY: bool = true;
 
             type DeferredState = DonnellyCoreDeferred;
-            type StackContext<A> = $stack_context;
-            type Stack<A> = $stack_type;
+            type StackContext<A, const K: usize> = $stack_context;
+            type Stack<A, const K: usize> = $stack_type;
 
             #[inline(always)]
             fn new(stems_ptr: NonNull<u8>) -> Self {
@@ -776,7 +778,7 @@ macro_rules! impl_cyclic_simd_full {
             >(
                 $tree: &Tree,
                 $query_ctx: &mut QC,
-                $stack: &mut Self::Stack<O>,
+                $stack: &mut Self::Stack<O, K2>,
                 $process_leaf: impl FnMut(usize, &[O; K2], &mut QC),
             ) where
                 Self: Sized,
@@ -792,7 +794,7 @@ macro_rules! impl_cyclic_simd_full {
                 D: DistanceMetric<A, Output = O>,
                 QC: QueryContext<A, O, K2>,
                 LS: LeafStrategy<A, T, Self, K2, B>,
-                Self::Stack<O>: crate::kd_tree::query_stack::StackTrait<O, Self>,
+                Self::Stack<O, K2>: crate::kd_tree::query_stack::StackTrait<O, Self, K2>,
             $arithmetic
         }
     };
@@ -803,7 +805,7 @@ impl_cyclic_simd_full!(
     3,
     1,
     CyclicSimdFullQueryStackContext<A, Self::DeferredState>,
-    SimdQueryStack<A, Self, CYCLIC_SIMD_FULL_INLINE_QUERY_STACK_CAPACITY>,
+    SimdQueryStack<A, Self, K, CYCLIC_SIMD_FULL_INLINE_QUERY_STACK_CAPACITY>,
     tree,
     query_ctx,
     stack,
@@ -822,7 +824,7 @@ impl_cyclic_simd_full!(
     4,
     7,
     CyclicSimdFullQueryStackContext<A, Self::DeferredState>,
-    SimdQueryStack<A, Self, CYCLIC_SIMD_FULL_INLINE_QUERY_STACK_CAPACITY>,
+    SimdQueryStack<A, Self, K, CYCLIC_SIMD_FULL_INLINE_QUERY_STACK_CAPACITY>,
     tree,
     query_ctx,
     stack,
