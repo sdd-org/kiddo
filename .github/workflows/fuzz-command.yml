@@ -4,119 +4,76 @@ name: Fuzz Command
 # `/fuzz` on it. Feature PRs do not fuzz by default because the sweeps are far too
 # slow to sit on every push; this is the escape hatch for when a change warrants it.
 #
-# Any comment *starting* with `/fuzz` triggers a run, so `/fuzz please have a look`
-# works and, harmlessly, so does `/fuzzy`. Expressions have no regex, and matching the
-# body exactly would silently ignore a comment with a stray trailing space.
-#
 # Release PRs do not need this - `PR Mergeable` fuzzes those automatically and blocks
 # the merge on the result.
 #
-# TRUST MODEL: this checks out and executes the pull request's code, so it is limited
-# to commenters with write-ish access (owner, org member, or collaborator). A fork PR
-# can still propose code that runs here, which is why nothing beyond a read-only
-# `GITHUB_TOKEN` is exposed: no `secrets: inherit` on the fuzz call below.
+# Built the same way as the `/benchmark` command in benchmark-report-dispatch.yml:
+# validate the commenter, then `createWorkflowDispatch` the real workflow against the
+# PR's *base* ref, passing the head as inputs. Dispatching against the base ref means
+# the workflow definition always comes from the target branch, never from the proposed
+# code, while the checkout in the dispatched run still fuzzes the PR's head.
+#
+# TRUST MODEL: the dispatched run checks out and executes the pull request's code, so
+# this is limited to commenters with write-ish access. Note this is stricter than
+# `/benchmark`, which also allows CONTRIBUTOR.
 
 on:
   issue_comment:
     types: [created]
 
 permissions:
+  actions: write
   contents: read
-
-concurrency:
-  # Keyed on the PR, so a second `/fuzz` supersedes a run still in flight on the same
-  # pull request rather than queueing behind it.
-  group: fuzz-command-${{ github.event.issue.number }}
-  cancel-in-progress: true
+  pull-requests: write
 
 jobs:
-  authorize:
-    name: Authorize
+  dispatch-fuzz:
     # `issue_comment` fires for issues as well as pull requests; `issue.pull_request`
-    # is only present on the latter. `author_association` is set by GitHub from the
-    # commenter's relationship to the repository and cannot be spoofed by the comment.
-    if: >-
-      github.event.issue.pull_request &&
-      startsWith(github.event.comment.body, '/fuzz') &&
-      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+    # is only present on the latter.
+    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/fuzz')
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      issues: write
-      pull-requests: read
-    outputs:
-      ref: ${{ steps.resolve.outputs.ref }}
-      sha: ${{ steps.resolve.outputs.sha }}
     steps:
-      - name: Acknowledge the request
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh api \
-            --method POST \
-            "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
-            -f content=eyes >/dev/null
+      - name: Validate trigger and dispatch the v6 fuzz suite
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issueNumber = context.payload.issue.number;
+            const comment = context.payload.comment;
+            const association = comment.author_association;
 
-      - name: Resolve the pull request head
-        id: resolve
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.issue.number }}
-        run: |
-          set -euo pipefail
-          sha=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.head.sha')
+            // `author_association` is set by GitHub from the commenter's relationship to
+            // the repository, and cannot be spoofed by the contents of the comment.
+            const allowedAssociations = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
 
-          # `refs/pull/N/head` rather than the bare SHA: it resolves in this repository
-          # for fork pull requests too, where the head SHA lives in the fork.
-          {
-            echo "ref=refs/pull/${PR_NUMBER}/head"
-            echo "sha=${sha}"
-          } >> "$GITHUB_OUTPUT"
+            if (!allowedAssociations.has(association)) {
+              core.setFailed(
+                `/fuzz requires OWNER, MEMBER, or COLLABORATOR status. ${comment.user.login} is ${association}.`
+              );
+              return;
+            }
 
-          echo "Fuzzing PR #${PR_NUMBER} at ${sha}"
+            const { data: pr } = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: issueNumber,
+            });
 
-  fuzz:
-    name: Fuzz
-    needs: authorize
-    # Deliberately no `secrets: inherit` - see the trust model note above.
-    uses: ./.github/workflows/fuzz-v6.yml
-    with:
-      ref: ${{ needs.authorize.outputs.ref }}
+            await github.rest.actions.createWorkflowDispatch({
+              owner,
+              repo,
+              workflow_id: "fuzz-v6.yml",
+              ref: pr.base.ref,
+              inputs: {
+                pr_number: String(pr.number),
+                head_sha: pr.head.sha,
+              },
+            });
 
-  report:
-    name: Report
-    needs: [authorize, fuzz]
-    if: always() && needs.authorize.result == 'success'
-    runs-on: ubuntu-latest
-    permissions:
-      issues: write
-    steps:
-      - name: Comment with the outcome
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RESULT: ${{ needs.fuzz.result }}
-          SHA: ${{ needs.authorize.outputs.sha }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          set -euo pipefail
-          case "$RESULT" in
-            success) summary="✅ v6 fuzz suite passed" ;;
-            cancelled) summary="⚠️ v6 fuzz suite was cancelled" ;;
-            *) summary="❌ v6 fuzz suite failed" ;;
-          esac
-
-          # Built with printf rather than a multi-line shell string: the indentation of
-          # a continued line would be carried into the comment, and four leading spaces
-          # turn a Markdown line into a code block.
-          #
-          # Double quotes with escaped backticks, not single quotes: the backticks are
-          # literal Markdown code spans, and in single quotes shellcheck reads them as a
-          # substitution that will not expand (SC2016).
-          body=$(printf "%s for \`%s\`.\n\n[View run](%s)\n\nOn failure the run uploads \`kd_tree_fuzz_v6_report.txt\` as an artifact, listing the failing seeds. Each is replayable locally with \`just fuzz-case-repro <repro-id>\`." \
-            "$summary" "$SHA" "$RUN_URL")
-
-          gh api \
-            --method POST \
-            "repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments" \
-            -f body="$body" >/dev/null
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: issueNumber,
+              body: `Queued v6 fuzz suite for \`${pr.head.label}\` at \`${pr.head.sha.slice(0, 12)}\`. The run comments back with the result.`,
+            });
