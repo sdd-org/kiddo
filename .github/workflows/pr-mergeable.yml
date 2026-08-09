@@ -30,12 +30,14 @@ concurrency:
   cancel-in-progress: true
 
 # A called workflow's permissions can only narrow the caller's, never widen them, so
-# this must cover the union of what the called workflows ask for: `pull-requests: read`
-# for commit linting, `checks: write` for the clippy annotations. Each called job still
-# declares its own narrower set.
+# this must cover the union of what the called workflows ask for: `checks: write` for
+# the clippy annotations, and `pull-requests: write` because fuzz-v6.yml comments its
+# result back when a `/fuzz` comment dispatched it. Requesting less here does not
+# downgrade the called workflow, it stops the whole run from starting. Each called job
+# still declares its own narrower set.
 permissions:
   contents: read
-  pull-requests: read
+  pull-requests: write
   checks: write
 
 jobs:
