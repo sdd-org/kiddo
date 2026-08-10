@@ -22,13 +22,11 @@
 
 - Block-at-once strats now immutable-only ([@sdd](https://github.com/sdd))
 
-
 ### 🤖 CI
 
 - Aggregate required checks into a single PR Mergeable status ([@sdd](https://github.com/sdd))
 
 - Run the v6 fuzz suite on demand via a /fuzz comment ([@sdd](https://github.com/sdd))
-
 
 ### 🧹 Chore
 
