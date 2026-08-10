@@ -569,6 +569,7 @@ macro_rules! impl_cyclic_simd_full {
         impl StemStrategy for $strategy<$bh> {
             const ROOT_IDX: usize = 0;
             const BLOCK_SIZE: usize = $bh;
+            const TRAVERSES_BLOCK_AT_ONCE: bool = true;
             const SUPPORTS_ARITHMETIC_LEAF_RESOLUTION: bool = true;
             const USES_UNROLLED_SCALAR_TRAVERSAL: bool = true;
             const USES_SIMD_BLOCK_DESCENT: bool = true;

@@ -25,6 +25,8 @@ pub(crate) mod query_stack;
 pub(crate) mod query_stack_simd;
 mod stem_leaf_resolution;
 
+use std::marker::PhantomData;
+
 use aligned_vec::{AVec, CACHELINE_ALIGN};
 use nonmax::NonMaxUsize;
 
@@ -168,6 +170,36 @@ impl From<ConstructionError> for KdTreeConversionError {
     fn from(value: ConstructionError) -> Self {
         Self::Construction(value)
     }
+}
+
+/// Compile-time rejection of stem/leaf strategy pairings that cannot work.
+///
+/// A block-at-once stem strategy descends a whole layout block per step, so it
+/// cannot observe a terminal stem that sits partway through a block. Immutable
+/// trees resolve leaves arithmetically and are unaffected: every leaf sits at the
+/// same depth. A mutable tree resolves through a map keyed on the terminal stem
+/// index, and a block step can stride straight past one and land on an index the
+/// map has no entry for.
+///
+/// Instantiating this for an incompatible pairing fails to compile, which is why
+/// the check hangs off an associated constant rather than a runtime branch.
+pub(crate) struct StemLeafCompatibility<A, T, SS, LS, const K: usize, const B: usize>(
+    PhantomData<(A, T, SS, LS)>,
+);
+
+impl<A, T, SS, LS, const K: usize, const B: usize> StemLeafCompatibility<A, T, SS, LS, K, B>
+where
+    A: Axis<Coord = A>,
+    T: Content,
+    SS: StemStrategy,
+    LS: LeafStrategy<A, T, SS, K, B>,
+{
+    pub(crate) const ASSERT_COMPATIBLE: () = assert!(
+        !(SS::TRAVERSES_BLOCK_AT_ONCE && <LS::Mutability as Mutability>::IS_MUTABLE),
+        "block-at-once stem strategies require an immutable leaf strategy: a block \
+         step cannot observe a terminal stem partway through a block, which the \
+         mapped leaf resolution of a mutable tree relies on"
+    );
 }
 
 #[inline(always)]
@@ -389,6 +421,11 @@ where
     SS: StemStrategy,
 {
     fn default() -> Self {
+        // Rejects a block-at-once stem strategy paired with a mutable leaf strategy.
+        // Mutable trees are built from `default()` and grown with `add`, so this is
+        // the earliest point the pairing can be caught.
+        let () = StemLeafCompatibility::<A, T, SS, LS, K, B>::ASSERT_COMPATIBLE;
+
         // For mutable trees, initialize with sentinel stem at root
         let (stems, max_stem_level, stem_leaf_resolution) = if LS::Mutability::is_mutable() {
             // Get the root index for this stem strategy

@@ -51,6 +51,20 @@ pub trait StemStrategy: Clone + Sync + Send + 'static {
     /// an equivalent arithmetic leaf index.
     const SUPPORTS_ARITHMETIC_LEAF_RESOLUTION: bool = Self::BLOCK_SIZE == 1;
 
+    /// Whether a traversal step descends a whole layout block at once, and so
+    /// cannot observe a terminal stem that sits partway through a block.
+    ///
+    /// Such a strategy requires the arithmetic leaf resolution that immutable
+    /// trees use. Against the mapped resolution a mutable tree needs, a block
+    /// step can stride past a terminal stem and land on a stem index that has no
+    /// mapping, so the pairing is rejected at compile time - see
+    /// `assert_stem_leaf_strategies_compatible`.
+    ///
+    /// Block-shaped *addressing* alone does not imply this: strategies that
+    /// branch a level at a time observe every terminal stem and work with either
+    /// leaf strategy.
+    const TRAVERSES_BLOCK_AT_ONCE: bool = false;
+
     /// Whether scalar descent has dedicated head/tail operations for complete
     /// block-unrolled bodies.
     const USES_UNROLLED_SCALAR_TRAVERSAL: bool = false;

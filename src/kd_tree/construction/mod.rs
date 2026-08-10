@@ -56,6 +56,11 @@ where
     /// If the target leaf is full, it will be split before insertion. A stem
     /// strategy may first rebuild a pathologically unbalanced mutable layout.
     pub fn add(&mut self, point: &[A; K], item: T) -> Result<(), ConstructionError> {
+        // Rejects a block-at-once stem strategy paired with a mutable leaf strategy.
+        // This is the entry point mutable trees are actually built through, so the
+        // check has to live here as well as in slice construction.
+        let () = crate::kd_tree::StemLeafCompatibility::<A, T, SS, LS, K, B>::ASSERT_COMPATIBLE;
+
         // Find the target leaf
         let (stem_strat, parent_stem_idx, is_right_child) = self.find_leaf_with_context(point);
         let leaf_idx = match &self.stem_leaf_resolution {
@@ -607,6 +612,10 @@ where
         FI: FnMut(usize, &X) -> Result<T, ConstructionError>,
         M: SoftConstructionMode<A, T, SS, LS, I, X, FA, FI, K, B>,
     {
+        // Rejects a block-at-once stem strategy paired with a mutable leaf strategy.
+        // Referencing the constant is what forces it to be evaluated.
+        let () = crate::kd_tree::StemLeafCompatibility::<A, T, SS, LS, K, B>::ASSERT_COMPATIBLE;
+
         let item_count = source.len();
         let leaf_node_count = item_count.div_ceil(B);
         let mut stems_depth: usize = leaf_node_count.next_power_of_two().ilog2() as usize;

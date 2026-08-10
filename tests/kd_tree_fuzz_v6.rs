@@ -2808,8 +2808,6 @@ macro_rules! run_immutable_matrix_f64 {
 fn fuzz_v6_mutable_f32() {
     let cfg = FuzzConfig::from_env();
     let run_non_simd_paths = should_run_non_simd_paths();
-    #[cfg(feature = "simd")]
-    let simd_cfg = cfg.for_simd();
     let meta = ReproMeta {
         kind: "v6_mutable",
         leaf: "vec_of_arrays",
@@ -2882,23 +2880,9 @@ fn fuzz_v6_mutable_f32() {
         );
     }
 
-    #[cfg(feature = "simd")]
-    {
-        if should_run_simd_f32_paths() {
-            let block4_meta = ReproMeta {
-                strategy: "donnelly_simd_block4",
-                ..meta
-            };
-            run_simd_matrix_f32!(
-                run_mutable_case_f32,
-                simd_cfg,
-                block4_meta,
-                "v6 mutable f32 DonnellySimd",
-                DonnellySimdBlock4F32,
-                "Block4"
-            );
-        }
-    }
+    // No SIMD block-at-once matrix here: see the note in `fuzz_v6_mutable_f64`.
+    // Those strategies pair only with immutable leaf strategies, and the immutable
+    // sweeps cover Block4.
 }
 
 #[test]
@@ -2906,10 +2890,6 @@ fn fuzz_v6_mutable_f32() {
 fn fuzz_v6_mutable_f64() {
     let cfg = FuzzConfig::from_env();
     let run_non_simd_paths = should_run_non_simd_paths();
-    #[cfg(feature = "simd")]
-    let run_simd_paths = should_run_simd_paths();
-    #[cfg(feature = "simd")]
-    let simd_cfg = cfg.for_simd();
     let meta = ReproMeta {
         kind: "v6_mutable",
         leaf: "vec_of_arrays",
@@ -2982,23 +2962,11 @@ fn fuzz_v6_mutable_f64() {
         );
     }
 
-    #[cfg(feature = "simd")]
-    {
-        if run_simd_paths {
-            let block3_meta = ReproMeta {
-                strategy: "donnelly_simd_block3",
-                ..meta
-            };
-            run_simd_matrix_f64!(
-                run_mutable_case_f64,
-                simd_cfg,
-                block3_meta,
-                "v6 mutable f64 DonnellySimd",
-                DonnellySimdBlock3F64,
-                "Block3"
-            );
-        }
-    }
+    // No SIMD block-at-once matrix here: those strategies descend a whole layout
+    // block per step and cannot observe a terminal stem partway through one, so
+    // they only pair with immutable leaf strategies. `StemLeafCompatibility`
+    // rejects the combination at compile time, and the immutable sweeps cover
+    // Block3 and Block4.
 }
 
 #[test]
