@@ -1,5 +1,39 @@
 # Kiddo Changelog
 
+## [6.0.1] - 2026-08-10
+
+### 🐛 Bug Fixes
+
+- Ensure kibrary compiles for wasm32-unknown-unknown target ([@sdd](https://github.com/sdd), Fixes:#515)
+
+- Dispatch the /fuzz command the way /benchmark does ([@sdd](https://github.com/sdd))
+
+- Grant the aggregate gate the permissions its called workflows need ([@sdd](https://github.com/sdd))
+
+- Chebyshev over-pruning found by fuzz testing ([@sdd](https://github.com/sdd))
+
+- Simd block-4 construction panic found by fuzzer ([@sdd](https://github.com/sdd))
+
+- Fuzzer-found SIMD backtracking optimisatition correctness issue ([@sdd](https://github.com/sdd))
+
+- Fuzz-uncovered construction bug ([@sdd](https://github.com/sdd))
+
+- Prevent f32 over-prune found in fuzz test ([@sdd](https://github.com/sdd))
+
+- Block-at-once strats now immutable-only ([@sdd](https://github.com/sdd))
+
+
+### 🤖 CI
+
+- Aggregate required checks into a single PR Mergeable status ([@sdd](https://github.com/sdd))
+
+- Run the v6 fuzz suite on demand via a /fuzz comment ([@sdd](https://github.com/sdd))
+
+
+### 🧹 Chore
+
+- Bump taiki-e/install-action from 2 to 2.85.5 ([@dependabot[bot]](https://github.com/dependabot[bot]), Signed-off-by:dependabot[bot] <support@github.com>)
+
 ## [6.0.0] - 2026-07-27
 
 Almost a year in the making and counting, Kiddo v6 is effectively a full rewrite, addressing some
