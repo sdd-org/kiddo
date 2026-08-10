@@ -913,6 +913,7 @@ where
 
                     lower = lower_snapshot;
                     upper = upper_snapshot;
+                    off = rebuild_interval_offs(&query_wide, &lower, &upper);
                     unsafe {
                         *off.get_unchecked_mut(restore_dim) = old_off;
                     }
@@ -1286,6 +1287,7 @@ where
                     tracing::trace!("Restoring interval state for dim {}", restore_dim);
                     lower = lower_snapshot;
                     upper = upper_snapshot;
+                    off = rebuild_interval_offs(&query_wide, &lower, &upper);
                     unsafe {
                         *off.get_unchecked_mut(restore_dim) = old_off;
                     }
@@ -1331,6 +1333,7 @@ where
                     }
                     lower = lower_snapshot;
                     upper = upper_snapshot;
+                    off = rebuild_interval_offs(&query_wide, &lower, &upper);
 
                     let Some(selection) = select_block3_pending_child(
                         &rd_values,
@@ -1407,6 +1410,7 @@ where
                     }
                     lower = lower_snapshot;
                     upper = upper_snapshot;
+                    off = rebuild_interval_offs(&query_wide, &lower, &upper);
 
                     // SIMD pruning: check which siblings pass the backtrack test
                     let max_dist = query_ctx.max_dist();
@@ -1504,6 +1508,7 @@ where
                     }
                     lower = lower_snapshot;
                     upper = upper_snapshot;
+                    off = rebuild_interval_offs(&query_wide, &lower, &upper);
 
                     let max_dist = query_ctx.max_dist();
                     let surviving_mask =
