@@ -15,6 +15,12 @@ mod sealed {
 /// This trait is used to enable type-level distinction between mutable and
 /// immutable leaf strategies, allowing for optimized monomorphization.
 pub trait Mutability: sealed::Sealed + 'static {
+    /// Whether this is a mutable strategy, usable where a `const` is required.
+    ///
+    /// [`Self::is_mutable`] cannot be called from a constant, and the stem/leaf
+    /// compatibility check in [`crate::kd_tree`] has to run at compile time.
+    const IS_MUTABLE: bool;
+
     /// Returns true if this is a mutable strategy
     fn is_mutable() -> bool;
 
@@ -87,6 +93,8 @@ where
 pub struct Immutable;
 impl sealed::Sealed for Immutable {}
 impl Mutability for Immutable {
+    const IS_MUTABLE: bool = false;
+
     fn is_mutable() -> bool {
         false
     }
@@ -114,6 +122,8 @@ impl Mutability for Immutable {
 pub struct Mutable;
 impl sealed::Sealed for Mutable {}
 impl Mutability for Mutable {
+    const IS_MUTABLE: bool = true;
+
     fn is_mutable() -> bool {
         true
     }

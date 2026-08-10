@@ -623,6 +623,7 @@ pub mod cargo_asm {
 impl StemStrategy for DonnellySimdFull<3> {
     const ROOT_IDX: usize = 0;
     const BLOCK_SIZE: usize = 3;
+    const TRAVERSES_BLOCK_AT_ONCE: bool = true;
 
     type DeferredState = Self;
     type StackContext<A, const K: usize> =
@@ -1100,6 +1101,7 @@ impl DeferredBlockTraversal for DonnellySimdFull<3> {
 impl crate::StemStrategy for DonnellySimdFull<4> {
     const ROOT_IDX: usize = 0;
     const BLOCK_SIZE: usize = 4;
+    const TRAVERSES_BLOCK_AT_ONCE: bool = true;
 
     type DeferredState = Self;
     type StackContext<A, const K: usize> =
