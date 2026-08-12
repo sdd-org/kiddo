@@ -8,6 +8,7 @@ use crate::results::result_collection::{
 };
 use crate::{Axis, BestQueryResultItem, Content};
 
+#[cfg(feature = "fixed")]
 use fixed::{
     types::extra::{U0, U16, U8},
     FixedI32, FixedU16,
@@ -103,8 +104,11 @@ macro_rules! impl_tls_leaf_scratch {
 
 impl_tls_leaf_scratch!(LEAF_SCRATCH_F32, f32);
 impl_tls_leaf_scratch!(LEAF_SCRATCH_F64, f64);
+#[cfg(feature = "fixed")]
 impl_tls_leaf_scratch!(LEAF_SCRATCH_FIXED_I32_U16, FixedI32<U16>);
+#[cfg(feature = "fixed")]
 impl_tls_leaf_scratch!(LEAF_SCRATCH_FIXED_I32_U0, FixedI32<U0>);
+#[cfg(feature = "fixed")]
 impl_tls_leaf_scratch!(LEAF_SCRATCH_FIXED_U16_U8, FixedU16<U8>);
 
 #[cfg(feature = "f16")]

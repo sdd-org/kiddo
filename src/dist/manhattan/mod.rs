@@ -1,7 +1,5 @@
 use std::ops::Add;
 
-use fixed::traits::LossyFrom;
-
 use crate::Axis;
 
 use crate::dist::{
@@ -23,13 +21,13 @@ pub struct Manhattan<R>(core::marker::PhantomData<R>);
 impl<A, R> DistanceMetricScalar<A> for Manhattan<R>
 where
     A: Copy,
-    R: Axis<Coord = R> + LossyFrom<A> + Add<Output = R>,
+    R: Axis<Coord = R> + From<A> + Add<Output = R>,
 {
     type Output = R;
 
     #[inline(always)]
     fn widen_coord(a: A) -> R {
-        R::lossy_from(a)
+        <R as From<A>>::from(a)
     }
 
     #[inline(always)]
@@ -51,7 +49,7 @@ where
 impl<A, R> DistanceMetricAvx512<A> for Manhattan<R>
 where
     A: Copy,
-    R: Axis<Coord = R> + LossyFrom<A> + Add<Output = R>,
+    R: Axis<Coord = R> + From<A> + Add<Output = R>,
 {
     #[cfg(all(feature = "simd", target_feature = "avx512f"))]
     type Avx512F64Ops = avx512::ManhattanAvx512F64LeafOps;
@@ -63,7 +61,7 @@ where
 impl<A, R> DistanceMetricAvx2<A> for Manhattan<R>
 where
     A: Copy,
-    R: Axis<Coord = R> + LossyFrom<A> + Add<Output = R>,
+    R: Axis<Coord = R> + From<A> + Add<Output = R>,
 {
     #[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx2"))]
     type Avx2F64Ops = avx2::ManhattanAvx2F64LeafOps;
@@ -75,7 +73,7 @@ where
 impl<A, R> DistanceMetricNeon<A> for Manhattan<R>
 where
     A: Copy,
-    R: Axis<Coord = R> + LossyFrom<A> + Add<Output = R>,
+    R: Axis<Coord = R> + From<A> + Add<Output = R>,
 {
     #[cfg(all(feature = "simd", target_arch = "aarch64", target_feature = "neon"))]
     type NeonF64Ops = neon::ManhattanNeonF64LeafOps;

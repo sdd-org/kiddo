@@ -75,10 +75,19 @@ jobs:
         run: cargo hack check --workspace --each-feature --all-targets --exclude-features simd
 
       # `--all-targets` unifies features via the dev-dependency on kiddo itself,
-      # which re-enables `multi-threaded`. Check the lib alone so the serial
-      # construction and batch-query fallbacks stay compiled.
-      - name: Check single-threaded fallback paths
-        run: cargo check --lib --no-default-features --features=fixed
+      # which re-enables `fixed` and `multi-threaded`. Check the lib alone so
+      # optional dependencies and serial fallback paths stay covered.
+      - name: Check minimal feature combinations
+        run: |
+          cargo check --lib --no-default-features
+          cargo check --lib --no-default-features --features=fixed
+          cargo check --lib --no-default-features --features=serde
+
+          normal_dependencies=$(cargo tree --edges=normal --no-default-features --features=serde --prefix=none)
+          if grep -Eq '^(fixed|test-log) v' <<< "$normal_dependencies"; then
+            echo "fixed and test-log must not be normal dependencies without the fixed feature" >&2
+            exit 1
+          fi
 
   test-stable:
     name: Test (Stable)
