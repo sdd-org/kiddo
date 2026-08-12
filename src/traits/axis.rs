@@ -3,7 +3,9 @@ use std::fmt::{Debug, Display};
 use std::mem::MaybeUninit;
 use std::ops::{AddAssign, Sub};
 
+#[cfg(feature = "fixed")]
 use fixed::types::extra::{U0, U16, U8};
+#[cfg(feature = "fixed")]
 use fixed::{FixedI32, FixedU16};
 
 use num_traits::Float;

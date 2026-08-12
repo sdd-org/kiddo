@@ -60,7 +60,7 @@ las = ["dep:las"]
 multi-threaded = ["dep:rayon"]
 result_collection_stats = []
 exact_query_stats = []
-serde = ["dep:serde", "serde/derive", "fixed/serde", "aligned-vec/serde"]
+serde = ["dep:serde", "serde/derive", "fixed?/serde", "aligned-vec/serde"]
 simd = []
 simulator = []
 rkyv_08 = ["dep:rkyv_08", "dep:ptr_meta", "dep:bytecheck"]
@@ -79,7 +79,6 @@ cmov = "0.5"
 nonmax = "0.5.5"
 num-traits = "0.2"
 sorted-vec = "0.8"
-test-log = { version = "0.2.19", features = ["trace"] }
 
 [dependencies.bytecheck]
 version = "0.8"
@@ -186,6 +185,7 @@ reqwest = { version = "0.13", default-features = false, features = [
 rstest = "0.26"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
+test-log = { version = "0.2.19", features = ["trace"] }
 tracing-subscriber = "0.3"
 trybuild = "1"
 ubyte = "0.10"

@@ -1,4 +1,3 @@
-use fixed::traits::LossyFrom;
 use num_traits::Float;
 
 use crate::Axis;
@@ -42,13 +41,13 @@ impl<const P: u32, R> Minkowski<P, R> {
 impl<A, R, const P: u32> DistanceMetricScalar<A> for Minkowski<P, R>
 where
     A: Copy,
-    R: Axis<Coord = R> + LossyFrom<A> + Float,
+    R: Axis<Coord = R> + From<A> + Float,
 {
     type Output = R;
 
     #[inline(always)]
     fn widen_coord(a: A) -> R {
-        R::lossy_from(a)
+        <R as From<A>>::from(a)
     }
 
     #[inline(always)]
@@ -62,7 +61,7 @@ where
 impl<A, R, const P: u32> DistanceMetricAvx512<A> for Minkowski<P, R>
 where
     A: Copy,
-    R: Axis<Coord = R> + LossyFrom<A> + Float,
+    R: Axis<Coord = R> + From<A> + Float,
 {
     #[cfg(all(feature = "simd", target_feature = "avx512f"))]
     type Avx512F64Ops = avx512::MinkowskiAvx512F64LeafOps<P>;
@@ -74,7 +73,7 @@ where
 impl<A, R, const P: u32> DistanceMetricAvx2<A> for Minkowski<P, R>
 where
     A: Copy,
-    R: Axis<Coord = R> + LossyFrom<A> + Float,
+    R: Axis<Coord = R> + From<A> + Float,
 {
     #[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx2"))]
     type Avx2F64Ops = avx2::MinkowskiAvx2F64LeafOps<P>;
@@ -86,7 +85,7 @@ where
 impl<A, R, const P: u32> DistanceMetricNeon<A> for Minkowski<P, R>
 where
     A: Copy,
-    R: Axis<Coord = R> + LossyFrom<A> + Float,
+    R: Axis<Coord = R> + From<A> + Float,
 {
     #[cfg(all(feature = "simd", target_arch = "aarch64", target_feature = "neon"))]
     type NeonF64Ops = neon::MinkowskiNeonF64LeafOps<P>;
