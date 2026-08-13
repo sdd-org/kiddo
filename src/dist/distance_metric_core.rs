@@ -2,6 +2,103 @@ use std::cmp::Ordering;
 
 use crate::Axis;
 
+/// Coordinate conversion used by Kiddo's built-in widened distance metrics.
+///
+/// Primitive and fixed-point combinations delegate to [`az::CastFrom`]. The
+/// `half::f16` combinations use `num_traits::AsPrimitive`, because `az` does
+/// not implement casts for `half` types.
+#[doc(hidden)]
+pub trait WideningCastFrom<Src>: Sized {
+    fn widening_cast_from(src: Src) -> Self;
+}
+
+impl<T> WideningCastFrom<T> for T {
+    #[inline(always)]
+    fn widening_cast_from(src: T) -> Self {
+        src
+    }
+}
+
+macro_rules! impl_az_widening_casts {
+    ($src:ty => $($dst:ty),+ $(,)?) => {
+        $(
+            impl $crate::dist::WideningCastFrom<$src> for $dst {
+                #[inline(always)]
+                fn widening_cast_from(src: $src) -> Self {
+                    <$dst as az::CastFrom<$src>>::cast_from(src)
+                }
+            }
+        )+
+    };
+}
+
+impl_az_widening_casts!(f32 => f64, u8, u16, u32);
+impl_az_widening_casts!(f64 => f32, u8, u16, u32);
+impl_az_widening_casts!(u8 => f32, f64, u16, u32);
+impl_az_widening_casts!(u16 => f32, f64, u8, u32);
+impl_az_widening_casts!(u32 => f32, f64, u8, u16);
+
+#[cfg(feature = "fixed")]
+mod fixed_widening_casts {
+    use fixed::{
+        types::extra::{U0, U16, U8},
+        FixedI32, FixedU16,
+    };
+
+    type FixedI32U16 = FixedI32<U16>;
+    type FixedI32U0 = FixedI32<U0>;
+    type FixedU16U8 = FixedU16<U8>;
+
+    impl_az_widening_casts!(f32 => FixedI32U16, FixedI32U0, FixedU16U8);
+    impl_az_widening_casts!(f64 => FixedI32U16, FixedI32U0, FixedU16U8);
+    impl_az_widening_casts!(u8 => FixedI32U16, FixedI32U0, FixedU16U8);
+    impl_az_widening_casts!(u16 => FixedI32U16, FixedI32U0, FixedU16U8);
+    impl_az_widening_casts!(u32 => FixedI32U16, FixedI32U0, FixedU16U8);
+
+    impl_az_widening_casts!(FixedI32U16 => f32, f64, u8, u16, u32, FixedI32U0, FixedU16U8);
+    impl_az_widening_casts!(FixedI32U0 => f32, f64, u8, u16, u32, FixedI32U16, FixedU16U8);
+    impl_az_widening_casts!(FixedU16U8 => f32, f64, u8, u16, u32, FixedI32U16, FixedI32U0);
+
+    #[cfg(feature = "f16")]
+    mod f16 {
+        use super::{FixedI32U0, FixedI32U16, FixedU16U8};
+        use half::f16;
+
+        impl_az_widening_casts!(f16 => FixedI32U16, FixedI32U0, FixedU16U8);
+        impl_az_widening_casts!(FixedI32U16 => f16);
+        impl_az_widening_casts!(FixedI32U0 => f16);
+        impl_az_widening_casts!(FixedU16U8 => f16);
+    }
+}
+
+#[cfg(feature = "f16")]
+mod f16_widening_casts {
+    use half::f16;
+    use num_traits::AsPrimitive;
+
+    use super::WideningCastFrom;
+
+    macro_rules! impl_f16_widening_casts {
+        ($src:ty => $($dst:ty),+ $(,)?) => {
+            $(
+                impl WideningCastFrom<$src> for $dst {
+                    #[inline(always)]
+                    fn widening_cast_from(src: $src) -> Self {
+                        <$src as AsPrimitive<$dst>>::as_(src)
+                    }
+                }
+            )+
+        };
+    }
+
+    impl_f16_widening_casts!(f16 => f32, f64, u8, u16, u32);
+    impl_f16_widening_casts!(f32 => f16);
+    impl_f16_widening_casts!(f64 => f16);
+    impl_f16_widening_casts!(u8 => f16);
+    impl_f16_widening_casts!(u16 => f16);
+    impl_f16_widening_casts!(u32 => f16);
+}
+
 /// Core distance metric behavior independent of architecture-specific SIMD.
 ///
 /// `A` is the coordinate type stored in the tree/query.
