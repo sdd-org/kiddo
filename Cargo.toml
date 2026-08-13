@@ -752,6 +752,11 @@ name = "donnelly_simd_regressions"
 path = "tests/donnelly_simd_regressions.rs"
 
 [[test]]
+name = "fixed_float_distance_queries"
+path = "tests/fixed_float_distance_queries.rs"
+required-features = ["fixed"]
+
+[[test]]
 name = "kd_tree_fuzz_v6"
 path = "tests/kd_tree_fuzz_v6.rs"
 required-features = ["fuzz"]

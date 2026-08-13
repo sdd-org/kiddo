@@ -41,9 +41,9 @@ use std::ptr::NonNull;
 /// Shared distance metric functions
 pub(crate) mod common;
 
-#[doc(hidden)]
-pub use distance_metric_core::DistanceMetricScalar;
 pub(crate) use distance_metric_core::DistanceMetricScalar as DistanceMetricCore;
+#[doc(hidden)]
+pub use distance_metric_core::{DistanceMetricScalar, WideningCastFrom};
 #[cfg(any(
     all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"),
     all(feature = "simd", target_arch = "x86_64", target_feature = "avx2"),

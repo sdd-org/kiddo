@@ -2,6 +2,7 @@ use crate::Axis;
 
 use crate::dist::{
     DistanceMetricAvx2, DistanceMetricAvx512, DistanceMetricNeon, DistanceMetricScalar,
+    WideningCastFrom,
 };
 
 #[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx2"))]
@@ -19,13 +20,13 @@ pub struct Chebyshev<R>(core::marker::PhantomData<R>);
 impl<A, R> DistanceMetricScalar<A> for Chebyshev<R>
 where
     A: Copy,
-    R: Axis<Coord = R> + From<A>,
+    R: Axis<Coord = R> + WideningCastFrom<A>,
 {
     type Output = R;
 
     #[inline(always)]
     fn widen_coord(a: A) -> R {
-        <R as From<A>>::from(a)
+        R::widening_cast_from(a)
     }
 
     #[inline(always)]
@@ -75,7 +76,7 @@ where
 impl<A, R> DistanceMetricAvx512<A> for Chebyshev<R>
 where
     A: Copy,
-    R: Axis<Coord = R> + From<A>,
+    R: Axis<Coord = R> + WideningCastFrom<A>,
 {
     #[cfg(all(feature = "simd", target_feature = "avx512f"))]
     type Avx512F64Ops = avx512::ChebyshevAvx512F64LeafOps;
@@ -87,7 +88,7 @@ where
 impl<A, R> DistanceMetricAvx2<A> for Chebyshev<R>
 where
     A: Copy,
-    R: Axis<Coord = R> + From<A>,
+    R: Axis<Coord = R> + WideningCastFrom<A>,
 {
     #[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx2"))]
     type Avx2F64Ops = avx2::ChebyshevAvx2F64LeafOps;
@@ -99,7 +100,7 @@ where
 impl<A, R> DistanceMetricNeon<A> for Chebyshev<R>
 where
     A: Copy,
-    R: Axis<Coord = R> + From<A>,
+    R: Axis<Coord = R> + WideningCastFrom<A>,
 {
     #[cfg(all(feature = "simd", target_arch = "aarch64", target_feature = "neon"))]
     type NeonF64Ops = neon::ChebyshevNeonF64LeafOps;
