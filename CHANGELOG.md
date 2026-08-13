@@ -1,5 +1,13 @@
 # Kiddo Changelog
 
+## [6.0.2] - 2026-08-13
+
+### 🐛 Bug Fixes
+
+- Correct optional dependency feature gates ([@sdd](https://github.com/sdd))
+
+- Preserve fixed-to-float distance queries ([@sdd](https://github.com/sdd))
+
 ## [6.0.1] - 2026-08-10
 
 ### 🐛 Bug Fixes
