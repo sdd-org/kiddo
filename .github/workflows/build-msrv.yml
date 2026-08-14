@@ -52,7 +52,7 @@ jobs:
           toolchain: ${{ env.MSRV_RUST_VERSION }}
 
       - name: Clippy (MSRV)
-        uses: LoliGothick/clippy-check@9eb49941357589c2e182d9796db08c67eea25042
+        uses: LoliGothick/clippy-check@84bba552889072732753193815173e01f0ca7f2f
         if: github.actor != 'dependabot[bot]'
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
