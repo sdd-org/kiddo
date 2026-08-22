@@ -68,6 +68,35 @@ pub struct VecOfArenas<A, T, const K: usize, const B: usize> {
     _phantom: std::marker::PhantomData<(A, T)>,
 }
 
+impl<A, T, const K: usize, const B: usize> std::fmt::Debug for VecOfArenas<A, T, K, B> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VecOfArenas")
+            .field("dimensions", &K)
+            .field("bucket_size", &B)
+            .field("size", &self.size)
+            .field("leaf_count", &self.leaf_extents.len())
+            .field("arena_bytes", &self.leaf_bytes.len())
+            .finish()
+    }
+}
+
+#[cfg(feature = "rkyv_08")]
+impl<A, T, const K: usize, const B: usize> std::fmt::Debug for ArchivedVecOfArenas<A, T, K, B>
+where
+    A: rkyv_08::Archive,
+    T: rkyv_08::Archive,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ArchivedVecOfArenas")
+            .field("dimensions", &K)
+            .field("bucket_size", &B)
+            .field("size", &self.size.to_native())
+            .field("leaf_count", &self.leaf_extents.len())
+            .field("arena_bytes", &self.leaf_bytes.get().as_slice().len())
+            .finish()
+    }
+}
+
 #[cfg(feature = "rkyv_08")]
 impl<A, T, const K: usize, const B: usize> ArchivedVecOfArenas<A, T, K, B>
 where

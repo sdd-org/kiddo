@@ -14,6 +14,17 @@ struct ExternalFlatLeaf<A, T, const K: usize, const B: usize> {
     size: usize,
 }
 
+impl<A, T, const K: usize, const B: usize> std::fmt::Debug for ExternalFlatLeaf<A, T, K, B> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExternalFlatLeaf")
+            .field("dimensions", &K)
+            .field("bucket_size", &B)
+            .field("size", &self.size)
+            .field("leaf_count", &self.leaf_extents.len())
+            .finish()
+    }
+}
+
 impl<A, T, SS, const K: usize, const B: usize> LeafStrategy<A, T, SS, K, B>
     for ExternalFlatLeaf<A, T, K, B>
 where

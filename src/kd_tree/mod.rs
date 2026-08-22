@@ -259,7 +259,7 @@ fn resolve_mapped_terminal_stem_idx(
 #[cfg_attr(feature = "rkyv_08", rkyv(crate = rkyv_08))]
 #[cfg_attr(feature = "rkyv_08", rkyv(attr(allow(missing_docs))))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct KdTree<
     A,              // Axis
     T,              // Content,
@@ -280,6 +280,23 @@ pub struct KdTree<
     max_stem_level: i32,
     pub(crate) max_leaf_len: usize,
     pub(crate) _phantom: std::marker::PhantomData<(SS, T)>,
+}
+
+impl<A, T, SS, LS, const K: usize, const B: usize> std::fmt::Debug for KdTree<A, T, SS, LS, K, B> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KdTree")
+            .field("axis", &std::any::type_name::<A>())
+            .field("item", &std::any::type_name::<T>())
+            .field("stem_strategy", &std::any::type_name::<SS>())
+            .field("leaf_strategy", &std::any::type_name::<LS>())
+            .field("dimensions", &K)
+            .field("bucket_size", &B)
+            .field("size", &self.size)
+            .field("stem_count", &self.stems.len())
+            .field("max_stem_level", &self.max_stem_level)
+            .field("max_leaf_len", &self.max_leaf_len)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<A, T, SS, LS, const K: usize, const B: usize> KdTreeAccessor<A, T, SS, LS, K, B>
@@ -733,9 +750,7 @@ where
 mod tests {
     use super::*;
     use crate::leaf_strategy::dummy::DummyLeafStrategy;
-    #[cfg(feature = "rkyv_08")]
-    use crate::leaf_strategy::VecOfArenas;
-    use crate::leaf_strategy::{FlatVec, VecOfArrays};
+    use crate::leaf_strategy::{FlatVec, VecOfArenas, VecOfArrays};
     use crate::stem_strategy::Donnelly;
     #[cfg(all(feature = "rkyv_08", feature = "simd", target_arch = "x86_64"))]
     use crate::stem_strategy::DonnellySimdFull;
@@ -764,6 +779,40 @@ mod tests {
 
         assert_eq!(kd_tree.size, 0);
         assert!(kd_tree.is_empty());
+    }
+
+    #[test]
+    fn debug_output_summarizes_tree_and_leaf_storage_without_dumping_entries() {
+        const COORDINATE: f64 = 12_345.25;
+        const ITEM: u32 = 987_654;
+        let entries = [(ITEM, [COORDINATE, -6_789.5])];
+
+        type FlatTree = KdTree<f64, u32, Eytzinger, FlatVec<f64, u32, 2, 4>, 2, 4>;
+        type ArraysTree = KdTree<f64, u32, Eytzinger, VecOfArrays<f64, u32, 2, 4>, 2, 4>;
+        type ArenasTree = KdTree<f64, u32, Eytzinger, VecOfArenas<f64, u32, 2, 4>, 2, 4>;
+
+        let flat = FlatTree::new_from_entries(&entries).unwrap();
+        let arrays = ArraysTree::new_from_entries(&entries).unwrap();
+        let arenas = ArenasTree::new_from_entries(&entries).unwrap();
+
+        let tree_debug = format!("{flat:?}");
+        assert!(tree_debug.contains("KdTree"));
+        assert!(tree_debug.contains("size: 1"));
+        assert!(tree_debug.contains("dimensions: 2"));
+
+        for leaf_debug in [
+            format!("{:?}", flat.leaves),
+            format!("{:?}", arrays.leaves),
+            format!("{:?}", arenas.leaves),
+        ] {
+            assert!(leaf_debug.contains("size: 1"), "{leaf_debug}");
+            assert!(leaf_debug.contains("leaf_count: 1"), "{leaf_debug}");
+            assert!(!leaf_debug.contains(&COORDINATE.to_string()));
+            assert!(!leaf_debug.contains(&ITEM.to_string()));
+        }
+
+        assert!(!tree_debug.contains(&COORDINATE.to_string()));
+        assert!(!tree_debug.contains(&ITEM.to_string()));
     }
 
     #[test]
