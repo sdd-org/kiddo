@@ -9,8 +9,14 @@ use crate::{Axis, Content, LeafStrategy, StemStrategy};
 /// This strategy provides no-op implementations and is not meant for production use.
 #[allow(dead_code)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct DummyLeafStrategy {}
+
+impl std::fmt::Debug for DummyLeafStrategy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DummyLeafStrategy").finish()
+    }
+}
 
 impl<AX, T, SS, const K: usize, const B: usize> LeafStrategy<AX, T, SS, K, B> for DummyLeafStrategy
 where

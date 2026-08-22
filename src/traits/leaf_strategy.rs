@@ -1,4 +1,5 @@
 use nonmax::NonMaxUsize;
+use std::fmt::Debug;
 
 use crate::leaf_view::LeafArena;
 use crate::{Axis, Content, StemStrategy};
@@ -178,7 +179,7 @@ pub enum LeafProjection {
 /// Third-party leaf strategies should provide an implementation for [`LeafStrategy::leaf_view`] and
 /// ignore [`LeafStrategy::leaf_arena`], which is used by
 /// Kiddo's bundled [`VecOfArenas`](`crate::leaf_strategy::VecOfArenas`) leaf strategy.
-pub trait LeafStrategy<A, T, SS, const K: usize, const B: usize>
+pub trait LeafStrategy<A, T, SS, const K: usize, const B: usize>: Debug
 where
     A: Axis<Coord = A>,
     T: Content,

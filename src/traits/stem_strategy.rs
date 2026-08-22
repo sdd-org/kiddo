@@ -1,4 +1,5 @@
 use aligned_vec::AVec;
+use std::fmt::Debug;
 use std::mem::MaybeUninit;
 use std::ptr::NonNull;
 
@@ -27,7 +28,7 @@ impl<A, const K: usize> std::ops::Index<usize> for PreparedBlockQuery<A, K> {
 /// algorithm used by a KdTree.
 ///
 /// To see which stem strategies are available, see the [`stem_strategies`](`crate::stem_strategy`) module.
-pub trait StemStrategy: Clone + Sync + Send + 'static {
+pub trait StemStrategy: Clone + Debug + Sync + Send + 'static {
     /// The stem index of the root node of the tree
     const ROOT_IDX: usize = 0;
 
