@@ -53,6 +53,33 @@ pub struct VecOfArrays<A, T, const K: usize, const B: usize> {
     size: usize,
 }
 
+impl<A, T, const K: usize, const B: usize> std::fmt::Debug for VecOfArrays<A, T, K, B> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VecOfArrays")
+            .field("dimensions", &K)
+            .field("bucket_size", &B)
+            .field("size", &self.size)
+            .field("leaf_count", &self.leaves.len())
+            .finish()
+    }
+}
+
+#[cfg(feature = "rkyv_08")]
+impl<A, T, const K: usize, const B: usize> std::fmt::Debug for ArchivedVecOfArrays<A, T, K, B>
+where
+    A: rkyv_08::Archive,
+    T: rkyv_08::Archive,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ArchivedVecOfArrays")
+            .field("dimensions", &K)
+            .field("bucket_size", &B)
+            .field("size", &self.size.to_native())
+            .field("leaf_count", &self.leaves.len())
+            .finish()
+    }
+}
+
 /// A single leaf node storing up to `B` points.
 ///
 /// Layout within one leaf:

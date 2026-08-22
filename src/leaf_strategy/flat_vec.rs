@@ -48,6 +48,33 @@ pub struct FlatVec<A, T, const K: usize, const B: usize> {
     size: usize,
 }
 
+impl<A, T, const K: usize, const B: usize> std::fmt::Debug for FlatVec<A, T, K, B> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FlatVec")
+            .field("dimensions", &K)
+            .field("bucket_size", &B)
+            .field("size", &self.leaf_items.len())
+            .field("leaf_count", &self.leaf_extents.len())
+            .finish()
+    }
+}
+
+#[cfg(feature = "rkyv_08")]
+impl<A, T, const K: usize, const B: usize> std::fmt::Debug for ArchivedFlatVec<A, T, K, B>
+where
+    A: rkyv_08::Archive,
+    T: rkyv_08::Archive,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ArchivedFlatVec")
+            .field("dimensions", &K)
+            .field("bucket_size", &B)
+            .field("size", &self.leaf_items.len())
+            .field("leaf_count", &self.leaf_extents.len())
+            .finish()
+    }
+}
+
 /// Convenience type alias for a [`KdTree`] with a [`FlatVec`] leaf strategy, to avoid having to
 /// specify the KdTree's generic parameters twice.
 pub type FlatVecKdTree<A, T, SS, const K: usize, const B: usize> =
