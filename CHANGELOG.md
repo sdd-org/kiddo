@@ -6,11 +6,9 @@
 
 - Implement custom debug for kdtree ([@sdd](https://github.com/sdd), Fixes:#531)
 
-
 ### 🐛 Bug Fixes
 
 - Restore stable and MSRV CI compatibility ([@sdd](https://github.com/sdd))
-
 
 ### 🧹 Chore
 
