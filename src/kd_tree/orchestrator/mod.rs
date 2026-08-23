@@ -1622,32 +1622,28 @@ where
 
                         let old_lower = unsafe { *lower.get_unchecked(dim_val) };
                         let old_upper = unsafe { *upper.get_unchecked(dim_val) };
-                        let near_lower;
-                        let near_upper;
-                        let far_lower;
-                        let far_upper;
-
-                        if is_right_child {
-                            near_lower = O::max(old_lower, pivot_wide);
-                            near_upper = old_upper;
-                            far_lower = old_lower;
-                            far_upper = if O::cmp(old_upper, pivot_wide) == std::cmp::Ordering::Less
-                            {
+                        let clipped_upper =
+                            if O::cmp(old_upper, pivot_wide) == std::cmp::Ordering::Less {
                                 old_upper
                             } else {
                                 pivot_wide
                             };
+
+                        let (near_lower, near_upper, far_lower, far_upper) = if is_right_child {
+                            (
+                                O::max(old_lower, pivot_wide),
+                                old_upper,
+                                old_lower,
+                                clipped_upper,
+                            )
                         } else {
-                            near_lower = old_lower;
-                            near_upper =
-                                if O::cmp(old_upper, pivot_wide) == std::cmp::Ordering::Less {
-                                    old_upper
-                                } else {
-                                    pivot_wide
-                                };
-                            far_lower = O::max(old_lower, pivot_wide);
-                            far_upper = old_upper;
-                        }
+                            (
+                                old_lower,
+                                clipped_upper,
+                                O::max(old_lower, pivot_wide),
+                                old_upper,
+                            )
+                        };
 
                         let near_off =
                             crate::stem_strategy::donnelly::simd_full::interval_distance_1d(
