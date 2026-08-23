@@ -1,5 +1,21 @@
 # Kiddo Changelog
 
+## [6.1.0] - 2026-08-23
+
+### ✨ Features
+
+- Implement custom debug for kdtree ([@sdd](https://github.com/sdd), Fixes:#531)
+
+
+### 🐛 Bug Fixes
+
+- Restore stable and MSRV CI compatibility ([@sdd](https://github.com/sdd))
+
+
+### 🧹 Chore
+
+- Update las requirement in the cargo-dependencies group ([@dependabot[bot]](https://github.com/dependabot[bot]), Signed-off-by:dependabot[bot] <support@github.com>)
+
 ## [6.0.2] - 2026-08-13
 
 ### 🐛 Bug Fixes
