@@ -16,7 +16,7 @@ autoexamples = false
 resolver = "2"
 
 [package.metadata.cargo-machete]
-ignored = ["log"]
+ignored = ["log", "ordered-float"]
 
 [package.metadata.docs.rs]
 features = [
@@ -172,6 +172,9 @@ las = { version = "0.11", features = ["laz-parallel"] }
 memmap = "0.7"
 nabo = { version = "0.6.0", default-features = false }
 neighbourhood = "0.2.0"
+# kd-tree accepts ordered-float 5.x, but 5.5.0 requires Rust 1.90.
+# Keep its transitive dependency compatible with this crate's Rust 1.89 MSRV.
+ordered-float = "5,<5.5.0"
 postcard = { version = "1", features = ["alloc"] }
 proc-macro2 = { version = "1", features = ["default", "proc-macro"] }
 radians = "0.3"

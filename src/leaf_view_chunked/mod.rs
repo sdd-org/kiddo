@@ -45,28 +45,18 @@ where
 
     let widened_points = widened_points.map(|axis| axis.unwrap());
     let items = leaf.items();
-    let mut points_iterators = widened_points.map(|axis| axis.chunks_exact(CHUNK_SIZE));
-    let mut items_iterator = items.chunks_exact(CHUNK_SIZE);
+    let points_chunks = widened_points.map(|axis| axis.as_chunks::<CHUNK_SIZE>());
+    let (items_chunks, remainder_items) = items.as_chunks::<CHUNK_SIZE>();
 
-    for items_chunk_slice in items_iterator.by_ref() {
-        let points_chunk: [&[D::Output; CHUNK_SIZE]; K] = array_init(|dim| {
-            points_iterators[dim]
-                .next()
-                .expect("points/items chunk mismatch")
-                .try_into()
-                .expect("invalid points chunk length")
-        });
-
-        let items_chunk: &[T; CHUNK_SIZE] = items_chunk_slice
-            .try_into()
-            .expect("invalid items chunk length");
+    for (chunk_idx, items_chunk) in items_chunks.iter().enumerate() {
+        let points_chunk: [&[D::Output; CHUNK_SIZE]; K] =
+            array_init(|dim| &points_chunks[dim].0[chunk_idx]);
 
         let dists = dists_for_chunk::<AX, D, K, CHUNK_SIZE>(points_chunk, query_wide);
         update_nearest_dist_chunk(dists, items_chunk, best_dist, best_item);
     }
 
-    let remainder_points: [&[D::Output]; K] = array_init(|dim| points_iterators[dim].remainder());
-    let remainder_items = items_iterator.remainder();
+    let remainder_points: [&[D::Output]; K] = array_init(|dim| points_chunks[dim].1);
 
     // TODO: For FlatVec specifically, we can experiment with overreading the tail into the next
     // contiguous leaf (or padded end-of-vec region) to keep the distance kernel branchless, while
