@@ -10,6 +10,61 @@ mod ultimate_f64_avx512_nearest_one_sq_euc_kernel;
 #[path = "build_cpp_competitors.rs"]
 mod cpp_competitors;
 
+#[cfg(any(
+    target_arch = "x86",
+    target_arch = "x86_64",
+    target_arch = "arm",
+    target_arch = "aarch64",
+))]
+fn detect_native_cache_line_size(emit_warnings: bool) {
+    // Try L1 data cache first (most relevant for our use case)
+    match yep_cache_line_size::get_cache_line_size(
+        yep_cache_line_size::CacheLevel::L1,
+        yep_cache_line_size::CacheType::Data,
+    ) {
+        Ok(cache_line_size) => {
+            if emit_warnings {
+                println!(
+                    "cargo:warning=Detected L1 data cache line size: {} bytes",
+                    cache_line_size
+                );
+            }
+
+            if cache_line_size >= 128 {
+                println!("cargo:rustc-cfg=cache_line_128");
+                if emit_warnings {
+                    println!(
+                        "cargo:warning=Enabling f64 Block4 support (128-byte cache lines detected)"
+                    );
+                }
+            }
+        }
+        Err(e) => {
+            if emit_warnings {
+                println!(
+                    "cargo:warning=Failed to detect cache line size: {}. Assuming 64-byte cache lines.",
+                    e
+                );
+            }
+        }
+    }
+}
+
+#[cfg(not(any(
+    target_arch = "x86",
+    target_arch = "x86_64",
+    target_arch = "arm",
+    target_arch = "aarch64",
+)))]
+fn detect_native_cache_line_size(emit_warnings: bool) {
+    if emit_warnings {
+        println!(
+            "cargo:warning=Cache line size detection is not supported on {}. Assuming 64-byte cache lines.",
+            std::env::consts::ARCH
+        );
+    }
+}
+
 fn main() {
     #[cfg(feature = "cpp_competitors")]
     cpp_competitors::build();
@@ -40,37 +95,7 @@ fn main() {
 
     // Only detect on native builds to avoid cross-compilation issues
     if target == host {
-        // Try L1 data cache first (most relevant for our use case)
-        match yep_cache_line_size::get_cache_line_size(
-            yep_cache_line_size::CacheLevel::L1,
-            yep_cache_line_size::CacheType::Data,
-        ) {
-            Ok(cache_line_size) => {
-                if emit_warnings {
-                    println!(
-                        "cargo:warning=Detected L1 data cache line size: {} bytes",
-                        cache_line_size
-                    );
-                }
-
-                if cache_line_size >= 128 {
-                    println!("cargo:rustc-cfg=cache_line_128");
-                    if emit_warnings {
-                        println!(
-                            "cargo:warning=Enabling f64 Block4 support (128-byte cache lines detected)"
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                if emit_warnings {
-                    println!(
-                        "cargo:warning=Failed to detect cache line size: {}. Assuming 64-byte cache lines.",
-                        e
-                    );
-                }
-            }
-        }
+        detect_native_cache_line_size(emit_warnings);
     } else if emit_warnings {
         println!(
             "cargo:warning=Cross-compiling (host: {}, target: {}). \
