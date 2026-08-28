@@ -65,7 +65,7 @@ optional = true
 features = ["num-traits"]
 
 [dependencies.las]
-version = "=0.9.3"
+version = "=0.11.1"
 optional = true
 features = ["laz-parallel"]
 
@@ -110,17 +110,17 @@ optional = true
 
 [dev-dependencies]
 bincode = { version = "2", features = ["serde"] }
-codspeed-criterion-compat = "4.0"
-criterion = "0.7" # 0.8 blocked by MSRV
+codspeed-criterion-compat = "5.0"
+criterion = "0.8" # 0.8 blocked by MSRV
 elapsed = "0.1.2"
 flate2 = { version = "1", features = [
   "zlib-ng-compat",
 ], default-features = false }
-itertools = "0.14"
+itertools = "0.15"
 # required to be able to run tests without specifying --features=test_utils
 # see https://github.com/rust-lang/cargo/issues/2911#issuecomment-749580481
 kiddo = { path = ".", features = ["test_utils"] }
-las = { version = "0.9", features = ["laz-parallel"] }
+las = { version = "0.11", features = ["laz-parallel"] }
 memmap = "0.7"
 proc-macro2 = { version = "1", features = ["default", "proc-macro"] }
 radians = "0.3"
