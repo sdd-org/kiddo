@@ -1,0 +1,15 @@
+[package]
+name = "kiddo-build-script-host-arch"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "kiddo-build-script-host-arch"
+path = "../../build.rs"
+
+[features]
+cpp_competitors = []
+
+[dependencies]
+yep-cache-line-size = "0.9"
