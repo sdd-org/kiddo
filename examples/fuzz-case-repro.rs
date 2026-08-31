@@ -339,14 +339,13 @@ impl V6StrategySelectorF32 for V6DonnellyStrategyF32 {
 impl V6StrategySelectorF32 for V6DonnellySimdStrategyF32 {
     fn run_mutable<const K: usize, const B: usize>(params: &ReproParams) -> Result<(), String> {
         let _ = params;
-        #[cfg(feature = "simd")]
-        {
-            run_v6_mutable_case_f32::<K, B, DonnellySimdFull<4>>(params)
-        }
-        #[cfg(not(feature = "simd"))]
-        {
-            Err("donnelly_simd requires --features simd".to_string())
-        }
+        // Block-at-once stem strategies require an immutable leaf strategy
+        // (see StemLeafCompatibility), so this selector has no mutable case;
+        // instantiating one would fail the compile-time compatibility assert.
+        Err(
+            "donnelly_simd is immutable-only: mutable trees cannot use block-at-once stem strategies"
+                .to_string(),
+        )
     }
 
     fn run_immutable<const K: usize, const B: usize>(params: &ReproParams) -> Result<(), String> {
@@ -365,14 +364,13 @@ impl V6StrategySelectorF32 for V6DonnellySimdStrategyF32 {
 impl V6StrategySelectorF32 for V6DonnellySimdBlock4StrategyF32 {
     fn run_mutable<const K: usize, const B: usize>(params: &ReproParams) -> Result<(), String> {
         let _ = params;
-        #[cfg(feature = "simd")]
-        {
-            run_v6_mutable_case_f32::<K, B, DonnellySimdFull<4>>(params)
-        }
-        #[cfg(not(feature = "simd"))]
-        {
-            Err("donnelly_simd_block4 requires --features simd".to_string())
-        }
+        // Block-at-once stem strategies require an immutable leaf strategy
+        // (see StemLeafCompatibility), so this selector has no mutable case;
+        // instantiating one would fail the compile-time compatibility assert.
+        Err(
+            "donnelly_simd_block4 is immutable-only: mutable trees cannot use block-at-once stem strategies"
+                .to_string(),
+        )
     }
 
     fn run_immutable<const K: usize, const B: usize>(params: &ReproParams) -> Result<(), String> {
@@ -409,14 +407,13 @@ impl V6StrategySelectorF64 for V6DonnellyStrategyF64 {
 impl V6StrategySelectorF64 for V6DonnellySimdStrategyF64 {
     fn run_mutable<const K: usize, const B: usize>(params: &ReproParams) -> Result<(), String> {
         let _ = params;
-        #[cfg(feature = "simd")]
-        {
-            run_v6_mutable_case_f64::<K, B, DonnellySimdFull<3>>(params)
-        }
-        #[cfg(not(feature = "simd"))]
-        {
-            Err("donnelly_simd requires --features simd".to_string())
-        }
+        // Block-at-once stem strategies require an immutable leaf strategy
+        // (see StemLeafCompatibility), so this selector has no mutable case;
+        // instantiating one would fail the compile-time compatibility assert.
+        Err(
+            "donnelly_simd is immutable-only: mutable trees cannot use block-at-once stem strategies"
+                .to_string(),
+        )
     }
 
     fn run_immutable<const K: usize, const B: usize>(params: &ReproParams) -> Result<(), String> {
@@ -435,14 +432,13 @@ impl V6StrategySelectorF64 for V6DonnellySimdStrategyF64 {
 impl V6StrategySelectorF64 for V6DonnellySimdBlock3StrategyF64 {
     fn run_mutable<const K: usize, const B: usize>(params: &ReproParams) -> Result<(), String> {
         let _ = params;
-        #[cfg(feature = "simd")]
-        {
-            run_v6_mutable_case_f64::<K, B, DonnellySimdFull<3>>(params)
-        }
-        #[cfg(not(feature = "simd"))]
-        {
-            Err("donnelly_simd_block3 requires --features simd".to_string())
-        }
+        // Block-at-once stem strategies require an immutable leaf strategy
+        // (see StemLeafCompatibility), so this selector has no mutable case;
+        // instantiating one would fail the compile-time compatibility assert.
+        Err(
+            "donnelly_simd_block3 is immutable-only: mutable trees cannot use block-at-once stem strategies"
+                .to_string(),
+        )
     }
 
     fn run_immutable<const K: usize, const B: usize>(params: &ReproParams) -> Result<(), String> {
