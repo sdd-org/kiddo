@@ -12,7 +12,7 @@ pub unsafe fn compare_block3_f64_autovec(
 ) -> u8 {
     let ptr = stems_ptr.as_ptr().add(cache_line_base * 8) as *const f64;
     let mut count = 0u8;
-    for i in 0..8 {
+    for i in 0..7 {
         if query_val >= *ptr.add(i) {
             count += 1;
         }
@@ -30,7 +30,7 @@ pub unsafe fn compare_block3_f32_autovec(
 ) -> u8 {
     let ptr = stems_ptr.as_ptr().add(cache_line_base * 4) as *const f32;
     let mut count = 0u8;
-    for i in 0..8 {
+    for i in 0..7 {
         if query_val >= *ptr.add(i) {
             count += 1;
         }
@@ -70,7 +70,7 @@ mod tests {
             -5.0,
             -4.0,
             -3.0,
-            f64::INFINITY,
+            f64::NEG_INFINITY,
             0.2,
             0.4,
             0.6,
@@ -100,7 +100,7 @@ mod tests {
             -5.0,
             -4.0,
             -3.0,
-            f32::INFINITY,
+            f32::NEG_INFINITY,
             0.2,
             0.4,
             0.6,

@@ -86,6 +86,11 @@ pub trait StemStrategy: Clone + Debug + Sync + Send + 'static {
     #[doc(hidden)]
     const SIMD_BLOCK_DESCENT_ON_BACKTRACK: bool = true;
 
+    /// Whether this strategy uses the f64 Donnelly<3> block layout whose
+    /// eighth slot can carry embedded minimum-item summaries.
+    #[doc(hidden)]
+    const SUPPORTS_EMBEDDED_MIN_ITEM_SUMMARY: bool = false;
+
     /// Compact state persisted on scalar backtracking stacks.
     ///
     /// Scalar strategies can use this to store only the state needed to resume a deferred branch.

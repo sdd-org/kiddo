@@ -257,7 +257,15 @@ mod custom_serde;
 
 pub mod kd_tree;
 #[doc(hidden)]
-pub type KdTree<A, T, SS, LS, const K: usize, const B: usize> = kd_tree::KdTree<A, T, SS, LS, K, B>;
+pub type KdTree<
+    A,
+    T,
+    SS,
+    LS,
+    const K: usize,
+    const B: usize,
+    const ITEM_LEAF_MODE: u8 = { kd_tree::ITEM_LEAF_MODE_UNSORTED },
+> = kd_tree::KdTree<A, T, SS, LS, K, B, ITEM_LEAF_MODE>;
 #[cfg(feature = "exact_query_stats")]
 pub use kd_tree::query::tree::stats as tree_join_stats;
 pub use kd_tree::query::tree::{
@@ -265,7 +273,9 @@ pub use kd_tree::query::tree::{
 };
 #[cfg(feature = "multi-threaded")]
 pub use kd_tree::DEFAULT_PARALLEL_CONSTRUCTION_THRESHOLD;
-pub use kd_tree::{KdTreeBuilder, QueryScratch};
+pub use kd_tree::{
+    ItemLeafMode, KdTreeBuilder, QueryScratch, ITEM_LEAF_MODE_SORTED, ITEM_LEAF_MODE_UNSORTED,
+};
 
 /// Batch query execution: running many query points against one tree per call.
 pub mod batch {

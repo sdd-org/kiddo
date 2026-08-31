@@ -68,7 +68,7 @@ pub trait CompareBlock4: Copy {
 
 /// Autovectorization-friendly comparison macro for block traversal.
 ///
-/// Compares query value against `$pivot_count + 1` pivots (includes padding).
+/// Compares query value against `$pivot_count` real pivots (ignores padding).
 /// Returns count of pivots <= query_val, which maps to child index.
 ///
 /// # Parameters
@@ -85,8 +85,7 @@ macro_rules! autovec_compare_block {
                 .add($block_base_idx * std::mem::size_of::<$ty>())
                 as *const $ty;
             let mut count = 0u8;
-            // Loop over pivot_count + 1 to include padding
-            for i in 0..($pivot_count + 1) {
+            for i in 0..$pivot_count {
                 if $query_val >= *ptr.add(i) {
                     count += 1;
                 }
@@ -113,7 +112,13 @@ impl CompareBlock3 for f64 {
                     let ptr = stems_ptr.as_ptr().add(block_base_idx * 8) as *const f64;
                     let pivots = _mm512_loadu_pd(ptr);
                     let query_vec = _mm512_set1_pd(query_val);
-                    let mask = _mm512_cmp_pd_mask(query_vec, pivots, _CMP_GE_OQ);
+                    // Lane 7 is the Block3 padding slot and may carry an embedded
+                    // item-summary bit pattern on summary-mode f64 trees. This kernel
+                    // is not parameterised by the tree's item-leaf mode, so excluding
+                    // lane 7 here is a negligible but unavoidable cost even for
+                    // unsorted trees, where the padding is ±INFINITY and could never
+                    // be selected anyway.
+                    let mask = _mm512_cmp_pd_mask(query_vec, pivots, _CMP_GE_OQ) & 0x7f;
                     _popcnt32(mask as i32) as u8
                 }
             }
@@ -133,7 +138,8 @@ impl CompareBlock3 for f64 {
 
                     let mask_low = _mm256_movemask_pd(cmp_low) as u32;
                     let mask_high = _mm256_movemask_pd(cmp_high) as u32;
-                    let mask = mask_low | (mask_high << 4);
+                    // Excludes lane 7 (Block3 padding); see the note above.
+                    let mask = (mask_low | (mask_high << 4)) & 0x7f;
 
                     _popcnt32(mask as i32) as u8
                 }
@@ -198,7 +204,12 @@ impl CompareBlock3 for f32 {
                     let ptr = stems_ptr.as_ptr().add(block_base_idx * 4) as *const f32;
                     let pivots = _mm256_loadu_ps(ptr);
                     let query_vec = _mm256_set1_ps(query_val);
-                    let mask = _mm256_cmp_ps_mask(query_vec, pivots, _CMP_GE_OQ);
+                    // Lane 7 is the Block3 padding slot. It never carries summaries
+                    // for f32 trees, but this kernel is not parameterised by the
+                    // tree's item-leaf mode, so excluding it is a negligible but
+                    // unavoidable cost; for unsorted trees the padding is ±INFINITY
+                    // and could never be selected anyway.
+                    let mask = _mm256_cmp_ps_mask(query_vec, pivots, _CMP_GE_OQ) & 0x7f;
                     _popcnt32(mask as i32) as u8
                 }
             }
@@ -213,7 +224,8 @@ impl CompareBlock3 for f32 {
                     let query_vec = _mm256_set1_ps(query_val);
 
                     let cmp = _mm256_cmp_ps(query_vec, pivots, _CMP_GE_OQ);
-                    let mask = _mm256_movemask_ps(cmp) as u32;
+                    // Excludes lane 7 (Block3 padding); see the note above.
+                    let mask = (_mm256_movemask_ps(cmp) as u32) & 0x7f;
 
                     _popcnt32(mask as i32) as u8
                 }

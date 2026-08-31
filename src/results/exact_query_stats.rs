@@ -11,6 +11,9 @@ use std::cell::Cell;
 pub struct ExactQueryStats {
     pub queries: u64,
     pub leaf_visits: u64,
+    pub leaf_items_available: u64,
+    pub leaf_items_distance_evaluated: u64,
+    pub item_sorted_threshold_stops: u64,
     pub stem_steps: u64,
     pub real_pivot_steps: u64,
     pub padding_steps: u64,
@@ -31,6 +34,9 @@ pub struct ExactQueryStats {
     pub block3_step_entries: u64,
     pub block3_full_steps: u64,
     pub block3_scalar_fallback_steps: u64,
+    pub item_summary_blocks_checked: u64,
+    pub item_summary_lanes_rejected: u64,
+    pub item_summary_subtrees_pruned: u64,
 }
 
 thread_local! {
@@ -64,6 +70,21 @@ pub fn record_query() {
 #[inline]
 pub fn record_leaf_visit() {
     update(|stats| stats.leaf_visits += 1);
+}
+
+#[inline]
+pub fn record_leaf_items_available(len: usize) {
+    update(|stats| stats.leaf_items_available += len as u64);
+}
+
+#[inline]
+pub fn record_leaf_items_distance_evaluated(len: usize) {
+    update(|stats| stats.leaf_items_distance_evaluated += len as u64);
+}
+
+#[inline]
+pub fn record_item_sorted_threshold_stop() {
+    update(|stats| stats.item_sorted_threshold_stops += 1);
 }
 
 #[inline]
@@ -159,4 +180,17 @@ pub fn record_block3_scalar_fallback_step() {
 #[inline]
 pub fn record_block3_step_entry() {
     update(|stats| stats.block3_step_entries += 1);
+}
+
+#[inline]
+pub fn record_item_summary_block(mask: u8) {
+    update(|stats| {
+        stats.item_summary_blocks_checked += 1;
+        stats.item_summary_lanes_rejected += u64::from((!mask).count_ones());
+    });
+}
+
+#[inline]
+pub fn record_item_summary_subtree_prune() {
+    update(|stats| stats.item_summary_subtrees_pruned += 1);
 }

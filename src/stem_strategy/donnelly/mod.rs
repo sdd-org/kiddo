@@ -62,3 +62,35 @@ pub use simd_full::DonnellySimdFull;
 pub use unrolled::DonnellyUnrolled;
 #[doc(inline)]
 pub use unrolled_block_dim::DonnellyUnrolledBlockDim;
+
+mod embedded_summary_layout {
+    pub trait Sealed {}
+}
+
+/// Marker for public stem strategies that share the f64 Donnelly<3> padding
+/// layout used by embedded minimum-item summaries.
+#[doc(hidden)]
+pub trait DonnellyBlock3SummaryLayout:
+    crate::StemStrategy + embedded_summary_layout::Sealed
+{
+}
+
+macro_rules! impl_block3_summary_layout {
+    ($($strategy:ty),+ $(,)?) => {
+        $(
+            impl embedded_summary_layout::Sealed for $strategy {}
+            impl DonnellyBlock3SummaryLayout for $strategy {}
+        )+
+    };
+}
+
+impl_block3_summary_layout!(
+    Donnelly<3>,
+    DonnellyNoPf<3>,
+    DonnellyUnrolled<3>,
+    DonnellyUnrolledBlockDim<3>,
+    DonnellySimdDescent<3>,
+    DonnellySimdFull<3>,
+    DonnellyCyclicSimdDescent<3>,
+    DonnellyCyclicSimdFull<3>,
+);

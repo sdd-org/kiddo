@@ -10,17 +10,21 @@ use crate::{Axis, Content, KdTree, StemStrategy};
 
 use super::builder::KdTreeBuilder;
 
+mod item_summary;
 #[cfg(feature = "multi-threaded")]
 mod parallel;
 mod serial;
 mod shared;
 
+pub(in crate::kd_tree) use item_summary::populate_f64_donnelly3_min_item_summaries;
 #[cfg(feature = "multi-threaded")]
 pub use parallel::ParallelConstruction;
 pub use serial::SerialConstruction;
-pub(in crate::kd_tree) use shared::validate_auto_generated_items;
 use shared::{
     construction_index_fits_u32, ConstructionIndex, ConstructionLeafScratch, SoftConstructionMode,
+};
+pub(in crate::kd_tree) use shared::{
+    sort_leaf_scratch_by_item, validate_auto_generated_items, LeafSorter, StemSummaryPopulator,
 };
 
 /// The construction policy [`KdTree::builder`] starts from.
@@ -111,6 +115,7 @@ where
             &entries,
             |entry, dim| entry.1[dim],
             |_, entry| Ok(entry.0),
+            None,
         )?;
         *self = rebuilt;
 
@@ -533,13 +538,23 @@ where
             .with_parallel_construction_threshold(DEFAULT_PARALLEL_CONSTRUCTION_THRESHOLD)
             .build_from_entries(source)
     }
+}
 
+impl<A, T, SS, LS, const K: usize, const B: usize, const ITEM_LEAF_MODE: u8>
+    KdTree<A, T, SS, LS, K, B, ITEM_LEAF_MODE>
+where
+    A: Axis<Coord = A>,
+    T: Content,
+    SS: StemStrategy,
+    LS: ConstructibleLeafStrategy<A, T, SS, K, B>,
+{
     /// Inner constructor shared by all variants. The accessors are invoked
     /// wherever we would normally pull coordinates or items from the source.
     pub(in crate::kd_tree) fn new_from_source_with<X, FA, FI>(
         source: &[X],
         axis_at: FA,
         item_at: FI,
+        leaf_sorter: Option<LeafSorter<A, T, K>>,
     ) -> Result<Self, ConstructionError>
     where
         FA: Fn(&X, usize) -> A,
@@ -549,7 +564,7 @@ where
         let leaf_node_count = item_count.div_ceil(B);
 
         if leaf_node_count < 2 {
-            return Self::new_from_source_no_stems_with(source, &axis_at, item_at);
+            return Self::new_from_source_no_stems_with(source, &axis_at, item_at, leaf_sorter);
         }
 
         if construction_index_fits_u32(item_count) {
@@ -558,6 +573,7 @@ where
                 axis_at,
                 item_at,
                 &SerialConstruction,
+                leaf_sorter,
             )
         } else {
             Self::new_from_source_with_index::<SerialConstruction, usize, _, _, _>(
@@ -565,6 +581,7 @@ where
                 axis_at,
                 item_at,
                 &SerialConstruction,
+                leaf_sorter,
             )
         }
     }
@@ -575,6 +592,7 @@ where
         axis_at: FA,
         item_at: FI,
         policy: ParallelConstruction,
+        leaf_sorter: Option<LeafSorter<A, T, K>>,
     ) -> Result<Self, ConstructionError>
     where
         A: Send + Sync,
@@ -586,16 +604,24 @@ where
         let leaf_node_count = item_count.div_ceil(B);
 
         if leaf_node_count < 2 {
-            return Self::new_from_source_no_stems_with(source, &axis_at, item_at);
+            return Self::new_from_source_no_stems_with(source, &axis_at, item_at, leaf_sorter);
         }
 
         if construction_index_fits_u32(item_count) {
             Self::new_from_source_with_index::<ParallelConstruction, u32, _, _, _>(
-                source, axis_at, item_at, &policy,
+                source,
+                axis_at,
+                item_at,
+                &policy,
+                leaf_sorter,
             )
         } else {
             Self::new_from_source_with_index::<ParallelConstruction, usize, _, _, _>(
-                source, axis_at, item_at, &policy,
+                source,
+                axis_at,
+                item_at,
+                &policy,
+                leaf_sorter,
             )
         }
     }
@@ -605,6 +631,7 @@ where
         axis_at: FA,
         mut item_at: FI,
         mode: &M,
+        leaf_sorter: Option<LeafSorter<A, T, K>>,
     ) -> Result<Self, ConstructionError>
     where
         I: ConstructionIndex,
@@ -668,7 +695,7 @@ where
         let mut terminal_stem_indices = Vec::with_capacity(leaf_node_count);
         let mut actual_max_stem_level: i32 = -1;
         let mut max_leaf_len = 0usize;
-        let mut leaf_scratch = ConstructionLeafScratch::<A, T, K>::with_capacity(B);
+        let mut leaf_scratch = ConstructionLeafScratch::<A, T, K>::with_capacity(B, leaf_sorter);
         let mut sort_index = Vec::from_iter((0..item_count).map(I::from_usize));
 
         match LS::BUCKET_LIMIT_TYPE {
@@ -738,6 +765,7 @@ where
         source: &[X],
         axis_at: &FA,
         mut item_at: FI,
+        leaf_sorter: Option<LeafSorter<A, T, K>>,
     ) -> Result<Self, ConstructionError>
     where
         FA: Fn(&X, usize) -> A,
@@ -746,24 +774,58 @@ where
         let item_count = source.len();
 
         if item_count == 0 {
-            return Ok(Self::default());
+            let (stems, max_stem_level, stem_leaf_resolution) = if LS::Mutability::is_mutable() {
+                let root_idx = SS::new_no_ptr().stem_idx();
+                let mut stems = AVec::new(CACHELINE_ALIGN);
+                stems.resize(root_idx + 1, A::max_value());
+                let mut leaf_idx_map = vec![None; root_idx + 1];
+                leaf_idx_map[root_idx] = NonMaxUsize::new(0);
+                (
+                    stems,
+                    0,
+                    OwnedStemLeafResolution::Mapped {
+                        min_stem_leaf_idx: 0,
+                        leaf_idx_map,
+                    },
+                )
+            } else {
+                (
+                    AVec::new(CACHELINE_ALIGN),
+                    -1,
+                    OwnedStemLeafResolution::Arithmetic {
+                        stems_depth: 0,
+                        leaf_count: 0,
+                    },
+                )
+            };
+            return Ok(Self {
+                stems,
+                leaves: LS::new_with_empty_leaf(),
+                stem_leaf_resolution,
+                size: 0,
+                max_stem_level,
+                max_leaf_len: Self::initial_max_leaf_len(),
+                _phantom: Default::default(),
+            });
         }
 
-        let mut leaf_points: [Vec<A>; K] =
-            array_init::array_init(|_| Vec::with_capacity(item_count));
-        let mut leaf_items: Vec<T> = Vec::with_capacity(item_count);
+        let mut leaf_scratch =
+            ConstructionLeafScratch::<A, T, K>::with_capacity(item_count, leaf_sorter);
 
         for idx in 0..item_count {
             for dim in 0..K {
-                leaf_points[dim].push(axis_at(&source[idx], dim));
+                leaf_scratch.points[dim].push(axis_at(&source[idx], dim));
             }
-            leaf_items.push(item_at(idx, &source[idx])?);
+            leaf_scratch.items.push(item_at(idx, &source[idx])?);
         }
 
-        let leaf_points_refs: [&[A]; K] = array_init::array_init(|dim| leaf_points[dim].as_slice());
+        leaf_scratch.sort_if_configured();
+
+        let leaf_points_refs: [&[A]; K] =
+            array_init::array_init(|dim| leaf_scratch.points[dim].as_slice());
 
         let mut leaves = LS::new_with_capacity(item_count);
-        leaves.append_leaf(&leaf_points_refs, leaf_items.as_slice());
+        leaves.append_leaf(&leaf_points_refs, leaf_scratch.items.as_slice());
 
         let stem_leaf_resolution =
             LS::Mutability::initial_stem_leaf_resolution::<A, SS, K>(0, leaves.leaf_count());
@@ -839,7 +901,8 @@ where
 }
 
 // Shared utility methods for construction (available to both Immutable and Mutable)
-impl<A, T, SS, LS, const K: usize, const B: usize> KdTree<A, T, SS, LS, K, B>
+impl<A, T, SS, LS, const K: usize, const B: usize, const ITEM_LEAF_MODE: u8>
+    KdTree<A, T, SS, LS, K, B, ITEM_LEAF_MODE>
 where
     A: Axis<Coord = A>,
     T: Content,
@@ -872,6 +935,8 @@ where
             }
             leaf_scratch.items.push(item_at(src_idx, &source[src_idx])?);
         }
+
+        leaf_scratch.sort_if_configured();
 
         let leaf_points_refs: [&[A]; K] =
             array_init::array_init(|d| leaf_scratch.points[d].as_slice());

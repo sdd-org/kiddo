@@ -8,7 +8,8 @@ use crate::stem_strategy::donnelly::simd_full::{
 };
 use crate::{Axis, Content, KdTree, LeafStrategy, QueryResultItem, StemStrategy};
 
-impl<A, T, SS, LS, const K: usize, const B: usize> KdTree<A, T, SS, LS, K, B>
+impl<A, T, SS, LS, const K: usize, const B: usize, const ITEM_LEAF_MODE: u8>
+    KdTree<A, T, SS, LS, K, B, ITEM_LEAF_MODE>
 where
     A: Axis<Coord = A> + 'static,
     T: Content + PartialOrd,
