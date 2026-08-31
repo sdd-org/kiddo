@@ -1,5 +1,23 @@
 # Kiddo Changelog
 
+## [6.1.1] - 2026-08-31
+
+### 🐛 Bug Fixes
+
+- Support builds on other host architectures ([@sdd](https://github.com/sdd))
+
+- Repair pre-existing adversarial fuzz failures and fuzz-case-repro build ([@sdd](https://github.com/sdd), Note:examples/embedded-rkyv_08-deserialize requires a generated
+examples/data/geonames-embedded.rkyv data artifact and is unrelated
+to these fixes., Verified:cargo test --all-features --lib --tests (487 unit + 19
+integration tests, 0 failures), fuzz-case-repro builds clean.)
+
+
+### 🧹 Chore
+
+- Document CodeQL rust/access-invalid-pointer false positives in mirror_partition_in_blocks ([@sdd](https://github.com/sdd))
+
+- Create security.md ([@sdd](https://github.com/sdd))
+
 ## [6.1.0] - 2026-08-23
 
 ### ✨ Features
