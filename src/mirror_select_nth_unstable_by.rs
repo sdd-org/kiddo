@@ -233,6 +233,29 @@ where
     (mid, was_partitioned)
 }
 
+// NOTE ON CODE SCANNING ALERTS (GitHub CodeQL `rust/access-invalid-pointer`, alerts #1-#8):
+//
+// This function is a near-verbatim fork of `partition_in_blocks` from the Rust standard
+// library (`library/core/src/slice/sort.rs`, as of 1.80.1, before the ipnsort rewrite):
+//
+//   https://github.com/rust-lang/rust/blob/1.80.1/library/core/src/slice/sort.rs#L302-L551
+//
+// The only changes are:
+//  * mechanical renames (`v` -> `target`, `T` -> `AA`, `usize::from(..)` -> `.. as usize`); and
+//  * every operation on `target` is duplicated on the parallel `mirror` slice.
+//
+// The duplicated mirror bookkeeping is always identical to the `target` bookkeeping: the
+// branchless comparison results are computed once from `target` and drive *both* offsets
+// arrays (`*end_l = i` / `*mirror_end_l = i`, etc.), and `mirror_l`/`mirror_r` advance in
+// lockstep with `l`/`r`. The upstream SAFETY arguments below therefore apply unchanged to
+// the mirrored pointers, and the offset values dereferenced by `mirror_left!()`/
+// `mirror_right!()` are bounded exactly like those of `left!()`/`right!()`.
+//
+// The dereferences CodeQL flags (the `left!/right!/mirror_left!/mirror_right!` macro
+// expansions in the cyclic permutation below, and the `ptr::swap` calls in the
+// [remaining-elements-safety] tail loops) are false positives on code copied unchanged
+// from the standard library, where it was reviewed and Miri-tested for years. Do NOT
+// rewrite this with bounds-checked indexing - it would regress this branchless hot path.
 fn mirror_partition_in_blocks<AA, BB, F>(
     target: &mut [AA],
     mirror: &mut [BB],
@@ -469,6 +492,12 @@ where
             //
             // The calls to `copy_nonoverlapping` are safe because `left!` and `right!` are guaranteed
             // not to overlap, and are valid because of the reasoning above.
+            //
+            // CodeQL flags the dereferences inside `left!/right!/mirror_left!/mirror_right!` as
+            // `rust/access-invalid-pointer` (alerts #1-#4). False positive - this block is
+            // copied verbatim from `partition_in_blocks` in std 1.80.1 (see the module note
+            // above), where the same expressions appear:
+            // https://github.com/rust-lang/rust/blob/1.80.1/library/core/src/slice/sort.rs#L449-L479
             unsafe {
                 let tmp = ptr::read(left!());
                 ptr::copy_nonoverlapping(right!(), left!(), 1);
@@ -548,6 +577,11 @@ where
             //    makes the `r.offset` calls valid (at that point `l == r`).
             //  - `offsets_l` contains valid offsets into `v` collected during the partitioning of
             //    the last block, so the `l.offset` calls are valid.
+            //
+            // CodeQL flags the `ptr::swap` dereferences below (including the mirrored copies) as
+            // `rust/access-invalid-pointer` (alerts #5-#6). False positive - same reasoning as the
+            // module note above; cf. std 1.80.1:
+            // https://github.com/rust-lang/rust/blob/1.80.1/library/core/src/slice/sort.rs#L516-L531
             unsafe {
                 end_l = end_l.sub(1);
                 ptr::swap(l.add(*end_l as usize), r.sub(1));
@@ -566,6 +600,11 @@ where
         debug_assert_eq!(width(mirror_l, mirror_r), mirror_block_r);
         while start_r < end_r {
             // SAFETY: See the reasoning in [remaining-elements-safety].
+            //
+            // CodeQL flags the `ptr::swap` dereferences below (including the mirrored copies) as
+            // `rust/access-invalid-pointer` (alerts #7-#8). False positive - same reasoning as the
+            // module note above; cf. std 1.80.1:
+            // https://github.com/rust-lang/rust/blob/1.80.1/library/core/src/slice/sort.rs#L539-L544
             unsafe {
                 end_r = end_r.sub(1);
                 ptr::swap(l, r.sub((*end_r as usize) + 1));
