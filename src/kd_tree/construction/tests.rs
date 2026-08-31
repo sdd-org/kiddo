@@ -1,10 +1,337 @@
 use super::*;
+use std::num::NonZeroUsize;
+
 use crate::dist::SquaredEuclidean;
 use crate::leaf_strategy::FlatVec;
 use crate::leaf_strategy::VecOfArenas;
 use crate::leaf_strategy::VecOfArrays;
 use crate::Donnelly;
 use crate::Eytzinger;
+use crate::ItemLeafMode;
+
+use super::item_summary::encode_min_item;
+use crate::kd_tree::item_summary::EMPTY_SUBTREE_CODE;
+
+fn assert_item_sorted_leaves<A, SS, LS, const K: usize, const B: usize, const ITEM_LEAF_MODE: u8>(
+    tree: &KdTree<A, u32, SS, LS, K, B, ITEM_LEAF_MODE>,
+) where
+    A: Axis<Coord = A>,
+    SS: StemStrategy,
+    LS: LeafStrategy<A, u32, SS, K, B>,
+{
+    assert!(tree.item_sorted_leaves());
+    for leaf_idx in 0..tree.leaf_count() {
+        let items = (0..tree.leaves.leaf_len(leaf_idx))
+            .map(|position| tree.leaves.leaf_point_item(leaf_idx, position).1)
+            .collect::<Vec<_>>();
+        assert!(
+            items.windows(2).all(|pair| pair[0] <= pair[1]),
+            "leaf {leaf_idx} was not item-sorted: {items:?}"
+        );
+    }
+}
+
+#[test]
+fn embedded_min_item_summary_builder_supports_f64_donnelly_3() {
+    type F64Tree = KdTree<f64, u32, Donnelly<3>, FlatVec<f64, u32, 3, 8>, 3, 8>;
+
+    let f64_entries = (0..97u32)
+        .map(|item| {
+            let scrambled_item = (item * 37) % 97;
+            (
+                scrambled_item,
+                [
+                    ((item * 19) % 101) as f64,
+                    ((item * 43) % 103) as f64,
+                    ((item * 61) % 107) as f64,
+                ],
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let f64_tree = F64Tree::builder()
+        .with_embedded_min_item_shifted_summary::<1>()
+        .with_serial_construction()
+        .build_from_entries(&f64_entries)
+        .unwrap();
+    let sorted_without_summary = F64Tree::builder()
+        .with_embedded_min_item_shifted_summary::<1>()
+        .with_item_sorted_leaves()
+        .with_serial_construction()
+        .build_from_entries(&f64_entries)
+        .unwrap();
+
+    assert_item_sorted_leaves(&f64_tree);
+    assert_eq!(
+        f64_tree.item_leaf_mode(),
+        ItemLeafMode::SortedWithEncodedMin { shift: 1 }
+    );
+    assert_eq!(
+        sorted_without_summary.item_leaf_mode(),
+        ItemLeafMode::SortedWithoutEncodedMin
+    );
+    assert!(sorted_without_summary.stems[7].is_infinite());
+}
+
+fn embedded_summary_codes<LS, const K: usize, const B: usize, const ITEM_LEAF_MODE: u8>(
+    tree: &KdTree<f64, u32, Donnelly<3>, LS, K, B, ITEM_LEAF_MODE>,
+    block_base: usize,
+) -> [u8; 8]
+where
+    LS: LeafStrategy<f64, u32, Donnelly<3>, K, B>,
+{
+    let packed = tree.stems[block_base + 7].to_bits();
+    array_init::array_init(|child_idx| ((packed >> (child_idx * 8)) & 0xff) as u8)
+}
+
+fn leaf_min_item<LS, const K: usize, const B: usize, const ITEM_LEAF_MODE: u8>(
+    tree: &KdTree<f64, u32, Donnelly<3>, LS, K, B, ITEM_LEAF_MODE>,
+    leaf_idx: usize,
+) -> Option<u32>
+where
+    LS: LeafStrategy<f64, u32, Donnelly<3>, K, B>,
+{
+    (tree.leaves.leaf_len(leaf_idx) != 0).then(|| tree.leaves.leaf_point_item(leaf_idx, 0).1)
+}
+
+fn encoded_optional_min<const SHIFT: u8>(items: impl Iterator<Item = Option<u32>>) -> u8 {
+    items
+        .flatten()
+        .min()
+        .map_or(EMPTY_SUBTREE_CODE, encode_min_item::<SHIFT>)
+}
+
+#[test]
+fn embedded_min_item_summaries_propagate_across_complete_blocks() {
+    const SHIFT: u8 = 8;
+    type Tree = KdTree<f64, u32, Donnelly<3>, FlatVec<f64, u32, 3, 1>, 3, 1>;
+
+    let entries = (0..64u32)
+        .map(|idx| {
+            let exponent = 8 + ((idx * 7) % 20);
+            let item = (1u32 << exponent) | idx;
+            (
+                item,
+                [
+                    ((idx * 19) % 67) as f64,
+                    ((idx * 31) % 71) as f64,
+                    ((idx * 43) % 73) as f64,
+                ],
+            )
+        })
+        .collect::<Vec<_>>();
+    let tree = Tree::builder()
+        .with_embedded_min_item_shifted_summary::<SHIFT>()
+        .with_serial_construction()
+        .build_from_entries(&entries)
+        .unwrap();
+    let sorted_tree = Tree::builder()
+        .with_item_sorted_leaves()
+        .with_serial_construction()
+        .build_from_entries(&entries)
+        .unwrap();
+
+    assert!(tree.stems[7].is_finite());
+    let root_codes = embedded_summary_codes(&tree, 0);
+    for (child_idx, &actual) in root_codes.iter().enumerate() {
+        let first_leaf = child_idx * 8;
+        let expected = encoded_optional_min::<SHIFT>(
+            (first_leaf..first_leaf + 8).map(|leaf_idx| leaf_min_item(&tree, leaf_idx)),
+        );
+        assert_eq!(actual, expected, "root child {child_idx}");
+    }
+
+    for root_child_idx in 0..8 {
+        let block_base = (root_child_idx + 1) * 8;
+        assert!(tree.stems[block_base + 7].is_finite());
+        let child_codes = embedded_summary_codes(&tree, block_base);
+        for (child_idx, &actual) in child_codes.iter().enumerate() {
+            let leaf_idx = root_child_idx * 8 + child_idx;
+            let expected =
+                encoded_optional_min::<SHIFT>(std::iter::once(leaf_min_item(&tree, leaf_idx)));
+            assert_eq!(actual, expected, "block {root_child_idx} child {child_idx}");
+        }
+    }
+
+    for query in [[0.0, 0.0, 0.0], [31.0, 29.0, 23.0], [66.0, 70.0, 72.0]] {
+        let max_qty = NonZeroUsize::new(7).unwrap();
+        let expected = sorted_tree
+            .query(&query)
+            .best_n_within::<SquaredEuclidean<f64>>(20_000.0, max_qty)
+            .execute()
+            .into_sorted_vec();
+        let actual = tree
+            .query(&query)
+            .best_n_within::<SquaredEuclidean<f64>>(20_000.0, max_qty)
+            .execute()
+            .into_sorted_vec();
+        assert_eq!(actual, expected);
+    }
+}
+
+#[test]
+fn embedded_min_item_summaries_fill_partial_block_child_ranges() {
+    const SHIFT: u8 = 8;
+    type Tree = KdTree<f64, u32, Donnelly<3>, FlatVec<f64, u32, 3, 1>, 3, 1>;
+
+    let entries = (0..9u32)
+        .map(|idx| {
+            (
+                (1u32 << (8 + idx)) | idx,
+                [
+                    idx as f64,
+                    ((idx * 7) % 17) as f64,
+                    ((idx * 11) % 19) as f64,
+                ],
+            )
+        })
+        .collect::<Vec<_>>();
+    let tree = Tree::builder()
+        .with_serial_construction()
+        .with_embedded_min_item_shifted_summary::<SHIFT>()
+        .build_from_entries(&entries)
+        .unwrap();
+
+    for root_child_idx in 0..8 {
+        let block_base = (root_child_idx + 1) * 8;
+        assert!(tree.stems[block_base + 7].is_finite());
+        let child_codes = embedded_summary_codes(&tree, block_base);
+        let left_code = encoded_optional_min::<SHIFT>(std::iter::once(leaf_min_item(
+            &tree,
+            root_child_idx * 2,
+        )));
+        let right_code = encoded_optional_min::<SHIFT>(std::iter::once(leaf_min_item(
+            &tree,
+            root_child_idx * 2 + 1,
+        )));
+        assert_eq!(
+            child_codes,
+            [
+                left_code, left_code, left_code, left_code, right_code, right_code, right_code,
+                right_code,
+            ]
+        );
+    }
+    assert!(
+        (0..tree.leaf_count()).any(|leaf_idx| leaf_min_item(&tree, leaf_idx).is_none()),
+        "fixture must exercise empty leaves"
+    );
+    assert!(
+        (0..8).any(|root_child_idx| {
+            embedded_summary_codes(&tree, (root_child_idx + 1) * 8).contains(&EMPTY_SUBTREE_CODE)
+        }),
+        "empty leaves must use the reserved empty-subtree code"
+    );
+}
+
+#[cfg(feature = "multi-threaded")]
+#[test]
+fn embedded_min_item_summaries_match_between_serial_and_parallel_construction() {
+    type Tree = KdTree<f64, u32, Donnelly<3>, FlatVec<f64, u32, 3, 8>, 3, 8>;
+
+    let entries = (0..4_096u32)
+        .map(|idx| {
+            (
+                (1u32 << (8 + (idx % 20))) | idx,
+                [
+                    ((idx * 19) % 4_099) as f64,
+                    ((idx * 31) % 4_111) as f64,
+                    ((idx * 43) % 4_129) as f64,
+                ],
+            )
+        })
+        .collect::<Vec<_>>();
+    let serial = Tree::builder()
+        .with_embedded_min_item_shifted_summary::<8>()
+        .with_serial_construction()
+        .build_from_entries(&entries)
+        .unwrap();
+    let parallel = Tree::builder()
+        .with_embedded_min_item_shifted_summary::<8>()
+        .with_parallel_construction()
+        .build_from_entries(&entries)
+        .unwrap();
+
+    assert_eq!(
+        serial
+            .stems
+            .iter()
+            .map(|value| value.to_bits())
+            .collect::<Vec<_>>(),
+        parallel
+            .stems
+            .iter()
+            .map(|value| value.to_bits())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        serial.iter().collect::<Vec<_>>(),
+        parallel.iter().collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn item_sorted_leaf_builder_sorts_immutable_leaf_layouts() {
+    type FlatTree = KdTree<f32, u32, Eytzinger, FlatVec<f32, u32, 2, 8>, 2, 8>;
+    type ArenaTree = KdTree<f32, u32, Eytzinger, VecOfArenas<f32, u32, 2, 8>, 2, 8>;
+
+    let entries = (0..97u32)
+        .map(|item| {
+            let scrambled_item = (item * 37) % 97;
+            (
+                scrambled_item,
+                [((item * 19) % 101) as f32, ((item * 43) % 103) as f32],
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let ordinary = FlatTree::builder()
+        .with_serial_construction()
+        .build_from_entries(&entries)
+        .unwrap();
+    assert!(!ordinary.item_sorted_leaves());
+    assert_eq!(ordinary.item_leaf_mode(), ItemLeafMode::Unsorted);
+
+    let flat = FlatTree::builder()
+        .with_item_sorted_leaves()
+        .with_serial_construction()
+        .build_from_entries(&entries)
+        .unwrap();
+    let arena = ArenaTree::builder()
+        .with_serial_construction()
+        .with_item_sorted_leaves()
+        .build_from_entries(&entries)
+        .unwrap();
+    assert_item_sorted_leaves(&flat);
+    assert_item_sorted_leaves(&arena);
+    assert_eq!(flat.item_leaf_mode(), ItemLeafMode::SortedWithoutEncodedMin);
+    assert_eq!(
+        arena.item_leaf_mode(),
+        ItemLeafMode::SortedWithoutEncodedMin
+    );
+
+    let mut expected = entries.clone();
+    expected.sort_unstable_by_key(|entry| entry.0);
+    for mut actual in [
+        flat.iter().collect::<Vec<_>>(),
+        arena.iter().collect::<Vec<_>>(),
+    ] {
+        actual.sort_unstable_by_key(|entry| entry.0);
+        assert_eq!(actual, expected);
+    }
+}
+
+#[test]
+fn empty_mutable_bulk_construction_remains_addable() {
+    type Tree = KdTree<f32, u32, Eytzinger, VecOfArrays<f32, u32, 2, 8>, 2, 8>;
+    let entries: [(u32, [f32; 2]); 0] = [];
+
+    let mut tree = Tree::builder().build_from_entries(&entries).unwrap();
+    tree.add(&[1.0, 2.0], 7).unwrap();
+
+    assert_eq!(tree.size(), 1);
+    assert_eq!(tree.iter().collect::<Vec<_>>(), vec![(7, [1.0, 2.0])]);
+}
 
 #[test]
 fn construction_index_selection_is_adaptive() {
@@ -281,6 +608,16 @@ fn parallel_soft_construction_matches_sequential_construction() {
                 .with_parallel_construction_threshold(points.len())
                 .build_from_slice(&points)
                 .unwrap();
+            let sequential_item_sorted = <$tree>::builder()
+                .with_item_sorted_leaves()
+                .with_serial_construction()
+                .build_from_slice(&points)
+                .unwrap();
+            let parallel_item_sorted = <$tree>::builder()
+                .with_parallel_construction()
+                .with_item_sorted_leaves()
+                .build_from_slice(&points)
+                .unwrap();
 
             assert_eq!(sequential.stems.as_slice(), parallel.stems.as_slice());
             assert_eq!(
@@ -293,6 +630,12 @@ fn parallel_soft_construction_matches_sequential_construction() {
             assert_eq!(
                 sequential.iter().collect::<Vec<_>>(),
                 parallel.iter().collect::<Vec<_>>()
+            );
+            assert!(sequential_item_sorted.item_sorted_leaves());
+            assert!(parallel_item_sorted.item_sorted_leaves());
+            assert_eq!(
+                sequential_item_sorted.iter().collect::<Vec<_>>(),
+                parallel_item_sorted.iter().collect::<Vec<_>>()
             );
 
             for query in [[0.0, 0.0], [500.0, 500.0], [996.0, 990.0]] {

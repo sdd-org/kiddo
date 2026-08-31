@@ -517,9 +517,19 @@ fn cyclic_simd_full_arithmetic_query<
     process_leaf(first_leaf, &query_wide, query_ctx);
 
     while let Some(frame) = unsafe { stack.pop_inline_unchecked() } {
-        let (base_state, pending_mask, parent_off) = unsafe { frame.into_pending_unchecked() };
+        let (base_state, mut pending_mask, parent_off) = unsafe { frame.into_pending_unchecked() };
         let mut base = DonnellyCore::<BH>::new(stems_ptr);
         base.rehydrate_deferred_state(base_state);
+        if QC::USES_EMBEDDED_ITEM_SUMMARY && BH == 3 && A::VALUE_WIDTH_BYTES == 8 {
+            pending_mask &= u16::from(crate::kd_tree::item_summary::donnelly3_block_live_mask(
+                stems,
+                base.stem_idx(),
+                query_ctx.embedded_item_summary_filter(),
+            ));
+            if pending_mask == 0 {
+                continue;
+            }
+        }
         let max_dist = query_ctx.max_dist();
         let selection = select_cyclic_child::<A, O, D, K, BH>(
             stems,
@@ -569,6 +579,7 @@ macro_rules! impl_cyclic_simd_full {
         impl StemStrategy for $strategy<$bh> {
             const ROOT_IDX: usize = 0;
             const BLOCK_SIZE: usize = $bh;
+            const SUPPORTS_EMBEDDED_MIN_ITEM_SUMMARY: bool = $bh == 3;
             const TRAVERSES_BLOCK_AT_ONCE: bool = true;
             const SUPPORTS_ARITHMETIC_LEAF_RESOLUTION: bool = true;
             const USES_UNROLLED_SCALAR_TRAVERSAL: bool = true;

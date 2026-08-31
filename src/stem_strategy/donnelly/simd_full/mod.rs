@@ -623,6 +623,7 @@ pub mod cargo_asm {
 impl StemStrategy for DonnellySimdFull<3> {
     const ROOT_IDX: usize = 0;
     const BLOCK_SIZE: usize = 3;
+    const SUPPORTS_EMBEDDED_MIN_ITEM_SUMMARY: bool = true;
     const TRAVERSES_BLOCK_AT_ONCE: bool = true;
 
     type DeferredState = Self;
@@ -665,6 +666,20 @@ impl StemStrategy for DonnellySimdFull<3> {
     #[inline(always)]
     fn dim<const K: usize>(&self) -> usize {
         self.core.level() as usize / Self::BLOCK_SIZE % K
+    }
+
+    #[inline(always)]
+    fn select_block_child<A: Axis<Coord = A>, const K: usize>(
+        &self,
+        stems: &[A],
+        query: &[A; K],
+        start_dim: usize,
+    ) -> u8 {
+        compare_block3(
+            stems,
+            unsafe { *query.get_unchecked(start_dim) },
+            self.stem_idx(),
+        )
     }
 
     #[inline(always)]
@@ -1471,7 +1486,8 @@ mod tests {
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
     fn build_test_block3_pivots_f64() -> [f64; 8] {
-        [0.2, 0.4, 0.6, 0.1, 0.3, 0.5, 0.7, f64::INFINITY]
+        // The final lane is padding. Embedded item summaries may give it any bit pattern.
+        [0.2, 0.4, 0.6, 0.1, 0.3, 0.5, 0.7, f64::NEG_INFINITY]
     }
 
     fn build_test_block3_pivots_f32() -> [f32; 8] {
@@ -1501,7 +1517,7 @@ mod tests {
 
     fn select_child_scalar_f64(query: f64, pivots: &[f64; 8]) -> u8 {
         let mut count = 0u8;
-        for i in 0..8 {
+        for i in 0..7 {
             if query >= pivots[i] {
                 count += 1;
             }
@@ -1511,7 +1527,7 @@ mod tests {
 
     fn select_child_scalar_f32(query: f32, pivots: &[f32; 8]) -> u8 {
         let mut count = 0u8;
-        for i in 0..8 {
+        for i in 0..7 {
             if query >= pivots[i] {
                 count += 1;
             }
@@ -2458,7 +2474,7 @@ mod tests {
         for (pivot_idx, &pivot_val) in pivots.iter().enumerate().take(7) {
             let child = select_child_scalar_f64(pivot_val, &pivots);
 
-            let expected = pivots.iter().take(8).filter(|&&p| pivot_val >= p).count() as u8;
+            let expected = pivots.iter().take(7).filter(|&&p| pivot_val >= p).count() as u8;
 
             assert_eq!(
                 child, expected,

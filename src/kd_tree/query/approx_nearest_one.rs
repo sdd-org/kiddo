@@ -5,7 +5,8 @@ use crate::leaf_view_chunked::nearest_one::nearest_one_with_query_wide;
 use crate::traits::leaf_strategy::LeafProjection;
 use crate::{Axis, Content, KdTree, LeafStrategy, StemStrategy};
 
-impl<A, T, SS, LS, const K: usize, const B: usize> KdTree<A, T, SS, LS, K, B>
+impl<A, T, SS, LS, const K: usize, const B: usize, const ITEM_LEAF_MODE: u8>
+    KdTree<A, T, SS, LS, K, B, ITEM_LEAF_MODE>
 where
     A: Axis<Coord = A> + 'static,
     T: Content + PartialOrd + PartialEq,

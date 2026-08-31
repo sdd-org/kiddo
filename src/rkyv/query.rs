@@ -5,7 +5,9 @@ use crate::dist::DistanceMetric;
 use crate::kd_tree::query_context::QueryContext;
 use crate::kd_tree::query_stack::StackTrait;
 use crate::kd_tree::KdTreeQueryOps;
-use crate::kd_tree::{ArchivedKdTree, KdTreeAccessor};
+use crate::kd_tree::{
+    ArchivedKdTree, KdTreeAccessor, ITEM_LEAF_MODE_SORTED, ITEM_LEAF_MODE_UNSORTED,
+};
 use crate::leaf_view::TlsLeafScratch;
 use crate::leaf_view_chunked::best_n_within::best_n_within_with_query_wide_arena;
 use crate::leaf_view_chunked::nearest_n_within::nearest_n_within_with_query_wide_arena;
@@ -22,7 +24,8 @@ use crate::stem_strategy::donnelly::simd_full::{
 use crate::traits::leaf_strategy::LeafProjection;
 use crate::{Axis, BestQueryResultItem, Content, LeafStrategy, QueryResultItem, StemStrategy};
 
-impl<A, T, SS, LS, const K: usize, const B: usize> ArchivedKdTree<A, T, SS, LS, K, B>
+impl<A, T, SS, LS, const K: usize, const B: usize, const ITEM_LEAF_MODE: u8>
+    ArchivedKdTree<A, T, SS, LS, K, B, ITEM_LEAF_MODE>
 where
     A: rkyv_08::Archive + Axis<Coord = A> + 'static,
     T: Content + PartialOrd + PartialEq,
@@ -150,7 +153,8 @@ where
     }
 }
 
-impl<A, T, SS, LS, const K: usize, const B: usize> ArchivedKdTree<A, T, SS, LS, K, B>
+impl<A, T, SS, LS, const K: usize, const B: usize, const ITEM_LEAF_MODE: u8>
+    ArchivedKdTree<A, T, SS, LS, K, B, ITEM_LEAF_MODE>
 where
     A: rkyv_08::Archive + Axis<Coord = A> + 'static,
     T: Content + PartialOrd,
@@ -647,7 +651,8 @@ where
     }
 }
 
-impl<A, T, SS, LS, const K: usize, const B: usize> ArchivedKdTree<A, T, SS, LS, K, B>
+impl<A, T, SS, LS, const K: usize, const B: usize, const ITEM_LEAF_MODE: u8>
+    ArchivedKdTree<A, T, SS, LS, K, B, ITEM_LEAF_MODE>
 where
     A: rkyv_08::Archive + Axis<Coord = A> + 'static,
     T: Content + PartialOrd,
@@ -656,7 +661,7 @@ where
     rkyv_08::Archived<LS>: LeafStrategy<A, T, SS, K, B>,
 {
     #[inline(always)]
-    fn process_leaf_best_n_within<D, R, const EXCLUSIVE: bool>(
+    fn process_leaf_best_n_within<D, R, const EXCLUSIVE: bool, const LEAF_MODE: u8>(
         &self,
         leaf_idx: usize,
         query_wide: &[D::Output; K],
@@ -667,11 +672,19 @@ where
         D::Output: Axis<Coord = D::Output> + TlsLeafScratch + 'static,
         R: BestNeighbourResultCollection<D::Output, T>,
     {
+        #[cfg(any(feature = "exact_query_stats", feature = "test_utils"))]
+        {
+            crate::results::exact_query_stats::record_leaf_visit();
+            crate::results::exact_query_stats::record_leaf_items_available(
+                self.leaves().leaf_len(leaf_idx),
+            );
+        }
+
         let threshold_item = results.threshold_item();
         match <rkyv_08::Archived<LS> as LeafStrategy<A, T, SS, K, B>>::LEAF_PROJECTION {
             LeafProjection::LeafArena => {
                 let arena = self.leaves().leaf_arena(leaf_idx);
-                best_n_within_with_query_wide_arena::<A, T, D, R, EXCLUSIVE, K>(
+                best_n_within_with_query_wide_arena::<A, T, D, R, EXCLUSIVE, LEAF_MODE, K>(
                     &arena,
                     query_wide,
                     max_dist,
@@ -687,6 +700,7 @@ where
                     D,
                     R,
                     EXCLUSIVE,
+                    LEAF_MODE,
                     K,
                     B,
                 >(&leaf, query_wide, max_dist, threshold_item, results);
@@ -710,22 +724,50 @@ where
             + 'static,
         SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
     {
-        let mut req_ctx = ArchivedBestNWithinReqCtx::<A, D::Output, _, EXCLUSIVE, K> {
+        self.best_n_within_impl_ordered::<D, EXCLUSIVE, ITEM_LEAF_MODE>(query, max_dist, max_qty)
+    }
+
+    #[inline(always)]
+    fn best_n_within_impl_ordered<D, const EXCLUSIVE: bool, const LEAF_MODE: u8>(
+        &self,
+        query: &[A; K],
+        max_dist: D::Output,
+        max_qty: NonZeroUsize,
+    ) -> BinaryHeap<BestQueryResultItem<(), T, D::Output>>
+    where
+        D: DistanceMetric<A>,
+        D::Output: crate::stem_strategy::SimdPrune
+            + SimdSelectBestChildBlock3
+            + BacktrackBlock3
+            + BacktrackBlock4
+            + TlsLeafScratch
+            + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K> + 'static,
+    {
+        let mut req_ctx = ArchivedBestNWithinReqCtx::<A, D::Output, _, EXCLUSIVE, K, LEAF_MODE> {
             query,
             max_dist,
             results:
                 BinaryHeapResultCollection::<BestQueryResultItem<(), T, D::Output>>::with_max_qty(
                     max_qty.get(),
                 ),
+            item_summary_filter: crate::kd_tree::item_summary::ItemSummaryFilter::from_threshold::<
+                T,
+                LEAF_MODE,
+            >(None),
         };
 
         self.backtracking_query::<_, _, D>(&mut req_ctx, |leaf_idx, query_wide, req_ctx| {
-            self.process_leaf_best_n_within::<D, _, EXCLUSIVE>(
+            self.process_leaf_best_n_within::<D, _, EXCLUSIVE, LEAF_MODE>(
                 leaf_idx,
                 query_wide,
                 max_dist,
                 &mut req_ctx.results,
             );
+            req_ctx.item_summary_filter =
+                crate::kd_tree::item_summary::ItemSummaryFilter::from_threshold::<T, LEAF_MODE>(
+                    req_ctx.results.threshold_item(),
+                );
         });
 
         req_ctx.results.into_inner()
@@ -748,25 +790,56 @@ where
             + 'static,
         SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
     {
-        let mut req_ctx = ArchivedBestNWithinReqCtx::<A, D::Output, _, EXCLUSIVE, K> {
+        self.best_n_within_impl_with_scratch_ordered::<D, EXCLUSIVE, ITEM_LEAF_MODE>(
+            query, max_dist, max_qty, stack,
+        )
+    }
+
+    #[inline(always)]
+    fn best_n_within_impl_with_scratch_ordered<D, const EXCLUSIVE: bool, const LEAF_MODE: u8>(
+        &self,
+        query: &[A; K],
+        max_dist: D::Output,
+        max_qty: NonZeroUsize,
+        stack: &mut SS::Stack<D::Output, K>,
+    ) -> BinaryHeap<BestQueryResultItem<(), T, D::Output>>
+    where
+        D: DistanceMetric<A>,
+        D::Output: crate::stem_strategy::SimdPrune
+            + SimdSelectBestChildBlock3
+            + BacktrackBlock3
+            + BacktrackBlock4
+            + TlsLeafScratch
+            + 'static,
+        SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>,
+    {
+        let mut req_ctx = ArchivedBestNWithinReqCtx::<A, D::Output, _, EXCLUSIVE, K, LEAF_MODE> {
             query,
             max_dist,
             results:
                 BinaryHeapResultCollection::<BestQueryResultItem<(), T, D::Output>>::with_max_qty(
                     max_qty.get(),
                 ),
+            item_summary_filter: crate::kd_tree::item_summary::ItemSummaryFilter::from_threshold::<
+                T,
+                LEAF_MODE,
+            >(None),
         };
 
         self.backtracking_query_with_scratch::<_, _, D>(
             &mut req_ctx,
             stack,
             |leaf_idx, query_wide, req_ctx| {
-                self.process_leaf_best_n_within::<D, _, EXCLUSIVE>(
+                self.process_leaf_best_n_within::<D, _, EXCLUSIVE, LEAF_MODE>(
                     leaf_idx,
                     query_wide,
                     max_dist,
                     &mut req_ctx.results,
                 );
+                req_ctx.item_summary_filter =
+                    crate::kd_tree::item_summary::ItemSummaryFilter::from_threshold::<T, LEAF_MODE>(
+                        req_ctx.results.threshold_item(),
+                    );
             },
         );
 
@@ -879,20 +952,31 @@ where
     }
 }
 
-struct ArchivedBestNWithinReqCtx<'a, A, O, R, const EXCLUSIVE: bool, const K: usize>
-where
+struct ArchivedBestNWithinReqCtx<
+    'a,
+    A,
+    O,
+    R,
+    const EXCLUSIVE: bool,
+    const K: usize,
+    const ITEM_LEAF_MODE: u8,
+> where
     O: Axis<Coord = O>,
 {
     query: &'a [A; K],
     max_dist: O,
     results: R,
+    item_summary_filter: crate::kd_tree::item_summary::ItemSummaryFilter,
 }
 
-impl<A, O, R, const EXCLUSIVE: bool, const K: usize> QueryContext<A, O, K>
-    for ArchivedBestNWithinReqCtx<'_, A, O, R, EXCLUSIVE, K>
+impl<A, O, R, const EXCLUSIVE: bool, const K: usize, const ITEM_LEAF_MODE: u8> QueryContext<A, O, K>
+    for ArchivedBestNWithinReqCtx<'_, A, O, R, EXCLUSIVE, K, ITEM_LEAF_MODE>
 where
     O: Axis<Coord = O>,
 {
+    const USES_EMBEDDED_ITEM_SUMMARY: bool =
+        ITEM_LEAF_MODE != ITEM_LEAF_MODE_UNSORTED && ITEM_LEAF_MODE != ITEM_LEAF_MODE_SORTED;
+
     fn query(&self) -> &[A; K] {
         self.query
     }
@@ -904,5 +988,10 @@ where
     #[inline]
     fn prune_on_equal_max_dist(&self) -> bool {
         EXCLUSIVE
+    }
+
+    #[inline(always)]
+    fn embedded_item_summary_filter(&self) -> crate::kd_tree::item_summary::ItemSummaryFilter {
+        self.item_summary_filter
     }
 }

@@ -72,6 +72,14 @@ pub trait Axis:
     /// Returns the maximum of two coordinate values.
     fn max(a: Self::Coord, b: Self::Coord) -> Self::Coord;
 
+    /// Returns the raw packed item-summary word stored in a Donnelly padding
+    /// slot, when this axis type supports that representation.
+    #[doc(hidden)]
+    #[inline(always)]
+    fn embedded_item_summary_word(_value: Self::Coord) -> Option<u64> {
+        None
+    }
+
     /// Select a path through a Donnelly block whose split dimension advances
     /// at every level. Implemented only by floating-point axes used by the
     /// experimental AVX-512 cyclic-SIMD strategy.
@@ -167,6 +175,17 @@ macro_rules! impl_axis_float {
             #[inline(always)]
             fn max(a: Self::Coord, b: Self::Coord) -> Self::Coord {
                 a.max(b)
+            }
+
+            #[inline(always)]
+            fn embedded_item_summary_word(value: Self::Coord) -> Option<u64> {
+                if size_of::<$t>() == size_of::<u64>() {
+                    // This branch is a compile-time constant for every macro
+                    // instantiation. Only f64 reaches the copy.
+                    Some(unsafe { std::mem::transmute_copy(&value) })
+                } else {
+                    None
+                }
             }
 
             #[inline(always)]

@@ -10,12 +10,15 @@ pub(crate) mod avx512;
 pub(crate) mod neon;
 
 use crate::dist::DistanceMetric;
+use crate::kd_tree::ITEM_LEAF_MODE_UNSORTED;
 use crate::leaf_view::{LeafArena, LeafView, TlsLeafScratch};
 use crate::results::result_collection::BestNeighbourResultCollection;
 use crate::{Axis, Content};
 
 pub(crate) use fallback::{
-    best_n_within_with_query_wide_arena_fallback, best_n_within_with_query_wide_fallback,
+    best_n_within_with_query_wide_arena_fallback,
+    best_n_within_with_query_wide_arena_item_sorted_fallback,
+    best_n_within_with_query_wide_fallback, best_n_within_with_query_wide_item_sorted_fallback,
 };
 
 #[inline(always)]
@@ -25,6 +28,7 @@ pub(crate) fn best_n_within_with_query_wide_arena<
     D,
     R,
     const EXCLUSIVE: bool,
+    const ITEM_LEAF_MODE: u8,
     const K: usize,
 >(
     arena: &LeafArena<'_, AX, T, K>,
@@ -41,7 +45,7 @@ pub(crate) fn best_n_within_with_query_wide_arena<
 {
     #[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"))]
     if unsafe {
-        try_best_n_within_arena_avx512::<AX, T, D, R, EXCLUSIVE, K>(
+        try_best_n_within_arena_avx512::<AX, T, D, R, EXCLUSIVE, ITEM_LEAF_MODE, K>(
             arena,
             query_wide,
             dist,
@@ -49,6 +53,13 @@ pub(crate) fn best_n_within_with_query_wide_arena<
             results,
         )
     } {
+        return;
+    }
+
+    if ITEM_LEAF_MODE != ITEM_LEAF_MODE_UNSORTED {
+        best_n_within_with_query_wide_arena_item_sorted_fallback::<AX, T, D, R, EXCLUSIVE, K>(
+            arena, query_wide, dist, results,
+        );
         return;
     }
 
@@ -94,6 +105,7 @@ pub(crate) fn best_n_within_with_query_wide<
     D,
     R,
     const EXCLUSIVE: bool,
+    const ITEM_LEAF_MODE: u8,
     const K: usize,
     const B: usize,
 >(
@@ -111,7 +123,7 @@ pub(crate) fn best_n_within_with_query_wide<
 {
     #[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"))]
     if unsafe {
-        try_best_n_within_avx512::<AX, T, D, R, EXCLUSIVE, K, B>(
+        try_best_n_within_avx512::<AX, T, D, R, EXCLUSIVE, ITEM_LEAF_MODE, K, B>(
             leaf,
             query_wide,
             dist,
@@ -119,6 +131,13 @@ pub(crate) fn best_n_within_with_query_wide<
             results,
         )
     } {
+        return;
+    }
+
+    if ITEM_LEAF_MODE != ITEM_LEAF_MODE_UNSORTED {
+        best_n_within_with_query_wide_item_sorted_fallback::<AX, T, D, R, EXCLUSIVE, K, B>(
+            leaf, query_wide, dist, results,
+        );
         return;
     }
 
@@ -165,6 +184,7 @@ unsafe fn try_best_n_within_avx512<
     D,
     R,
     const EXCLUSIVE: bool,
+    const ITEM_LEAF_MODE: u8,
     const K: usize,
     const B: usize,
 >(
@@ -181,7 +201,7 @@ where
     D::Output: Axis<Coord = D::Output> + 'static,
     R: BestNeighbourResultCollection<D::Output, T>,
 {
-    D::try_best_n_within_leaf_avx512::<T, R, EXCLUSIVE, K, B>(
+    D::try_best_n_within_leaf_avx512::<T, R, EXCLUSIVE, ITEM_LEAF_MODE, K, B>(
         leaf,
         query_wide,
         dist,
@@ -192,7 +212,15 @@ where
 
 #[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"))]
 #[inline(always)]
-unsafe fn try_best_n_within_arena_avx512<AX, T, D, R, const EXCLUSIVE: bool, const K: usize>(
+unsafe fn try_best_n_within_arena_avx512<
+    AX,
+    T,
+    D,
+    R,
+    const EXCLUSIVE: bool,
+    const ITEM_LEAF_MODE: u8,
+    const K: usize,
+>(
     arena: &LeafArena<'_, AX, T, K>,
     query_wide: &[D::Output; K],
     dist: D::Output,
@@ -206,7 +234,7 @@ where
     D::Output: Axis<Coord = D::Output> + 'static,
     R: BestNeighbourResultCollection<D::Output, T>,
 {
-    D::try_best_n_within_arena_avx512::<T, R, EXCLUSIVE, K>(
+    D::try_best_n_within_arena_avx512::<T, R, EXCLUSIVE, ITEM_LEAF_MODE, K>(
         arena,
         query_wide,
         dist,
