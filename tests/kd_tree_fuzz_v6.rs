@@ -292,10 +292,6 @@ fn distances_match_for_fuzz<A: Copy + PartialEq + 'static>(expected: A, got: A) 
     false
 }
 
-fn distance_lt_for_fuzz<A: Copy + PartialOrd + PartialEq + 'static>(lhs: A, rhs: A) -> bool {
-    lhs < rhs && !distances_match_for_fuzz(lhs, rhs)
-}
-
 fn compare_nearest_n_sorted<
     A: Axis<Coord = A> + PartialOrd + PartialEq + std::fmt::Debug + 'static,
 >(
@@ -313,54 +309,52 @@ fn compare_nearest_n_sorted<
         return Ok(());
     }
 
-    let tail_dist = expected.last().unwrap().0;
-    let got_tail = got.last().unwrap().0;
-    if !distances_match_for_fuzz(got_tail, tail_dist) {
-        return Err(format!(
-            "tail distance mismatch expected={tail_dist:?} got={got_tail:?}"
-        ));
-    }
-
-    let mut i = 0usize;
-    let mut j = 0usize;
-    while i < expected.len() && distance_lt_for_fuzz(expected[i].0, tail_dist) {
-        let dist = expected[i].0;
-        let mut exp_items = Vec::new();
-        while i < expected.len() && distances_match_for_fuzz(expected[i].0, dist) {
-            exp_items.push(expected[i].1);
-            i += 1;
-        }
-
-        if j < got.len() && distance_lt_for_fuzz(got[j].0, dist) {
+    // The tree kernels may legitimately compute distances a few ULP
+    // differently from the brute-force reference (wider intermediates, SIMD
+    // reduction order), so every pair of corresponding entries must agree to
+    // within the fuzz tolerance. Anything further apart is a real difference,
+    // not float noise.
+    for (idx, ((exp_dist, _), (got_dist, _))) in expected.iter().zip(got).enumerate() {
+        if !distances_match_for_fuzz(*exp_dist, *got_dist) {
             return Err(format!(
-                "unexpected distance in results {got_dist:?} < expected {dist:?}",
-                got_dist = got[j].0
-            ));
-        }
-        if j >= got.len() || !distances_match_for_fuzz(got[j].0, dist) {
-            return Err(format!("missing distance in results {dist:?}"));
-        }
-
-        let mut got_items = Vec::new();
-        while j < got.len() && distances_match_for_fuzz(got[j].0, dist) {
-            got_items.push(got[j].1);
-            j += 1;
-        }
-
-        exp_items.sort();
-        got_items.sort();
-        if exp_items != got_items {
-            return Err(format!(
-                "tie mismatch at dist {dist:?} expected_items={exp_items:?} got_items={got_items:?}"
+                "distance mismatch at index {idx} expected={exp_dist:?} got={got_dist:?}"
             ));
         }
     }
 
-    if j < got.len() && distance_lt_for_fuzz(got[j].0, tail_dist) {
-        return Err(format!(
-            "unexpected distance in results {got_dist:?} < tail {tail_dist:?}",
-            got_dist = got[j].0
-        ));
+    // Within a run of mutually tolerable distances the tree may return the
+    // tied items in any order, and at the max-qty boundary it may pick any
+    // subset of the tie, so tie runs are compared as item sets. A run only
+    // ends where BOTH sides agree the neighbouring distances genuinely differ:
+    // if either side considers them within tolerance, they are a tie. The
+    // final run (containing the tail) is exempt from the item-set check
+    // because which members of the tail tie make the cut is
+    // implementation-defined.
+    let mut start = 0usize;
+    while start < expected.len() {
+        let mut end = start + 1;
+        while end < expected.len()
+            && (distances_match_for_fuzz(expected[end - 1].0, expected[end].0)
+                || distances_match_for_fuzz(got[end - 1].0, got[end].0))
+        {
+            end += 1;
+        }
+
+        if end < expected.len() {
+            let mut exp_items: Vec<usize> =
+                expected[start..end].iter().map(|(_, item)| *item).collect();
+            let mut got_items: Vec<usize> = got[start..end].iter().map(|(_, item)| *item).collect();
+            exp_items.sort_unstable();
+            got_items.sort_unstable();
+            if exp_items != got_items {
+                return Err(format!(
+                    "tie mismatch at dist {:?} expected_items={exp_items:?} got_items={got_items:?}",
+                    expected[start].0
+                ));
+            }
+        }
+
+        start = end;
     }
 
     Ok(())
