@@ -28,7 +28,8 @@ const MAX_SORTED_VEC_RESULT_SIZE: usize = 192;
 #[cfg(not(feature = "small_n_result_collectors"))]
 const MAX_UNSORTED_VEC_RESULT_SIZE: usize = 24;
 
-impl<A, T, SS, LS, const K: usize, const B: usize> KdTree<A, T, SS, LS, K, B>
+impl<A, T, SS, LS, const K: usize, const B: usize, const ITEM_LEAF_MODE: u8>
+    KdTree<A, T, SS, LS, K, B, ITEM_LEAF_MODE>
 where
     A: Axis<Coord = A> + 'static,
     T: Content + PartialOrd,

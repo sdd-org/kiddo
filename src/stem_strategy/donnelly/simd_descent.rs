@@ -36,6 +36,7 @@ macro_rules! impl_donnelly_simd_descent {
         impl StemStrategy for $strategy<$bh> {
             const ROOT_IDX: usize = 0;
             const BLOCK_SIZE: usize = $bh;
+            const SUPPORTS_EMBEDDED_MIN_ITEM_SUMMARY: bool = $bh == 3;
             const SUPPORTS_ARITHMETIC_LEAF_RESOLUTION: bool = true;
             const USES_UNROLLED_SCALAR_TRAVERSAL: bool = true;
             const USES_SIMD_BLOCK_DESCENT: bool = true;

@@ -1,6 +1,6 @@
 use aligned_vec::{AVec, ConstAlign, CACHELINE_ALIGN};
 
-use crate::kd_tree::ConstructionError;
+use crate::kd_tree::{ConstructionError, OwnedStemLeafResolution};
 use crate::traits::leaf_strategy::ConstructibleLeafStrategy;
 use crate::{Axis, Content, StemStrategy};
 
@@ -38,16 +38,77 @@ pub(super) const fn construction_index_fits_u32(item_count: usize) -> bool {
     item_count <= u32::MAX as usize
 }
 
-pub(super) struct ConstructionLeafScratch<A, T, const K: usize> {
+pub(in crate::kd_tree) struct ConstructionLeafScratch<A, T, const K: usize> {
     pub(super) points: [Vec<A>; K],
     pub(super) items: Vec<T>,
+    sort_order: Vec<usize>,
+    original_at_position: Vec<usize>,
+    position_of_original: Vec<usize>,
+    sorter: Option<LeafSorter<A, T, K>>,
+}
+
+pub(in crate::kd_tree) type LeafSorter<A, T, const K: usize> =
+    fn(&mut ConstructionLeafScratch<A, T, K>);
+
+/// The summary `SHIFT`, `SS`, `K` and `B` generics are erased by this `fn`
+/// pointer: the erased `SHIFT` is only recoverable through the builder's
+/// `ITEM_LEAF_MODE` const generic. The invariant that a stored populator's
+/// shift equals the builder's `ITEM_LEAF_MODE` is therefore enforced solely by
+/// `enable_embedded_min_item_summary` — the only constructor that sets both —
+/// not by the type system. Do not set `stem_summary_populator` anywhere else.
+pub(in crate::kd_tree) type StemSummaryPopulator<A, LS> =
+    fn(&mut AVec<A, ConstAlign<{ CACHELINE_ALIGN }>>, &LS, &OwnedStemLeafResolution, i32);
+
+pub(in crate::kd_tree) fn sort_leaf_scratch_by_item<A, T: Ord, const K: usize>(
+    scratch: &mut ConstructionLeafScratch<A, T, K>,
+) {
+    scratch.sort_order.clear();
+    scratch.sort_order.extend(0..scratch.items.len());
+    scratch
+        .sort_order
+        .sort_unstable_by(|&left, &right| scratch.items[left].cmp(&scratch.items[right]));
+
+    scratch.original_at_position.clear();
+    scratch.original_at_position.extend(0..scratch.items.len());
+    scratch.position_of_original.clear();
+    scratch.position_of_original.extend(0..scratch.items.len());
+
+    for sorted_position in 0..scratch.items.len() {
+        let desired_original = scratch.sort_order[sorted_position];
+        let current_position = scratch.position_of_original[desired_original];
+        if current_position == sorted_position {
+            continue;
+        }
+
+        let displaced_original = scratch.original_at_position[sorted_position];
+        scratch.items.swap(sorted_position, current_position);
+        for axis in &mut scratch.points {
+            axis.swap(sorted_position, current_position);
+        }
+        scratch
+            .original_at_position
+            .swap(sorted_position, current_position);
+        scratch.position_of_original[desired_original] = sorted_position;
+        scratch.position_of_original[displaced_original] = current_position;
+    }
 }
 
 impl<A, T, const K: usize> ConstructionLeafScratch<A, T, K> {
-    pub(super) fn with_capacity(capacity: usize) -> Self {
+    pub(super) fn with_capacity(capacity: usize, sorter: Option<LeafSorter<A, T, K>>) -> Self {
+        let sort_capacity = if sorter.is_some() { capacity } else { 0 };
         Self {
             points: array_init::array_init(|_| Vec::with_capacity(capacity)),
             items: Vec::with_capacity(capacity),
+            sort_order: Vec::with_capacity(sort_capacity),
+            original_at_position: Vec::with_capacity(sort_capacity),
+            position_of_original: Vec::with_capacity(sort_capacity),
+            sorter,
+        }
+    }
+
+    pub(super) fn sort_if_configured(&mut self) {
+        if let Some(sorter) = self.sorter {
+            sorter(self);
         }
     }
 

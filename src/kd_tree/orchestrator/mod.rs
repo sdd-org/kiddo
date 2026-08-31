@@ -304,6 +304,21 @@ where
             let (stem_state, restore_dim, old_off, rd) =
                 SS::StackContext::<O, K>::into_parts_with_restore_dim(stack_ctx);
             stem_strat.rehydrate_deferred_state(stem_state);
+
+            if QC::USES_EMBEDDED_ITEM_SUMMARY
+                && SS::SUPPORTS_EMBEDDED_MIN_ITEM_SUMMARY
+                && !crate::kd_tree::item_summary::donnelly3_subtree_is_live(
+                    self.stems(),
+                    stem_strat.stem_idx(),
+                    stem_strat.level(),
+                    query_ctx.embedded_item_summary_filter(),
+                )
+            {
+                #[cfg(feature = "result_collection_stats")]
+                crate::results::result_collection_stats::record_query_prune();
+                continue;
+            }
+
             let mut dim = stem_strat.dim::<K>();
             let restore_dim = restore_dim.unwrap_or(dim);
             tracing::trace!(%dim, %old_off, %rd, ?off, "Popped stack context");
@@ -503,6 +518,21 @@ where
                     continue;
                 }
 
+                stem_strat.rehydrate_deferred_state(far.stem_state);
+                if QC::USES_EMBEDDED_ITEM_SUMMARY
+                    && SS::SUPPORTS_EMBEDDED_MIN_ITEM_SUMMARY
+                    && !crate::kd_tree::item_summary::donnelly3_subtree_is_live(
+                        self.stems(),
+                        stem_strat.stem_idx(),
+                        stem_strat.level(),
+                        query_ctx.embedded_item_summary_filter(),
+                    )
+                {
+                    #[cfg(feature = "result_collection_stats")]
+                    crate::results::result_collection_stats::record_query_prune();
+                    continue;
+                }
+
                 restore_stack
                     .push_unchecked_inline(ScalarContinuationRestore::restore_only(old_off));
                 #[cfg(feature = "exact_query_stats")]
@@ -511,7 +541,6 @@ where
                 crate::results::result_collection_stats::record_query_scalar_continuation_frame_push();
 
                 unsafe { *off.get_unchecked_mut(restore_dim) = far.far_off };
-                stem_strat.rehydrate_deferred_state(far.stem_state);
                 rd = far.rd;
 
                 #[cfg(feature = "exact_query_stats")]
@@ -899,6 +928,20 @@ where
                         "Popped single context"
                     );
 
+                    if QC::USES_EMBEDDED_ITEM_SUMMARY
+                        && SS::SUPPORTS_EMBEDDED_MIN_ITEM_SUMMARY
+                        && !crate::kd_tree::item_summary::donnelly3_subtree_is_live(
+                            self.stems(),
+                            ss.stem_idx(),
+                            ss.level(),
+                            query_ctx.embedded_item_summary_filter(),
+                        )
+                    {
+                        #[cfg(feature = "result_collection_stats")]
+                        crate::results::result_collection_stats::record_query_prune();
+                        continue;
+                    }
+
                     let max_dist = query_ctx.max_dist();
                     let rd_vs_max = O::cmp(rd, max_dist);
                     let should_prune = rd_vs_max == std::cmp::Ordering::Greater
@@ -918,8 +961,7 @@ where
                         *off.get_unchecked_mut(restore_dim) = old_off;
                     }
 
-                    let best_dist = query_ctx.max_dist();
-                    if let Some(leaf_idx) = self.traverse_to_leaf_simd::<O, D>(
+                    if let Some(leaf_idx) = self.traverse_to_leaf_simd::<QC, O, D>(
                         &query,
                         &query_wide,
                         &mut ss,
@@ -928,7 +970,7 @@ where
                         &mut off,
                         &mut dim,
                         rd,
-                        best_dist,
+                        query_ctx,
                         stack,
                     ) {
                         tracing::trace!(%leaf_idx, "processing leaf");
@@ -946,6 +988,23 @@ where
                     crate::results::exact_query_stats::record_block3_pending_pop(pending_mask);
 
                     let dim_val = base.dim::<K>();
+                    let pending_mask = if QC::USES_EMBEDDED_ITEM_SUMMARY
+                        && SS::SUPPORTS_EMBEDDED_MIN_ITEM_SUMMARY
+                    {
+                        pending_mask
+                            & crate::kd_tree::item_summary::donnelly3_block_live_mask(
+                                self.stems(),
+                                base.stem_idx(),
+                                query_ctx.embedded_item_summary_filter(),
+                            )
+                    } else {
+                        pending_mask
+                    };
+                    if pending_mask == 0 {
+                        #[cfg(feature = "result_collection_stats")]
+                        crate::results::result_collection_stats::record_query_prune();
+                        continue;
+                    }
                     lower = restored_lower;
                     upper = restored_upper;
                     off = rebuild_interval_offs(&query_wide, &lower, &upper);
@@ -1180,7 +1239,7 @@ where
                         *upper.get_unchecked_mut(dim_val) = selected_upper_bound;
                     }
 
-                    if let Some(leaf_idx) = self.traverse_to_leaf_simd::<O, D>(
+                    if let Some(leaf_idx) = self.traverse_to_leaf_simd::<QC, O, D>(
                         &query,
                         &query_wide,
                         &mut ss,
@@ -1189,7 +1248,7 @@ where
                         &mut off,
                         &mut dim,
                         selected_child_rd,
-                        best_dist,
+                        query_ctx,
                         stack,
                     ) {
                         tracing::trace!(%leaf_idx, "processing leaf");
@@ -1270,6 +1329,20 @@ where
                         "Popped single context"
                     );
 
+                    if QC::USES_EMBEDDED_ITEM_SUMMARY
+                        && SS::SUPPORTS_EMBEDDED_MIN_ITEM_SUMMARY
+                        && !crate::kd_tree::item_summary::donnelly3_subtree_is_live(
+                            self.stems(),
+                            ss.stem_idx(),
+                            ss.level(),
+                            query_ctx.embedded_item_summary_filter(),
+                        )
+                    {
+                        #[cfg(feature = "result_collection_stats")]
+                        crate::results::result_collection_stats::record_query_prune();
+                        continue;
+                    }
+
                     let max_dist = query_ctx.max_dist();
                     let rd_vs_max = O::cmp(rd, max_dist);
                     // TOOO: investigate into whether prune_on_equal_max_dist can be removed
@@ -1292,8 +1365,7 @@ where
                         *off.get_unchecked_mut(restore_dim) = old_off;
                     }
 
-                    let best_dist = query_ctx.max_dist();
-                    if let Some(leaf_idx) = self.traverse_to_leaf_simd::<O, D>(
+                    if let Some(leaf_idx) = self.traverse_to_leaf_simd::<QC, O, D>(
                         &query,
                         &query_wide,
                         &mut ss,
@@ -1302,7 +1374,7 @@ where
                         &mut off,
                         &mut dim,
                         rd,
-                        best_dist,
+                        query_ctx,
                         stack,
                     ) {
                         tracing::trace!(%leaf_idx, "processing leaf");
@@ -1334,6 +1406,19 @@ where
                     lower = lower_snapshot;
                     upper = upper_snapshot;
                     off = rebuild_interval_offs(&query_wide, &lower, &upper);
+
+                    let pending_mask = if QC::USES_EMBEDDED_ITEM_SUMMARY
+                        && SS::SUPPORTS_EMBEDDED_MIN_ITEM_SUMMARY
+                    {
+                        pending_mask
+                            & crate::kd_tree::item_summary::donnelly3_block_live_mask(
+                                self.stems(),
+                                base.stem_idx(),
+                                query_ctx.embedded_item_summary_filter(),
+                            )
+                    } else {
+                        pending_mask
+                    };
 
                     let Some(selection) = select_block3_pending_child(
                         &rd_values,
@@ -1374,8 +1459,7 @@ where
                             upper_bounds[selection.child_idx as usize];
                     }
 
-                    let best_dist = query_ctx.max_dist();
-                    if let Some(leaf_idx) = self.traverse_to_leaf_simd::<O, D>(
+                    if let Some(leaf_idx) = self.traverse_to_leaf_simd::<QC, O, D>(
                         &query,
                         &query_wide,
                         &mut ss,
@@ -1384,7 +1468,7 @@ where
                         &mut off,
                         &mut dim,
                         selection.child_rd,
-                        best_dist,
+                        query_ctx,
                         stack,
                     ) {
                         tracing::trace!(%leaf_idx, "processing leaf");
@@ -1438,6 +1522,17 @@ where
                     for sibling_idx in 0..8 {
                         if surviving_mask & (1 << sibling_idx) != 0 {
                             let mut ss = siblings[sibling_idx];
+                            if QC::USES_EMBEDDED_ITEM_SUMMARY
+                                && SS::SUPPORTS_EMBEDDED_MIN_ITEM_SUMMARY
+                                && !crate::kd_tree::item_summary::donnelly3_subtree_is_live(
+                                    self.stems(),
+                                    ss.stem_idx(),
+                                    ss.level(),
+                                    query_ctx.embedded_item_summary_filter(),
+                                )
+                            {
+                                continue;
+                            }
                             let rd = rd_values[sibling_idx];
                             let new_off = new_off_values[sibling_idx];
                             let mut dim = ss.dim::<K>();
@@ -1463,8 +1558,7 @@ where
                                 *upper.get_unchecked_mut(dim_val) = upper_bounds[sibling_idx];
                             }
 
-                            let best_dist = query_ctx.max_dist();
-                            if let Some(leaf_idx) = self.traverse_to_leaf_simd::<O, D>(
+                            if let Some(leaf_idx) = self.traverse_to_leaf_simd::<QC, O, D>(
                                 &query,
                                 &query_wide,
                                 &mut ss,
@@ -1473,7 +1567,7 @@ where
                                 &mut off,
                                 &mut dim,
                                 rd,
-                                best_dist,
+                                query_ctx,
                                 stack,
                             ) {
                                 tracing::trace!(%leaf_idx, "processing leaf");
@@ -1528,6 +1622,17 @@ where
                     for sibling_idx in 0..8 {
                         if surviving_mask & (1 << sibling_idx) != 0 {
                             let mut ss = base.block_child::<K>(child_base + sibling_idx as u8);
+                            if QC::USES_EMBEDDED_ITEM_SUMMARY
+                                && SS::SUPPORTS_EMBEDDED_MIN_ITEM_SUMMARY
+                                && !crate::kd_tree::item_summary::donnelly3_subtree_is_live(
+                                    self.stems(),
+                                    ss.stem_idx(),
+                                    ss.level(),
+                                    query_ctx.embedded_item_summary_filter(),
+                                )
+                            {
+                                continue;
+                            }
                             let rd = rd_values[sibling_idx];
                             let new_off = new_off_values[sibling_idx];
                             let mut dim = ss.dim::<K>();
@@ -1541,8 +1646,7 @@ where
                                 *upper.get_unchecked_mut(dim_val) = upper_bounds[sibling_idx];
                             }
 
-                            let best_dist = query_ctx.max_dist();
-                            if let Some(leaf_idx) = self.traverse_to_leaf_simd::<O, D>(
+                            if let Some(leaf_idx) = self.traverse_to_leaf_simd::<QC, O, D>(
                                 &query,
                                 &query_wide,
                                 &mut ss,
@@ -1551,7 +1655,7 @@ where
                                 &mut off,
                                 &mut dim,
                                 rd,
-                                best_dist,
+                                query_ctx,
                                 stack,
                             ) {
                                 tracing::trace!(%leaf_idx, "processing leaf");
@@ -1566,7 +1670,7 @@ where
 
     /// traverse to leaf with SIMD stack
     #[inline(always)]
-    fn traverse_to_leaf_simd<O, D>(
+    fn traverse_to_leaf_simd<QC, O, D>(
         &self,
         query: &[A; K],
         query_wide: &[O; K],
@@ -1576,16 +1680,18 @@ where
         off: &mut [O; K],
         dim: &mut usize,
         rd: O,
-        best_dist: O,
+        query_ctx: &QC,
         stack: &mut SS::Stack<O, K>,
     ) -> Option<usize>
     where
+        QC: QueryContext<A, O, K>,
         O: Axis<Coord = O> + SimdSelectBestChildBlock3 + BacktrackBlock3 + BacktrackBlock4,
         D: DistanceMetric<A, Output = O>,
         SS: StemStrategy + crate::stem_strategy::donnelly::simd_full::DeferredBlockTraversal,
         SS::StackContext<O, K>:
             crate::kd_tree::query_stack_simd::SimdIntervalStackContext<O, SS, K>,
     {
+        let best_dist = query_ctx.max_dist();
         let use_scalar_step = !self.stem_leaf_resolution().uses_arithmetic()
             && SS::BLOCK_SIZE != 3
             && !force_mapped_simd_block_step();

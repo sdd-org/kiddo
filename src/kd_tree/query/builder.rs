@@ -585,8 +585,8 @@ where
         SS::Stack<D::Output, K>: StackTrait<D::Output, SS, K>;
 }
 
-impl<A, T, SS, LS, const K: usize, const B: usize> QueryBuilderTreeOps<A, T, SS, LS, K, B>
-    for KdTree<A, T, SS, LS, K, B>
+impl<A, T, SS, LS, const K: usize, const B: usize, const ITEM_LEAF_MODE: u8>
+    QueryBuilderTreeOps<A, T, SS, LS, K, B> for KdTree<A, T, SS, LS, K, B, ITEM_LEAF_MODE>
 where
     A: Axis<Coord = A> + 'static,
     T: Content,
@@ -746,8 +746,8 @@ where
     }
 }
 
-impl<A, T, SS, LS, const K: usize, const B: usize> QueryBuilderScratchTreeOps<A, T, SS, LS, K, B>
-    for KdTree<A, T, SS, LS, K, B>
+impl<A, T, SS, LS, const K: usize, const B: usize, const ITEM_LEAF_MODE: u8>
+    QueryBuilderScratchTreeOps<A, T, SS, LS, K, B> for KdTree<A, T, SS, LS, K, B, ITEM_LEAF_MODE>
 where
     A: Axis<Coord = A> + 'static,
     T: Content,
@@ -891,9 +891,9 @@ where
 }
 
 #[cfg(feature = "rkyv_08")]
-impl<A, T, SS, LS, const K: usize, const B: usize>
+impl<A, T, SS, LS, const K: usize, const B: usize, const ITEM_LEAF_MODE: u8>
     QueryBuilderTreeOps<A, T, SS, rkyv_08::Archived<LS>, K, B>
-    for ArchivedKdTree<A, T, SS, LS, K, B>
+    for ArchivedKdTree<A, T, SS, LS, K, B, ITEM_LEAF_MODE>
 where
     A: rkyv_08::Archive + Axis<Coord = A> + 'static,
     T: Content + PartialOrd + PartialEq,
@@ -1055,9 +1055,9 @@ where
 }
 
 #[cfg(feature = "rkyv_08")]
-impl<A, T, SS, LS, const K: usize, const B: usize>
+impl<A, T, SS, LS, const K: usize, const B: usize, const ITEM_LEAF_MODE: u8>
     QueryBuilderScratchTreeOps<A, T, SS, rkyv_08::Archived<LS>, K, B>
-    for ArchivedKdTree<A, T, SS, LS, K, B>
+    for ArchivedKdTree<A, T, SS, LS, K, B, ITEM_LEAF_MODE>
 where
     A: rkyv_08::Archive + Axis<Coord = A> + 'static,
     T: Content + PartialOrd + PartialEq,
@@ -2384,7 +2384,8 @@ where
         .collect()
 }
 
-impl<A, T, SS, LS, const K: usize, const B: usize> KdTree<A, T, SS, LS, K, B>
+impl<A, T, SS, LS, const K: usize, const B: usize, const ITEM_LEAF_MODE: u8>
+    KdTree<A, T, SS, LS, K, B, ITEM_LEAF_MODE>
 where
     A: Axis<Coord = A>,
     T: Content,
@@ -2510,7 +2511,8 @@ where
 }
 
 #[cfg(feature = "rkyv_08")]
-impl<A, T, SS, LS, const K: usize, const B: usize> ArchivedKdTree<A, T, SS, LS, K, B>
+impl<A, T, SS, LS, const K: usize, const B: usize, const ITEM_LEAF_MODE: u8>
+    ArchivedKdTree<A, T, SS, LS, K, B, ITEM_LEAF_MODE>
 where
     A: rkyv_08::Archive + Axis<Coord = A>,
     T: Content,

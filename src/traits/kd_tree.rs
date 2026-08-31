@@ -38,6 +38,18 @@ where
     /// Maximum leaf length used for scratch sizing.
     fn max_leaf_len(&self) -> usize;
 
+    /// Encoded item ordering and subtree-summary mode.
+    #[inline]
+    fn item_leaf_mode_code(&self) -> u8 {
+        crate::kd_tree::ITEM_LEAF_MODE_UNSORTED
+    }
+
+    /// Whether leaf entries are ordered by ascending item value.
+    #[inline]
+    fn item_sorted_leaves(&self) -> bool {
+        crate::kd_tree::ItemLeafMode::from_code(self.item_leaf_mode_code()).has_sorted_leaves()
+    }
+
     /// Number of leaves.
     #[inline]
     fn leaf_count(&self) -> usize {

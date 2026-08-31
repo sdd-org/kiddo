@@ -32,6 +32,37 @@ pub(crate) unsafe fn best_n_within_avx512_unchecked<
 }
 
 #[target_feature(enable = "avx512f,avx512vl,fma")]
+pub(crate) unsafe fn best_n_within_item_sorted_avx512_unchecked<
+    L,
+    T,
+    F,
+    const EXCLUSIVE: bool,
+    const K: usize,
+    const B: usize,
+>(
+    leaf: &LeafView<'_, f64, T, K, B>,
+    query: &[f64; K],
+    max_dist: f64,
+    threshold_item: Option<T>,
+    emit: &mut F,
+) -> (Option<T>, bool)
+where
+    L: Avx512F64LeafOps,
+    T: Content + PartialOrd,
+    F: FnMut(f64, T) -> Option<T>,
+{
+    let mut emit_positioned = |_, distance, item| emit(distance, item);
+    crate::leaf_view_chunked::nearest_n_within::avx512::best_n_within_item_sorted_avx512_unchecked::<
+        L,
+        T,
+        _,
+        EXCLUSIVE,
+        K,
+        B,
+    >(leaf, query, max_dist, threshold_item, &mut emit_positioned)
+}
+
+#[target_feature(enable = "avx512f,avx512vl,fma")]
 pub(crate) unsafe fn best_n_within_avx512_arena_unchecked<
     L,
     T,
@@ -57,6 +88,43 @@ pub(crate) unsafe fn best_n_within_avx512_arena_unchecked<
         EXCLUSIVE,
         K,
     >(tile_base, len, query, max_dist, &mut emit_positioned);
+}
+
+#[target_feature(enable = "avx512f,avx512vl,fma")]
+pub(crate) unsafe fn best_n_within_item_sorted_avx512_arena_unchecked<
+    L,
+    T,
+    F,
+    const EXCLUSIVE: bool,
+    const K: usize,
+>(
+    tile_base: *const u8,
+    len: usize,
+    query: &[f64; K],
+    max_dist: f64,
+    threshold_item: Option<T>,
+    emit: &mut F,
+) -> (Option<T>, bool)
+where
+    L: Avx512F64LeafOps,
+    T: Content + PartialOrd,
+    F: FnMut(f64, T) -> Option<T>,
+{
+    let mut emit_positioned = |_, distance, item| emit(distance, item);
+    crate::leaf_view_chunked::nearest_n_within::avx512::best_n_within_item_sorted_avx512_arena_unchecked::<
+        L,
+        T,
+        _,
+        EXCLUSIVE,
+        K,
+    >(
+        tile_base,
+        len,
+        query,
+        max_dist,
+        threshold_item,
+        &mut emit_positioned,
+    )
 }
 
 #[target_feature(enable = "avx512f,avx512vl,fma")]
@@ -89,6 +157,37 @@ pub(crate) unsafe fn best_n_within_avx512_unchecked_f32<
 }
 
 #[target_feature(enable = "avx512f,avx512vl,fma")]
+pub(crate) unsafe fn best_n_within_item_sorted_avx512_unchecked_f32<
+    L,
+    T,
+    F,
+    const EXCLUSIVE: bool,
+    const K: usize,
+    const B: usize,
+>(
+    leaf: &LeafView<'_, f32, T, K, B>,
+    query: &[f32; K],
+    max_dist: f32,
+    threshold_item: Option<T>,
+    emit: &mut F,
+) -> (Option<T>, bool)
+where
+    L: Avx512F32LeafOps,
+    T: Content + PartialOrd,
+    F: FnMut(f32, T) -> Option<T>,
+{
+    let mut emit_positioned = |_, distance, item| emit(distance, item);
+    crate::leaf_view_chunked::nearest_n_within::avx512::best_n_within_item_sorted_avx512_unchecked_f32::<
+        L,
+        T,
+        _,
+        EXCLUSIVE,
+        K,
+        B,
+    >(leaf, query, max_dist, threshold_item, &mut emit_positioned)
+}
+
+#[target_feature(enable = "avx512f,avx512vl,fma")]
 pub(crate) unsafe fn best_n_within_avx512_arena_unchecked_f32<
     L,
     T,
@@ -114,4 +213,41 @@ pub(crate) unsafe fn best_n_within_avx512_arena_unchecked_f32<
         EXCLUSIVE,
         K,
     >(tile_base, len, query, max_dist, &mut emit_positioned);
+}
+
+#[target_feature(enable = "avx512f,avx512vl,fma")]
+pub(crate) unsafe fn best_n_within_item_sorted_avx512_arena_unchecked_f32<
+    L,
+    T,
+    F,
+    const EXCLUSIVE: bool,
+    const K: usize,
+>(
+    tile_base: *const u8,
+    len: usize,
+    query: &[f32; K],
+    max_dist: f32,
+    threshold_item: Option<T>,
+    emit: &mut F,
+) -> (Option<T>, bool)
+where
+    L: Avx512F32LeafOps,
+    T: Content + PartialOrd,
+    F: FnMut(f32, T) -> Option<T>,
+{
+    let mut emit_positioned = |_, distance, item| emit(distance, item);
+    crate::leaf_view_chunked::nearest_n_within::avx512::best_n_within_item_sorted_avx512_arena_unchecked_f32::<
+        L,
+        T,
+        _,
+        EXCLUSIVE,
+        K,
+    >(
+        tile_base,
+        len,
+        query,
+        max_dist,
+        threshold_item,
+        &mut emit_positioned,
+    )
 }
