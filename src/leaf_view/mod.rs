@@ -396,7 +396,8 @@ where
     #[cfg(any(
         all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"),
         all(feature = "simd", target_arch = "x86_64", target_feature = "avx2"),
-        all(feature = "simd", target_arch = "aarch64", target_feature = "neon")
+        all(feature = "simd", target_arch = "aarch64", target_feature = "neon"),
+        all(feature = "simd", target_arch = "wasm32", target_feature = "simd128")
     ))]
     #[inline(always)]
     pub(crate) fn len(&self) -> usize {
@@ -406,7 +407,8 @@ where
     #[cfg(any(
         all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"),
         all(feature = "simd", target_arch = "x86_64", target_feature = "avx2"),
-        all(feature = "simd", target_arch = "aarch64", target_feature = "neon")
+        all(feature = "simd", target_arch = "aarch64", target_feature = "neon"),
+        all(feature = "simd", target_arch = "wasm32", target_feature = "simd128")
     ))]
     #[inline(always)]
     pub(crate) fn as_ptr(&self) -> *const u8 {
@@ -743,7 +745,8 @@ mod tests {
         #[cfg(any(
             all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"),
             all(feature = "simd", target_arch = "x86_64", target_feature = "avx2"),
-            all(feature = "simd", target_arch = "aarch64", target_feature = "neon")
+            all(feature = "simd", target_arch = "aarch64", target_feature = "neon"),
+            all(feature = "simd", target_arch = "wasm32", target_feature = "simd128")
         ))]
         {
             assert_eq!(arena.len(), items.len());
