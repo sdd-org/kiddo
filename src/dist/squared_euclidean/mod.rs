@@ -4,7 +4,7 @@ use crate::Axis;
 
 use crate::dist::{
     DistanceMetricAvx2, DistanceMetricAvx512, DistanceMetricNeon, DistanceMetricScalar,
-    WideningCastFrom,
+    DistanceMetricWasmSimd, WideningCastFrom,
 };
 
 #[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx2"))]
@@ -15,6 +15,9 @@ mod avx512;
 
 #[cfg(all(feature = "simd", target_arch = "aarch64", target_feature = "neon"))]
 mod neon;
+
+#[cfg(all(feature = "simd", target_arch = "wasm32", target_feature = "simd128"))]
+mod wasm_simd;
 
 /// Squared Euclidean distance metric, parameterized by output type `R`.
 pub struct SquaredEuclidean<R>(core::marker::PhantomData<R>);
@@ -72,6 +75,18 @@ where
 
     #[cfg(all(feature = "simd", target_arch = "aarch64", target_feature = "neon"))]
     type NeonF32Ops = neon::SquaredEuclideanNeonF32LeafOps;
+}
+
+impl<A, R> DistanceMetricWasmSimd<A> for SquaredEuclidean<R>
+where
+    A: Copy,
+    R: Axis<Coord = R> + WideningCastFrom<A> + Mul<Output = R> + Add<Output = R>,
+{
+    #[cfg(all(feature = "simd", target_arch = "wasm32", target_feature = "simd128"))]
+    type WasmSimdF64Ops = wasm_simd::SquaredEuclideanWasmSimdF64LeafOps;
+
+    #[cfg(all(feature = "simd", target_arch = "wasm32", target_feature = "simd128"))]
+    type WasmSimdF32Ops = wasm_simd::SquaredEuclideanWasmSimdF32LeafOps;
 }
 
 #[cfg(feature = "cargo_asm")]

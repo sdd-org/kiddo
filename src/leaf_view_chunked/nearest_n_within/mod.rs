@@ -9,6 +9,9 @@ pub(crate) mod avx512;
 #[cfg(all(feature = "simd", target_arch = "aarch64", target_feature = "neon"))]
 pub(crate) mod neon;
 
+#[cfg(all(feature = "simd", target_arch = "wasm32", target_feature = "simd128"))]
+pub(crate) mod wasm_simd;
+
 use crate::dist::DistanceMetric;
 use crate::leaf_view::{LeafArena, LeafView, TlsLeafScratch};
 use crate::results::result_collection::{FromLeafCandidate, ResultCollection};
@@ -67,6 +70,15 @@ pub(crate) fn nearest_n_within_with_query_wide_arena<
         return;
     }
 
+    #[cfg(all(feature = "simd", target_arch = "wasm32", target_feature = "simd128"))]
+    if unsafe {
+        try_nearest_n_within_arena_wasm_simd::<AX, T, D, E, R, EXCLUSIVE, K>(
+            arena, query_wide, dist, results,
+        )
+    } {
+        return;
+    }
+
     nearest_n_within_with_query_wide_arena_fallback::<AX, T, D, E, R, EXCLUSIVE, K>(
         arena, query_wide, dist, results,
     );
@@ -116,6 +128,15 @@ pub(crate) fn nearest_n_within_with_query_wide<
     #[cfg(all(feature = "simd", target_arch = "aarch64", target_feature = "neon"))]
     if unsafe {
         try_nearest_n_within_neon::<AX, T, D, E, R, EXCLUSIVE, K, B>(
+            leaf, query_wide, dist, results,
+        )
+    } {
+        return;
+    }
+
+    #[cfg(all(feature = "simd", target_arch = "wasm32", target_feature = "simd128"))]
+    if unsafe {
+        try_nearest_n_within_wasm_simd::<AX, T, D, E, R, EXCLUSIVE, K, B>(
             leaf, query_wide, dist, results,
         )
     } {
@@ -266,4 +287,63 @@ where
     R: ResultCollection<D::Output, E>,
 {
     D::try_nearest_n_within_arena_neon::<T, E, R, EXCLUSIVE, K>(arena, query_wide, dist, results)
+}
+
+#[cfg(all(feature = "simd", target_arch = "wasm32", target_feature = "simd128"))]
+#[inline(always)]
+unsafe fn try_nearest_n_within_wasm_simd<
+    AX,
+    T,
+    D,
+    E,
+    R,
+    const EXCLUSIVE: bool,
+    const K: usize,
+    const B: usize,
+>(
+    leaf: &LeafView<'_, AX, T, K, B>,
+    query_wide: &[D::Output; K],
+    dist: D::Output,
+    results: &mut R,
+) -> bool
+where
+    AX: Axis<Coord = AX> + 'static,
+    T: Content,
+    D: DistanceMetric<AX>,
+    D::Output: Axis<Coord = D::Output> + 'static,
+    E: FromLeafCandidate<AX, T, D::Output, K>,
+    R: ResultCollection<D::Output, E>,
+{
+    D::try_nearest_n_within_leaf_wasm_simd::<T, E, R, EXCLUSIVE, K, B>(
+        leaf, query_wide, dist, results,
+    )
+}
+
+#[cfg(all(feature = "simd", target_arch = "wasm32", target_feature = "simd128"))]
+#[inline(always)]
+unsafe fn try_nearest_n_within_arena_wasm_simd<
+    AX,
+    T,
+    D,
+    E,
+    R,
+    const EXCLUSIVE: bool,
+    const K: usize,
+>(
+    arena: &LeafArena<'_, AX, T, K>,
+    query_wide: &[D::Output; K],
+    dist: D::Output,
+    results: &mut R,
+) -> bool
+where
+    AX: Axis<Coord = AX> + 'static,
+    T: Content,
+    D: DistanceMetric<AX>,
+    D::Output: Axis<Coord = D::Output> + 'static,
+    E: FromLeafCandidate<AX, T, D::Output, K>,
+    R: ResultCollection<D::Output, E>,
+{
+    D::try_nearest_n_within_arena_wasm_simd::<T, E, R, EXCLUSIVE, K>(
+        arena, query_wide, dist, results,
+    )
 }

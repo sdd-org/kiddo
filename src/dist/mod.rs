@@ -20,6 +20,11 @@ pub mod distance_metric_core;
 #[doc(hidden)]
 pub mod distance_metric_neon;
 
+/// WebAssembly SIMD128 distance metric trait
+#[cfg(all(feature = "simd", target_arch = "wasm32", target_feature = "simd128"))]
+#[doc(hidden)]
+pub mod distance_metric_wasm_simd;
+
 /// Chebyshev distance metric
 #[doc(hidden)]
 pub mod chebyshev;
@@ -47,7 +52,8 @@ pub use distance_metric_core::{DistanceMetricScalar, WideningCastFrom};
 #[cfg(any(
     all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"),
     all(feature = "simd", target_arch = "x86_64", target_feature = "avx2"),
-    all(feature = "simd", target_arch = "aarch64", target_feature = "neon")
+    all(feature = "simd", target_arch = "aarch64", target_feature = "neon"),
+    all(feature = "simd", target_arch = "wasm32", target_feature = "simd128")
 ))]
 use std::any::TypeId;
 
@@ -58,7 +64,8 @@ use crate::Axis;
 #[cfg(any(
     all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"),
     all(feature = "simd", target_arch = "x86_64", target_feature = "avx2"),
-    all(feature = "simd", target_arch = "aarch64", target_feature = "neon")
+    all(feature = "simd", target_arch = "aarch64", target_feature = "neon"),
+    all(feature = "simd", target_arch = "wasm32", target_feature = "simd128")
 ))]
 use crate::{
     leaf_view::{LeafArena, LeafView},
@@ -152,7 +159,8 @@ impl<T, A: Copy> QueryMetric<A> for T where T: DistanceMetric<A, Output: QueryDi
 #[cfg(any(
     all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"),
     all(feature = "simd", target_arch = "x86_64", target_feature = "avx2"),
-    all(feature = "simd", target_arch = "aarch64", target_feature = "neon")
+    all(feature = "simd", target_arch = "aarch64", target_feature = "neon"),
+    all(feature = "simd", target_arch = "wasm32", target_feature = "simd128")
 ))]
 macro_rules! with_nearest_result_emitter {
     ($results:expr, $entry_ty:ty, $distance_ty:ty, $item_ty:ty, $emit:ident, $body:block) => {{
@@ -179,7 +187,8 @@ macro_rules! with_nearest_result_emitter {
 #[cfg(any(
     all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"),
     all(feature = "simd", target_arch = "x86_64", target_feature = "avx2"),
-    all(feature = "simd", target_arch = "aarch64", target_feature = "neon")
+    all(feature = "simd", target_arch = "aarch64", target_feature = "neon"),
+    all(feature = "simd", target_arch = "wasm32", target_feature = "simd128")
 ))]
 #[inline(always)]
 unsafe fn point_from_leaf_arena_tile<A: Copy, const K: usize>(
@@ -194,7 +203,8 @@ unsafe fn point_from_leaf_arena_tile<A: Copy, const K: usize>(
 #[cfg(any(
     all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"),
     all(feature = "simd", target_arch = "x86_64", target_feature = "avx2"),
-    all(feature = "simd", target_arch = "aarch64", target_feature = "neon")
+    all(feature = "simd", target_arch = "aarch64", target_feature = "neon"),
+    all(feature = "simd", target_arch = "wasm32", target_feature = "simd128")
 ))]
 macro_rules! with_best_result_emitter {
     ($results:expr, $threshold_item:expr, $distance_ty:ty, $item_ty:ty, $emit:ident, $body:block) => {{
@@ -1354,10 +1364,474 @@ pub trait DistanceMetricNeon<A: Copy>: DistanceMetricScalar<A> {
     }
 }
 
+/// WebAssembly SIMD128 extension hooks.
+#[doc(hidden)]
+pub trait DistanceMetricWasmSimd<A: Copy>: DistanceMetricScalar<A> {
+    /// Whether a specialized SIMD128 path is provided by this metric impl.
+    const HAS_WASM_SIMD_SPECIALIZATION: bool = false;
+
+    /// Type that provides implementations of the SIMD128 f64 leaf ops.
+    #[cfg(all(feature = "simd", target_arch = "wasm32", target_feature = "simd128"))]
+    type WasmSimdF64Ops: distance_metric_wasm_simd::WasmSimdF64LeafOps + 'static;
+
+    /// Type that provides implementations of the SIMD128 f32 leaf ops.
+    #[cfg(all(feature = "simd", target_arch = "wasm32", target_feature = "simd128"))]
+    type WasmSimdF32Ops: distance_metric_wasm_simd::WasmSimdF32LeafOps + 'static;
+
+    #[cfg(all(feature = "simd", target_arch = "wasm32", target_feature = "simd128"))]
+    #[inline(always)]
+    /// Try a SIMD128-specialized `nearest_one` leaf kernel.
+    unsafe fn try_nearest_one_leaf_wasm_simd<T, const K: usize, const B: usize>(
+        leaf: &LeafView<'_, A, T, K, B>,
+        query_wide: &[Self::Output; K],
+        best_dist: &mut Self::Output,
+        best_item: &mut T,
+    ) -> bool
+    where
+        A: Axis<Coord = A> + 'static,
+        T: crate::Content,
+        Self::Output: Axis<Coord = Self::Output> + 'static,
+    {
+        if TypeId::of::<A>() == TypeId::of::<f64>()
+            && TypeId::of::<Self::Output>() == TypeId::of::<f64>()
+            && TypeId::of::<Self::WasmSimdF64Ops>()
+                != TypeId::of::<distance_metric_wasm_simd::UnsupportedWasmSimdF64LeafOps>()
+        {
+            let leaf =
+                &*(leaf as *const LeafView<'_, A, T, K, B> as *const LeafView<'_, f64, T, K, B>);
+            let query_wide = &*(query_wide as *const [Self::Output; K] as *const [f64; K]);
+            let best_dist = &mut *(best_dist as *mut Self::Output as *mut f64);
+
+            crate::leaf_view_chunked::nearest_one::wasm_simd::nearest_one_wasm_unchecked_f64::<
+                Self::WasmSimdF64Ops,
+                T,
+                K,
+                B,
+            >(leaf, query_wide, best_dist, best_item);
+
+            return true;
+        }
+
+        if TypeId::of::<A>() == TypeId::of::<f32>()
+            && TypeId::of::<Self::Output>() == TypeId::of::<f32>()
+            && TypeId::of::<Self::WasmSimdF32Ops>()
+                != TypeId::of::<distance_metric_wasm_simd::UnsupportedWasmSimdF32LeafOps>()
+        {
+            let leaf =
+                &*(leaf as *const LeafView<'_, A, T, K, B> as *const LeafView<'_, f32, T, K, B>);
+            let query_wide = &*(query_wide as *const [Self::Output; K] as *const [f32; K]);
+            let best_dist = &mut *(best_dist as *mut Self::Output as *mut f32);
+
+            crate::leaf_view_chunked::nearest_one::wasm_simd::nearest_one_wasm_unchecked_f32::<
+                Self::WasmSimdF32Ops,
+                T,
+                K,
+                B,
+            >(leaf, query_wide, best_dist, best_item);
+
+            return true;
+        }
+
+        false
+    }
+
+    #[cfg(all(feature = "simd", target_arch = "wasm32", target_feature = "simd128"))]
+    #[inline(always)]
+    /// Try a SIMD128-specialized `nearest_one` arena kernel.
+    unsafe fn try_nearest_one_arena_wasm_simd<T, const K: usize>(
+        arena: &LeafArena<'_, A, T, K>,
+        query_wide: &[Self::Output; K],
+        best_dist: &mut Self::Output,
+        best_item: &mut T,
+    ) -> bool
+    where
+        A: Axis<Coord = A> + 'static,
+        T: crate::Content,
+        Self::Output: Axis<Coord = Self::Output> + 'static,
+    {
+        if TypeId::of::<A>() == TypeId::of::<f64>()
+            && TypeId::of::<Self::Output>() == TypeId::of::<f64>()
+            && TypeId::of::<Self::WasmSimdF64Ops>()
+                != TypeId::of::<distance_metric_wasm_simd::UnsupportedWasmSimdF64LeafOps>()
+        {
+            let query_wide = &*(query_wide as *const [Self::Output; K] as *const [f64; K]);
+            let best_dist = &mut *(best_dist as *mut Self::Output as *mut f64);
+            let mut tile_base = arena.as_ptr();
+            let mut remaining = arena.len();
+
+            while remaining != 0 {
+                let tile_len = crate::leaf_view::leaf_arena_tile_len(remaining);
+                crate::leaf_view_chunked::nearest_one::wasm_simd::nearest_one_wasm_arena_unchecked_f64::<
+                    Self::WasmSimdF64Ops,
+                    T,
+                    K,
+                >(tile_base, tile_len, query_wide, best_dist, best_item);
+                let tile_bytes =
+                    K * tile_len * std::mem::size_of::<f64>() + tile_len * std::mem::size_of::<T>();
+                tile_base = tile_base.add(tile_bytes);
+                remaining -= tile_len;
+            }
+
+            return true;
+        }
+
+        if TypeId::of::<A>() == TypeId::of::<f32>()
+            && TypeId::of::<Self::Output>() == TypeId::of::<f32>()
+            && TypeId::of::<Self::WasmSimdF32Ops>()
+                != TypeId::of::<distance_metric_wasm_simd::UnsupportedWasmSimdF32LeafOps>()
+        {
+            let query_wide = &*(query_wide as *const [Self::Output; K] as *const [f32; K]);
+            let best_dist = &mut *(best_dist as *mut Self::Output as *mut f32);
+            let mut tile_base = arena.as_ptr();
+            let mut remaining = arena.len();
+
+            while remaining != 0 {
+                let tile_len = crate::leaf_view::leaf_arena_tile_len(remaining);
+                crate::leaf_view_chunked::nearest_one::wasm_simd::nearest_one_wasm_arena_unchecked_f32::<
+                    Self::WasmSimdF32Ops,
+                    T,
+                    K,
+                >(tile_base, tile_len, query_wide, best_dist, best_item);
+                let tile_bytes =
+                    K * tile_len * std::mem::size_of::<f32>() + tile_len * std::mem::size_of::<T>();
+                tile_base = tile_base.add(tile_bytes);
+                remaining -= tile_len;
+            }
+
+            return true;
+        }
+
+        false
+    }
+
+    #[cfg(all(feature = "simd", target_arch = "wasm32", target_feature = "simd128"))]
+    #[inline(always)]
+    /// Try a SIMD128-specialized `nearest_n_within` leaf kernel.
+    unsafe fn try_nearest_n_within_leaf_wasm_simd<
+        T,
+        E,
+        R,
+        const EXCLUSIVE: bool,
+        const K: usize,
+        const B: usize,
+    >(
+        leaf: &LeafView<'_, A, T, K, B>,
+        query_wide: &[Self::Output; K],
+        max_dist: Self::Output,
+        results: &mut R,
+    ) -> bool
+    where
+        A: Axis<Coord = A> + 'static,
+        T: crate::Content,
+        Self::Output: Axis<Coord = Self::Output> + 'static,
+        E: FromLeafCandidate<A, T, Self::Output, K>,
+        R: ResultCollection<Self::Output, E>,
+    {
+        if TypeId::of::<A>() == TypeId::of::<f64>()
+            && TypeId::of::<Self::Output>() == TypeId::of::<f64>()
+            && TypeId::of::<Self::WasmSimdF64Ops>()
+                != TypeId::of::<distance_metric_wasm_simd::UnsupportedWasmSimdF64LeafOps>()
+        {
+            let leaf =
+                &*(leaf as *const LeafView<'_, A, T, K, B> as *const LeafView<'_, f64, T, K, B>);
+            let query_wide = &*(query_wide as *const [Self::Output; K] as *const [f64; K]);
+            let max_dist = *(&max_dist as *const Self::Output as *const f64);
+            with_nearest_result_emitter!(results, E, f64, T, emit, {
+                let mut emit_positioned =
+                    |position, distance, item| emit(leaf.point(position), distance, item);
+                crate::leaf_view_chunked::nearest_n_within::wasm_simd::nearest_n_within_wasm_unchecked_f64::<
+                    Self::WasmSimdF64Ops,
+                    T,
+                    _,
+                    EXCLUSIVE,
+                    K,
+                    B,
+                >(leaf, query_wide, max_dist, &mut emit_positioned);
+            });
+
+            return true;
+        }
+
+        if TypeId::of::<A>() == TypeId::of::<f32>()
+            && TypeId::of::<Self::Output>() == TypeId::of::<f32>()
+            && TypeId::of::<Self::WasmSimdF32Ops>()
+                != TypeId::of::<distance_metric_wasm_simd::UnsupportedWasmSimdF32LeafOps>()
+        {
+            let leaf =
+                &*(leaf as *const LeafView<'_, A, T, K, B> as *const LeafView<'_, f32, T, K, B>);
+            let query_wide = &*(query_wide as *const [Self::Output; K] as *const [f32; K]);
+            let max_dist = *(&max_dist as *const Self::Output as *const f32);
+            with_nearest_result_emitter!(results, E, f32, T, emit, {
+                let mut emit_positioned =
+                    |position, distance, item| emit(leaf.point(position), distance, item);
+                crate::leaf_view_chunked::nearest_n_within::wasm_simd::nearest_n_within_wasm_unchecked_f32::<
+                    Self::WasmSimdF32Ops,
+                    T,
+                    _,
+                    EXCLUSIVE,
+                    K,
+                    B,
+                >(leaf, query_wide, max_dist, &mut emit_positioned);
+            });
+
+            return true;
+        }
+
+        false
+    }
+
+    #[cfg(all(feature = "simd", target_arch = "wasm32", target_feature = "simd128"))]
+    #[inline(always)]
+    /// Try a SIMD128-specialized `nearest_n_within` arena kernel.
+    unsafe fn try_nearest_n_within_arena_wasm_simd<T, E, R, const EXCLUSIVE: bool, const K: usize>(
+        arena: &LeafArena<'_, A, T, K>,
+        query_wide: &[Self::Output; K],
+        max_dist: Self::Output,
+        results: &mut R,
+    ) -> bool
+    where
+        A: Axis<Coord = A> + 'static,
+        T: crate::Content,
+        Self::Output: Axis<Coord = Self::Output> + 'static,
+        E: FromLeafCandidate<A, T, Self::Output, K>,
+        R: ResultCollection<Self::Output, E>,
+    {
+        if TypeId::of::<A>() == TypeId::of::<f64>()
+            && TypeId::of::<Self::Output>() == TypeId::of::<f64>()
+            && TypeId::of::<Self::WasmSimdF64Ops>()
+                != TypeId::of::<distance_metric_wasm_simd::UnsupportedWasmSimdF64LeafOps>()
+        {
+            let query_wide = &*(query_wide as *const [Self::Output; K] as *const [f64; K]);
+            let max_dist = *(&max_dist as *const Self::Output as *const f64);
+            with_nearest_result_emitter!(results, E, f64, T, emit, {
+                let mut tile_base = arena.as_ptr();
+                let mut remaining = arena.len();
+
+                while remaining != 0 {
+                    let tile_len = crate::leaf_view::leaf_arena_tile_len(remaining);
+                    let mut emit_tile = |position, distance, item| {
+                        emit(
+                            point_from_leaf_arena_tile::<f64, K>(tile_base, tile_len, position),
+                            distance,
+                            item,
+                        )
+                    };
+                    crate::leaf_view_chunked::nearest_n_within::wasm_simd::nearest_n_within_wasm_arena_unchecked_f64::<
+                        Self::WasmSimdF64Ops,
+                        T,
+                        _,
+                        EXCLUSIVE,
+                        K,
+                    >(tile_base, tile_len, query_wide, max_dist, &mut emit_tile);
+                    let tile_bytes = K * tile_len * std::mem::size_of::<f64>()
+                        + tile_len * std::mem::size_of::<T>();
+                    tile_base = tile_base.add(tile_bytes);
+                    remaining -= tile_len;
+                }
+            });
+
+            return true;
+        }
+
+        if TypeId::of::<A>() == TypeId::of::<f32>()
+            && TypeId::of::<Self::Output>() == TypeId::of::<f32>()
+            && TypeId::of::<Self::WasmSimdF32Ops>()
+                != TypeId::of::<distance_metric_wasm_simd::UnsupportedWasmSimdF32LeafOps>()
+        {
+            let query_wide = &*(query_wide as *const [Self::Output; K] as *const [f32; K]);
+            let max_dist = *(&max_dist as *const Self::Output as *const f32);
+            with_nearest_result_emitter!(results, E, f32, T, emit, {
+                let mut tile_base = arena.as_ptr();
+                let mut remaining = arena.len();
+
+                while remaining != 0 {
+                    let tile_len = crate::leaf_view::leaf_arena_tile_len(remaining);
+                    let mut emit_tile = |position, distance, item| {
+                        emit(
+                            point_from_leaf_arena_tile::<f32, K>(tile_base, tile_len, position),
+                            distance,
+                            item,
+                        )
+                    };
+                    crate::leaf_view_chunked::nearest_n_within::wasm_simd::nearest_n_within_wasm_arena_unchecked_f32::<
+                        Self::WasmSimdF32Ops,
+                        T,
+                        _,
+                        EXCLUSIVE,
+                        K,
+                    >(tile_base, tile_len, query_wide, max_dist, &mut emit_tile);
+                    let tile_bytes = K * tile_len * std::mem::size_of::<f32>()
+                        + tile_len * std::mem::size_of::<T>();
+                    tile_base = tile_base.add(tile_bytes);
+                    remaining -= tile_len;
+                }
+            });
+
+            return true;
+        }
+
+        false
+    }
+
+    #[cfg(all(feature = "simd", target_arch = "wasm32", target_feature = "simd128"))]
+    #[inline(always)]
+    /// Try a SIMD128-specialized `best_n_within` leaf kernel.
+    unsafe fn try_best_n_within_leaf_wasm_simd<
+        T,
+        R,
+        const EXCLUSIVE: bool,
+        const K: usize,
+        const B: usize,
+    >(
+        leaf: &LeafView<'_, A, T, K, B>,
+        query_wide: &[Self::Output; K],
+        max_dist: Self::Output,
+        threshold_item: Option<T>,
+        results: &mut R,
+    ) -> bool
+    where
+        A: Axis<Coord = A> + 'static,
+        T: crate::Content + PartialOrd,
+        Self::Output: Axis<Coord = Self::Output> + 'static,
+        R: BestNeighbourResultCollection<Self::Output, T>,
+    {
+        if TypeId::of::<A>() == TypeId::of::<f64>()
+            && TypeId::of::<Self::Output>() == TypeId::of::<f64>()
+            && TypeId::of::<Self::WasmSimdF64Ops>()
+                != TypeId::of::<distance_metric_wasm_simd::UnsupportedWasmSimdF64LeafOps>()
+        {
+            let leaf =
+                &*(leaf as *const LeafView<'_, A, T, K, B> as *const LeafView<'_, f64, T, K, B>);
+            let query_wide = &*(query_wide as *const [Self::Output; K] as *const [f64; K]);
+            let max_dist = *(&max_dist as *const Self::Output as *const f64);
+            with_best_result_emitter!(results, threshold_item, f64, T, emit, {
+                crate::leaf_view_chunked::best_n_within::wasm_simd::best_n_within_wasm_unchecked_f64::<
+                    Self::WasmSimdF64Ops,
+                    T,
+                    _,
+                    EXCLUSIVE,
+                    K,
+                    B,
+                >(leaf, query_wide, max_dist, &mut emit);
+            });
+
+            return true;
+        }
+
+        if TypeId::of::<A>() == TypeId::of::<f32>()
+            && TypeId::of::<Self::Output>() == TypeId::of::<f32>()
+            && TypeId::of::<Self::WasmSimdF32Ops>()
+                != TypeId::of::<distance_metric_wasm_simd::UnsupportedWasmSimdF32LeafOps>()
+        {
+            let leaf =
+                &*(leaf as *const LeafView<'_, A, T, K, B> as *const LeafView<'_, f32, T, K, B>);
+            let query_wide = &*(query_wide as *const [Self::Output; K] as *const [f32; K]);
+            let max_dist = *(&max_dist as *const Self::Output as *const f32);
+            with_best_result_emitter!(results, threshold_item, f32, T, emit, {
+                crate::leaf_view_chunked::best_n_within::wasm_simd::best_n_within_wasm_unchecked_f32::<
+                    Self::WasmSimdF32Ops,
+                    T,
+                    _,
+                    EXCLUSIVE,
+                    K,
+                    B,
+                >(leaf, query_wide, max_dist, &mut emit);
+            });
+
+            return true;
+        }
+
+        false
+    }
+
+    #[cfg(all(feature = "simd", target_arch = "wasm32", target_feature = "simd128"))]
+    #[inline(always)]
+    /// Try a SIMD128-specialized `best_n_within` arena kernel.
+    unsafe fn try_best_n_within_arena_wasm_simd<T, R, const EXCLUSIVE: bool, const K: usize>(
+        arena: &LeafArena<'_, A, T, K>,
+        query_wide: &[Self::Output; K],
+        max_dist: Self::Output,
+        threshold_item: Option<T>,
+        results: &mut R,
+    ) -> bool
+    where
+        A: Axis<Coord = A> + 'static,
+        T: crate::Content + PartialOrd,
+        Self::Output: Axis<Coord = Self::Output> + 'static,
+        R: BestNeighbourResultCollection<Self::Output, T>,
+    {
+        if TypeId::of::<A>() == TypeId::of::<f64>()
+            && TypeId::of::<Self::Output>() == TypeId::of::<f64>()
+            && TypeId::of::<Self::WasmSimdF64Ops>()
+                != TypeId::of::<distance_metric_wasm_simd::UnsupportedWasmSimdF64LeafOps>()
+        {
+            let query_wide = &*(query_wide as *const [Self::Output; K] as *const [f64; K]);
+            let max_dist = *(&max_dist as *const Self::Output as *const f64);
+            with_best_result_emitter!(results, threshold_item, f64, T, emit, {
+                let mut tile_base = arena.as_ptr();
+                let mut remaining = arena.len();
+
+                while remaining != 0 {
+                    let tile_len = crate::leaf_view::leaf_arena_tile_len(remaining);
+                    crate::leaf_view_chunked::best_n_within::wasm_simd::best_n_within_wasm_arena_unchecked_f64::<
+                        Self::WasmSimdF64Ops,
+                        T,
+                        _,
+                        EXCLUSIVE,
+                        K,
+                    >(tile_base, tile_len, query_wide, max_dist, &mut emit);
+                    let tile_bytes = K * tile_len * std::mem::size_of::<f64>()
+                        + tile_len * std::mem::size_of::<T>();
+                    tile_base = tile_base.add(tile_bytes);
+                    remaining -= tile_len;
+                }
+            });
+
+            return true;
+        }
+
+        if TypeId::of::<A>() == TypeId::of::<f32>()
+            && TypeId::of::<Self::Output>() == TypeId::of::<f32>()
+            && TypeId::of::<Self::WasmSimdF32Ops>()
+                != TypeId::of::<distance_metric_wasm_simd::UnsupportedWasmSimdF32LeafOps>()
+        {
+            let query_wide = &*(query_wide as *const [Self::Output; K] as *const [f32; K]);
+            let max_dist = *(&max_dist as *const Self::Output as *const f32);
+            with_best_result_emitter!(results, threshold_item, f32, T, emit, {
+                let mut tile_base = arena.as_ptr();
+                let mut remaining = arena.len();
+
+                while remaining != 0 {
+                    let tile_len = crate::leaf_view::leaf_arena_tile_len(remaining);
+                    crate::leaf_view_chunked::best_n_within::wasm_simd::best_n_within_wasm_arena_unchecked_f32::<
+                        Self::WasmSimdF32Ops,
+                        T,
+                        _,
+                        EXCLUSIVE,
+                        K,
+                    >(tile_base, tile_len, query_wide, max_dist, &mut emit);
+                    let tile_bytes = K * tile_len * std::mem::size_of::<f32>()
+                        + tile_len * std::mem::size_of::<T>();
+                    tile_base = tile_base.add(tile_bytes);
+                    remaining -= tile_len;
+                }
+            });
+
+            return true;
+        }
+
+        false
+    }
+}
+
 /// Trait representing a distance metric that can be used in a `KdTree` query.
 #[doc(hidden)]
 pub trait DistanceMetric<A: Copy>:
-    DistanceMetricScalar<A> + DistanceMetricAvx512<A> + DistanceMetricAvx2<A> + DistanceMetricNeon<A>
+    DistanceMetricScalar<A>
+    + DistanceMetricAvx512<A>
+    + DistanceMetricAvx2<A>
+    + DistanceMetricNeon<A>
+    + DistanceMetricWasmSimd<A>
 {
     /// Autovec/scalar Block3 backtrack mask generation.
     #[inline(always)]
@@ -1505,6 +1979,7 @@ impl<T, A: Copy> DistanceMetric<A> for T where
         + DistanceMetricAvx512<A>
         + DistanceMetricAvx2<A>
         + DistanceMetricNeon<A>
+        + DistanceMetricWasmSimd<A>
 {
 }
 

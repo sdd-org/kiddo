@@ -3,7 +3,7 @@
 #[doc(inline)]
 pub use crate::dist::{
     DistanceMetric, DistanceMetricAvx2, DistanceMetricAvx512, DistanceMetricNeon,
-    DistanceMetricScalar,
+    DistanceMetricScalar, DistanceMetricWasmSimd,
 };
 
 #[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx2"))]
@@ -19,3 +19,9 @@ pub use crate::dist::distance_metric_avx512::{
 #[cfg(all(feature = "simd", target_arch = "aarch64", target_feature = "neon"))]
 #[doc(inline)]
 pub use crate::dist::distance_metric_neon::{UnsupportedNeonF32LeafOps, UnsupportedNeonF64LeafOps};
+
+#[cfg(all(feature = "simd", target_arch = "wasm32", target_feature = "simd128"))]
+#[doc(inline)]
+pub use crate::dist::distance_metric_wasm_simd::{
+    UnsupportedWasmSimdF32LeafOps, UnsupportedWasmSimdF64LeafOps,
+};
