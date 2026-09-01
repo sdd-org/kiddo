@@ -83,11 +83,11 @@
   {
     "benchmark_variant": "extended",
     "branch_path_key": "item-sorted-leaves",
-    "latest_run_id": "20260901T074036Z-8d4af38d70cf",
-    "latest_run_page_path": "branches/item-sorted-leaves/history/20260901T074036Z-8d4af38d70cf/index.html",
-    "latest_run_page_url": "https://sdd-org.github.io/kiddo/v6/branches/item-sorted-leaves/history/20260901T074036Z-8d4af38d70cf/index.html",
+    "latest_run_id": "20260901T184818Z-7348f4af022a",
+    "latest_run_page_path": "branches/item-sorted-leaves/history/20260901T184818Z-7348f4af022a/index.html",
+    "latest_run_page_url": "https://sdd-org.github.io/kiddo/v6/branches/item-sorted-leaves/history/20260901T184818Z-7348f4af022a/index.html",
     "ref_name": "item-sorted-leaves",
-    "run_count": 1
+    "run_count": 2
   },
   {
     "benchmark_variant": "basic",
