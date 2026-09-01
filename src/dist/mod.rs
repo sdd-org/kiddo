@@ -51,6 +51,9 @@ pub use distance_metric_core::{DistanceMetricScalar, WideningCastFrom};
 ))]
 use std::any::TypeId;
 
+// Only used inside the AVX512 hooks below, which are gated on the same target
+// feature; ungated here the import is unused on non-AVX512 targets.
+#[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"))]
 use crate::kd_tree::ITEM_LEAF_MODE_UNSORTED;
 use crate::leaf_view::TlsLeafScratch;
 use crate::stem_strategy::donnelly::simd_full::{BacktrackBlock3, BacktrackBlock4};
