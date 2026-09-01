@@ -30,3 +30,32 @@ jobs:
 
       - name: Build ImmutableKdTree WASM smoke test
         run: cargo build --manifest-path tests/wasm-smoke/Cargo.toml --target wasm32-unknown-unknown
+
+  wasm-simd128:
+    name: WASM SIMD128 leaf kernels
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          show-progress: false
+
+      - name: Install stable Rust with the WASM target
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: wasm32-unknown-unknown
+          components: clippy
+
+      - name: Build the SIMD128 leaf kernels
+        run: cargo build --target wasm32-unknown-unknown --no-default-features --features simd
+        env:
+          RUSTFLAGS: -C target-feature=+simd128
+
+      - name: Clippy the SIMD128 leaf kernels
+        run: cargo clippy --target wasm32-unknown-unknown --no-default-features --features simd -- -D warnings
+        env:
+          RUSTFLAGS: -C target-feature=+simd128
+
+      - name: Build ImmutableKdTree WASM smoke test with SIMD128
+        run: cargo build --manifest-path tests/wasm-smoke/Cargo.toml --target wasm32-unknown-unknown --features simd
+        env:
+          RUSTFLAGS: -C target-feature=+simd128
