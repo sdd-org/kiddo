@@ -4,5 +4,8 @@ version = "0.0.0"
 edition = "2021"
 publish = false
 
+[features]
+simd = ["kiddo/simd"]
+
 [dependencies]
 kiddo = { path = "../.." }
