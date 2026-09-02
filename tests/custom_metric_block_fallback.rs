@@ -1,6 +1,6 @@
 use kiddo::dist::{
     DistanceMetric, DistanceMetricAvx2, DistanceMetricAvx512, DistanceMetricNeon,
-    DistanceMetricScalar,
+    DistanceMetricScalar, DistanceMetricWasmSimd,
 };
 use kiddo::leaf_strategies::VecOfArenas;
 use kiddo::stem_strategies::{DonnellySimdFull, Eytzinger};
@@ -42,6 +42,14 @@ impl DistanceMetricNeon<f64> for AbsDistance {
 
     #[cfg(all(feature = "simd", target_arch = "aarch64", target_feature = "neon"))]
     type NeonF32Ops = kiddo::traits::dist::UnsupportedNeonF32LeafOps;
+}
+
+impl DistanceMetricWasmSimd<f64> for AbsDistance {
+    #[cfg(all(feature = "simd", target_arch = "wasm32", target_feature = "simd128"))]
+    type WasmSimdF64Ops = kiddo::traits::dist::UnsupportedWasmSimdF64LeafOps;
+
+    #[cfg(all(feature = "simd", target_arch = "wasm32", target_feature = "simd128"))]
+    type WasmSimdF32Ops = kiddo::traits::dist::UnsupportedWasmSimdF32LeafOps;
 }
 
 type GeneralTree = KdTree<f64, u32, Eytzinger, VecOfArenas<f64, u32, 2, 32>, 2, 32>;

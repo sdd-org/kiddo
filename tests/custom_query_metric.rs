@@ -2,7 +2,7 @@ use std::num::NonZeroUsize;
 
 use kiddo::dist::{
     DistanceMetric, DistanceMetricAvx2, DistanceMetricAvx512, DistanceMetricNeon,
-    DistanceMetricScalar, QueryMetric,
+    DistanceMetricScalar, DistanceMetricWasmSimd, QueryMetric,
 };
 use kiddo::leaf_strategies::VecOfArrays;
 use kiddo::{Axis, Eytzinger, KdTree};
@@ -43,6 +43,14 @@ impl DistanceMetricNeon<f64> for AbsDistance {
 
     #[cfg(all(feature = "simd", target_arch = "aarch64", target_feature = "neon"))]
     type NeonF32Ops = kiddo::traits::dist::UnsupportedNeonF32LeafOps;
+}
+
+impl DistanceMetricWasmSimd<f64> for AbsDistance {
+    #[cfg(all(feature = "simd", target_arch = "wasm32", target_feature = "simd128"))]
+    type WasmSimdF64Ops = kiddo::traits::dist::UnsupportedWasmSimdF64LeafOps;
+
+    #[cfg(all(feature = "simd", target_arch = "wasm32", target_feature = "simd128"))]
+    type WasmSimdF32Ops = kiddo::traits::dist::UnsupportedWasmSimdF32LeafOps;
 }
 
 type TestTree = KdTree<f64, u32, Eytzinger, VecOfArrays<f64, u32, 2, 32>, 2, 32>;
