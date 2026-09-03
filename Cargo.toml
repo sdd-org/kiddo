@@ -1,6 +1,6 @@
 [package]
 name = "kiddo"
-version = "6.1.0"
+version = "6.2.0"
 edition = "2021"
 rust-version = "1.89.0"
 authors = ["Scott Donnelly <scott@donnel.ly>"]
