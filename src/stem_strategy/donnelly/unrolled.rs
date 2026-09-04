@@ -16,6 +16,7 @@ macro_rules! impl_donnelly_unrolled_strategy {
         impl StemStrategy for DonnellyUnrolled<$size> {
             const ROOT_IDX: usize = 0;
             const BLOCK_SIZE: usize = $size;
+            const SUPPORTS_EMBEDDED_MIN_ITEM_SUMMARY: bool = $size == 3;
             const SUPPORTS_ARITHMETIC_LEAF_RESOLUTION: bool = true;
             const USES_UNROLLED_SCALAR_TRAVERSAL: bool = true;
 

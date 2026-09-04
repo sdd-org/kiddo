@@ -20,6 +20,7 @@ pub struct Donnelly<const BH: usize> {
 impl<const BH: usize> StemStrategy for Donnelly<BH> {
     const ROOT_IDX: usize = 0;
     const BLOCK_SIZE: usize = BH;
+    const SUPPORTS_EMBEDDED_MIN_ITEM_SUMMARY: bool = BH == 3;
     const REQUIRES_BLOCK_ALIGNED_STEM_HEIGHT: bool = false;
     const SUPPORTS_ARITHMETIC_LEAF_RESOLUTION: bool = true;
 

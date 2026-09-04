@@ -4,6 +4,12 @@
 /// the query point and track the maximum distance for branch pruning during
 /// backtracking search.
 pub trait QueryContext<A, O, const K: usize> {
+    /// Whether this query instantiation consumes embedded item summaries.
+    /// This associated constant lets monomorphisation remove every summary
+    /// check from other query kinds and item-leaf modes.
+    #[doc(hidden)]
+    const USES_EMBEDDED_ITEM_SUMMARY: bool = false;
+
     /// Returns the query point coordinates.
     fn query(&self) -> &[A; K];
 
@@ -31,5 +37,13 @@ pub trait QueryContext<A, O, const K: usize> {
     #[inline]
     fn prune_on_equal_max_dist(&self) -> bool {
         false
+    }
+
+    /// Current encoded-summary filter for item-based subtree pruning. Summary
+    /// queries keep this disabled until their result collection is full.
+    #[doc(hidden)]
+    #[inline(always)]
+    fn embedded_item_summary_filter(&self) -> crate::kd_tree::item_summary::ItemSummaryFilter {
+        crate::kd_tree::item_summary::ItemSummaryFilter::disabled()
     }
 }

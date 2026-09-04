@@ -57,6 +57,10 @@ pub use distance_metric_core::{DistanceMetricScalar, WideningCastFrom};
 ))]
 use std::any::TypeId;
 
+// Only used inside the AVX512 hooks below, which are gated on the same target
+// feature; ungated here the import is unused on non-AVX512 targets.
+#[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"))]
+use crate::kd_tree::ITEM_LEAF_MODE_UNSORTED;
 use crate::leaf_view::TlsLeafScratch;
 use crate::stem_strategy::donnelly::simd_full::{BacktrackBlock3, BacktrackBlock4};
 use crate::stem_strategy::{SimdPrune, SimdSelectBestChildBlock3};
@@ -226,6 +230,28 @@ macro_rules! with_best_result_emitter {
             };
 
             $results.add(candidate);
+        };
+
+        $body
+    }};
+}
+
+#[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"))]
+macro_rules! with_item_sorted_best_result_emitter {
+    ($results:expr, $distance_ty:ty, $item_ty:ty, $threshold_item:ident, $emit:ident, $body:block) => {{
+        #[allow(unused_mut)]
+        let mut $threshold_item = $results.threshold_item();
+        let mut $emit = |candidate_dist: $distance_ty, item: $item_ty| {
+            #[cfg(feature = "result_collection_stats")]
+            crate::results::result_collection_stats::record_candidate_emitted();
+
+            let candidate = BestQueryResultItem {
+                point: (),
+                distance: std::mem::transmute_copy::<$distance_ty, Self::Output>(&candidate_dist),
+                item,
+            };
+            $results.add(candidate);
+            $results.threshold_item()
         };
 
         $body
@@ -552,6 +578,7 @@ pub trait DistanceMetricAvx512<A: Copy>: DistanceMetricScalar<A> {
         T,
         R,
         const EXCLUSIVE: bool,
+        const ITEM_LEAF_MODE: u8,
         const K: usize,
         const B: usize,
     >(
@@ -576,16 +603,29 @@ pub trait DistanceMetricAvx512<A: Copy>: DistanceMetricScalar<A> {
                 &*(leaf as *const LeafView<'_, A, T, K, B> as *const LeafView<'_, f64, T, K, B>);
             let query_wide = &*(query_wide as *const [Self::Output; K] as *const [f64; K]);
             let max_dist = *(&max_dist as *const Self::Output as *const f64);
-            with_best_result_emitter!(results, threshold_item, f64, T, emit, {
-                crate::leaf_view_chunked::best_n_within::avx512::best_n_within_avx512_unchecked::<
-                    Self::Avx512F64Ops,
-                    T,
-                    _,
-                    EXCLUSIVE,
-                    K,
-                    B,
-                >(leaf, query_wide, max_dist, &mut emit);
-            });
+            if ITEM_LEAF_MODE != ITEM_LEAF_MODE_UNSORTED {
+                with_item_sorted_best_result_emitter!(results, f64, T, threshold_item, emit, {
+                    let _ = crate::leaf_view_chunked::best_n_within::avx512::best_n_within_item_sorted_avx512_unchecked::<
+                            Self::Avx512F64Ops,
+                            T,
+                            _,
+                            EXCLUSIVE,
+                            K,
+                            B,
+                        >(leaf, query_wide, max_dist, threshold_item, &mut emit);
+                });
+            } else {
+                with_best_result_emitter!(results, threshold_item, f64, T, emit, {
+                    crate::leaf_view_chunked::best_n_within::avx512::best_n_within_avx512_unchecked::<
+                        Self::Avx512F64Ops,
+                        T,
+                        _,
+                        EXCLUSIVE,
+                        K,
+                        B,
+                    >(leaf, query_wide, max_dist, &mut emit);
+                });
+            }
 
             return true;
         }
@@ -599,16 +639,29 @@ pub trait DistanceMetricAvx512<A: Copy>: DistanceMetricScalar<A> {
                 &*(leaf as *const LeafView<'_, A, T, K, B> as *const LeafView<'_, f32, T, K, B>);
             let query_wide = &*(query_wide as *const [Self::Output; K] as *const [f32; K]);
             let max_dist = *(&max_dist as *const Self::Output as *const f32);
-            with_best_result_emitter!(results, threshold_item, f32, T, emit, {
-                crate::leaf_view_chunked::best_n_within::avx512::best_n_within_avx512_unchecked_f32::<
-                    Self::Avx512F32Ops,
-                    T,
-                    _,
-                    EXCLUSIVE,
-                    K,
-                    B,
-                >(leaf, query_wide, max_dist, &mut emit);
-            });
+            if ITEM_LEAF_MODE != ITEM_LEAF_MODE_UNSORTED {
+                with_item_sorted_best_result_emitter!(results, f32, T, threshold_item, emit, {
+                    let _ = crate::leaf_view_chunked::best_n_within::avx512::best_n_within_item_sorted_avx512_unchecked_f32::<
+                            Self::Avx512F32Ops,
+                            T,
+                            _,
+                            EXCLUSIVE,
+                            K,
+                            B,
+                        >(leaf, query_wide, max_dist, threshold_item, &mut emit);
+                });
+            } else {
+                with_best_result_emitter!(results, threshold_item, f32, T, emit, {
+                    crate::leaf_view_chunked::best_n_within::avx512::best_n_within_avx512_unchecked_f32::<
+                        Self::Avx512F32Ops,
+                        T,
+                        _,
+                        EXCLUSIVE,
+                        K,
+                        B,
+                    >(leaf, query_wide, max_dist, &mut emit);
+                });
+            }
 
             return true;
         }
@@ -619,7 +672,13 @@ pub trait DistanceMetricAvx512<A: Copy>: DistanceMetricScalar<A> {
     #[cfg(all(feature = "simd", target_arch = "x86_64", target_feature = "avx512f"))]
     #[inline(always)]
     /// Try an AVX512-specialized `best_n_within` arena kernel.
-    unsafe fn try_best_n_within_arena_avx512<T, R, const EXCLUSIVE: bool, const K: usize>(
+    unsafe fn try_best_n_within_arena_avx512<
+        T,
+        R,
+        const EXCLUSIVE: bool,
+        const ITEM_LEAF_MODE: u8,
+        const K: usize,
+    >(
         arena: &LeafArena<'_, A, T, K>,
         query_wide: &[Self::Output; K],
         max_dist: Self::Output,
@@ -639,25 +698,57 @@ pub trait DistanceMetricAvx512<A: Copy>: DistanceMetricScalar<A> {
         {
             let query_wide = &*(query_wide as *const [Self::Output; K] as *const [f64; K]);
             let max_dist = *(&max_dist as *const Self::Output as *const f64);
-            with_best_result_emitter!(results, threshold_item, f64, T, emit, {
-                let mut tile_base = arena.as_ptr();
-                let mut remaining = arena.len();
+            if ITEM_LEAF_MODE != ITEM_LEAF_MODE_UNSORTED {
+                with_item_sorted_best_result_emitter!(results, f64, T, threshold_item, emit, {
+                    let mut tile_base = arena.as_ptr();
+                    let mut remaining = arena.len();
+                    while remaining != 0 {
+                        let tile_len = crate::leaf_view::leaf_arena_tile_len(remaining);
+                        let (next_threshold_item, stopped) = crate::leaf_view_chunked::best_n_within::avx512::best_n_within_item_sorted_avx512_arena_unchecked::<
+                                Self::Avx512F64Ops,
+                                T,
+                                _,
+                                EXCLUSIVE,
+                                K,
+                            >(
+                                tile_base,
+                                tile_len,
+                                query_wide,
+                                max_dist,
+                                threshold_item,
+                                &mut emit,
+                            );
+                        threshold_item = next_threshold_item;
+                        if stopped {
+                            break;
+                        }
+                        let tile_bytes = K * tile_len * std::mem::size_of::<f64>()
+                            + tile_len * std::mem::size_of::<T>();
+                        tile_base = tile_base.add(tile_bytes);
+                        remaining -= tile_len;
+                    }
+                });
+            } else {
+                with_best_result_emitter!(results, threshold_item, f64, T, emit, {
+                    let mut tile_base = arena.as_ptr();
+                    let mut remaining = arena.len();
 
-                while remaining != 0 {
-                    let tile_len = crate::leaf_view::leaf_arena_tile_len(remaining);
-                    crate::leaf_view_chunked::best_n_within::avx512::best_n_within_avx512_arena_unchecked::<
-                        Self::Avx512F64Ops,
-                        T,
-                        _,
-                        EXCLUSIVE,
-                        K,
-                    >(tile_base, tile_len, query_wide, max_dist, &mut emit);
-                    let tile_bytes = K * tile_len * std::mem::size_of::<f64>()
-                        + tile_len * std::mem::size_of::<T>();
-                    tile_base = tile_base.add(tile_bytes);
-                    remaining -= tile_len;
-                }
-            });
+                    while remaining != 0 {
+                        let tile_len = crate::leaf_view::leaf_arena_tile_len(remaining);
+                        crate::leaf_view_chunked::best_n_within::avx512::best_n_within_avx512_arena_unchecked::<
+                            Self::Avx512F64Ops,
+                            T,
+                            _,
+                            EXCLUSIVE,
+                            K,
+                        >(tile_base, tile_len, query_wide, max_dist, &mut emit);
+                        let tile_bytes = K * tile_len * std::mem::size_of::<f64>()
+                            + tile_len * std::mem::size_of::<T>();
+                        tile_base = tile_base.add(tile_bytes);
+                        remaining -= tile_len;
+                    }
+                });
+            }
 
             return true;
         }
@@ -669,25 +760,57 @@ pub trait DistanceMetricAvx512<A: Copy>: DistanceMetricScalar<A> {
         {
             let query_wide = &*(query_wide as *const [Self::Output; K] as *const [f32; K]);
             let max_dist = *(&max_dist as *const Self::Output as *const f32);
-            with_best_result_emitter!(results, threshold_item, f32, T, emit, {
-                let mut tile_base = arena.as_ptr();
-                let mut remaining = arena.len();
+            if ITEM_LEAF_MODE != ITEM_LEAF_MODE_UNSORTED {
+                with_item_sorted_best_result_emitter!(results, f32, T, threshold_item, emit, {
+                    let mut tile_base = arena.as_ptr();
+                    let mut remaining = arena.len();
+                    while remaining != 0 {
+                        let tile_len = crate::leaf_view::leaf_arena_tile_len(remaining);
+                        let (next_threshold_item, stopped) = crate::leaf_view_chunked::best_n_within::avx512::best_n_within_item_sorted_avx512_arena_unchecked_f32::<
+                                Self::Avx512F32Ops,
+                                T,
+                                _,
+                                EXCLUSIVE,
+                                K,
+                            >(
+                                tile_base,
+                                tile_len,
+                                query_wide,
+                                max_dist,
+                                threshold_item,
+                                &mut emit,
+                            );
+                        threshold_item = next_threshold_item;
+                        if stopped {
+                            break;
+                        }
+                        let tile_bytes = K * tile_len * std::mem::size_of::<f32>()
+                            + tile_len * std::mem::size_of::<T>();
+                        tile_base = tile_base.add(tile_bytes);
+                        remaining -= tile_len;
+                    }
+                });
+            } else {
+                with_best_result_emitter!(results, threshold_item, f32, T, emit, {
+                    let mut tile_base = arena.as_ptr();
+                    let mut remaining = arena.len();
 
-                while remaining != 0 {
-                    let tile_len = crate::leaf_view::leaf_arena_tile_len(remaining);
-                    crate::leaf_view_chunked::best_n_within::avx512::best_n_within_avx512_arena_unchecked_f32::<
-                        Self::Avx512F32Ops,
-                        T,
-                        _,
-                        EXCLUSIVE,
-                        K,
-                    >(tile_base, tile_len, query_wide, max_dist, &mut emit);
-                    let tile_bytes = K * tile_len * std::mem::size_of::<f32>()
-                        + tile_len * std::mem::size_of::<T>();
-                    tile_base = tile_base.add(tile_bytes);
-                    remaining -= tile_len;
-                }
-            });
+                    while remaining != 0 {
+                        let tile_len = crate::leaf_view::leaf_arena_tile_len(remaining);
+                        crate::leaf_view_chunked::best_n_within::avx512::best_n_within_avx512_arena_unchecked_f32::<
+                            Self::Avx512F32Ops,
+                            T,
+                            _,
+                            EXCLUSIVE,
+                            K,
+                        >(tile_base, tile_len, query_wide, max_dist, &mut emit);
+                        let tile_bytes = K * tile_len * std::mem::size_of::<f32>()
+                            + tile_len * std::mem::size_of::<T>();
+                        tile_base = tile_base.add(tile_bytes);
+                        remaining -= tile_len;
+                    }
+                });
+            }
 
             return true;
         }

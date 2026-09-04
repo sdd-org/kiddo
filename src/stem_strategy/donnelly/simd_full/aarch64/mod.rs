@@ -40,7 +40,8 @@ pub unsafe fn compare_block3_f64_neon(
     let count_0 = vaddvq_u64(ones_0);
     let count_1 = vaddvq_u64(ones_1);
     let count_2 = vaddvq_u64(ones_2);
-    let count_3 = vaddvq_u64(ones_3);
+    // Lane 7 is padding in Block3 and may contain an embedded item summary.
+    let count_3 = vgetq_lane_u64(ones_3, 0);
 
     (count_0 + count_1 + count_2 + count_3) as u8
 }
@@ -75,7 +76,8 @@ pub unsafe fn compare_block3_f32_neon(
     let ones_1 = vshrq_n_u32(cmp_1, 31);
 
     let count_0 = vaddvq_u32(ones_0);
-    let count_1 = vaddvq_u32(ones_1);
+    // Lane 7 is padding in Block3 and may contain an embedded item summary.
+    let count_1 = vaddvq_u32(ones_1) - vgetq_lane_u32(ones_1, 3);
 
     (count_0 + count_1) as u8
 }

@@ -6,6 +6,7 @@ use kiddo::dist::SquaredEuclidean;
 use kiddo::kd_tree::KdTree;
 use kiddo::leaf_strategy::FlatVec;
 use kiddo::stem_strategy::Eytzinger;
+use kiddo::ITEM_LEAF_MODE_SORTED;
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use std::hint::black_box;
@@ -35,6 +36,10 @@ const TREE_SIZES: [usize; 10] = [
 
 type F64Tree = KdTree<f64, u32, Eytzinger, FlatVec<f64, u32, K, B>, K, B>;
 type F32Tree = KdTree<f32, u32, Eytzinger, FlatVec<f32, u32, K, B>, K, B>;
+type ItemSortedF64Tree =
+    KdTree<f64, u32, Eytzinger, FlatVec<f64, u32, K, B>, K, B, ITEM_LEAF_MODE_SORTED>;
+type ItemSortedF32Tree =
+    KdTree<f32, u32, Eytzinger, FlatVec<f32, u32, K, B>, K, B, ITEM_LEAF_MODE_SORTED>;
 
 fn read_usize_env(var: &str, default: usize) -> usize {
     std::env::var(var)
@@ -248,7 +253,7 @@ fn run_nearest_n_within_unsorted_f32(
 }
 
 fn run_best_n_within_f64(
-    tree: &F64Tree,
+    tree: &ItemSortedF64Tree,
     queries: &[[f64; K]],
     max_qty: NonZeroUsize,
 ) -> (usize, f64, u64) {
@@ -272,7 +277,7 @@ fn run_best_n_within_f64(
 }
 
 fn run_best_n_within_f32(
-    tree: &F32Tree,
+    tree: &ItemSortedF32Tree,
     queries: &[[f32; K]],
     max_qty: NonZeroUsize,
 ) -> (usize, f32, u64) {
@@ -337,9 +342,26 @@ fn query_family(c: &mut Criterion) {
                     })
                 },
             );
+        }
+        drop(tree);
+
+        let item_sorted_tree: ItemSortedF64Tree = F64Tree::builder()
+            .with_item_sorted_leaves()
+            .build_from_slice(&points)
+            .unwrap();
+        for max_qty in MAX_QTYS {
+            let max_qty = NonZeroUsize::new(max_qty).unwrap();
             f64_group.bench_function(
                 BenchmarkId::new(format!("best_n_within_k{}", max_qty), point_count),
-                |b| b.iter(|| black_box(run_best_n_within_f64(&tree, &f64_queries, max_qty))),
+                |b| {
+                    b.iter(|| {
+                        black_box(run_best_n_within_f64(
+                            &item_sorted_tree,
+                            &f64_queries,
+                            max_qty,
+                        ))
+                    })
+                },
             );
         }
     }
@@ -378,9 +400,26 @@ fn query_family(c: &mut Criterion) {
                     })
                 },
             );
+        }
+        drop(tree);
+
+        let item_sorted_tree: ItemSortedF32Tree = F32Tree::builder()
+            .with_item_sorted_leaves()
+            .build_from_slice(&points)
+            .unwrap();
+        for max_qty in MAX_QTYS {
+            let max_qty = NonZeroUsize::new(max_qty).unwrap();
             f32_group.bench_function(
                 BenchmarkId::new(format!("best_n_within_k{}", max_qty), point_count),
-                |b| b.iter(|| black_box(run_best_n_within_f32(&tree, &f32_queries, max_qty))),
+                |b| {
+                    b.iter(|| {
+                        black_box(run_best_n_within_f32(
+                            &item_sorted_tree,
+                            &f32_queries,
+                            max_qty,
+                        ))
+                    })
+                },
             );
         }
     }

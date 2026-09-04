@@ -17,6 +17,7 @@
 //!
 mod builder;
 mod construction;
+pub(crate) mod item_summary;
 mod iter;
 pub(crate) mod orchestrator;
 pub(crate) mod query;
@@ -53,6 +54,69 @@ pub use stem_leaf_resolution::OwnedStemLeafResolution;
 
 use crate::traits::leaf_strategy::{BucketLimitType, ConstructibleLeafStrategy, Mutability};
 use crate::{Axis, Content, LeafStrategy, StemStrategy};
+
+/// Encoded item-leaf mode for ordinary, unsorted leaves.
+pub const ITEM_LEAF_MODE_UNSORTED: u8 = 0;
+
+/// Encoded item-leaf mode for sorted leaves without stem-padding summaries.
+pub const ITEM_LEAF_MODE_SORTED: u8 = u8::MAX;
+
+/// The interpreted item-leaf mode carried by [`KdTree`]'s final const generic.
+///
+/// Rust does not currently support enums as const-generic parameter types, so
+/// the tree stores this choice in its type as a `u8` and exposes this enum for
+/// readable inspection. Codes `1..=254` represent sorted leaves whose stem
+/// padding carries encoded subtree-minimum summaries; the code is the number
+/// of bits by which minimum items are shifted right. Builders for a concrete
+/// encoding may accept a narrower range appropriate to its item type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ItemLeafMode {
+    /// Leaves retain their construction order.
+    Unsorted,
+    /// Leaves are sorted by ascending item without subtree-minimum summaries.
+    SortedWithoutEncodedMin,
+    /// Leaves are sorted and stem padding encodes subtree-minimum summaries.
+    SortedWithEncodedMin {
+        /// Power-of-two bucket shift used by the encoded summary.
+        shift: u8,
+    },
+}
+
+impl ItemLeafMode {
+    /// Interprets the `u8` item-leaf mode used as a const generic.
+    ///
+    /// Note that codes `32..=253` are not producible by any builder (a summary
+    /// shift must lie in `1..=31`) and query-side consumers treat them as
+    /// disabled; this function nevertheless reports them as
+    /// [`ItemLeafMode::SortedWithEncodedMin`] so that it remains total. Callers
+    /// must not treat the reported `shift` as a valid encoding.
+    #[inline]
+    pub const fn from_code(code: u8) -> Self {
+        match code {
+            ITEM_LEAF_MODE_UNSORTED => Self::Unsorted,
+            ITEM_LEAF_MODE_SORTED => Self::SortedWithoutEncodedMin,
+            shift => Self::SortedWithEncodedMin { shift },
+        }
+    }
+
+    /// Returns whether the mode guarantees ascending item order within leaves.
+    #[inline]
+    pub const fn has_sorted_leaves(self) -> bool {
+        matches!(
+            self,
+            Self::SortedWithoutEncodedMin | Self::SortedWithEncodedMin { .. }
+        )
+    }
+
+    /// Returns the encoded-minimum bucket shift, when enabled.
+    #[inline]
+    pub const fn encoded_min_shift(self) -> Option<u8> {
+        match self {
+            Self::SortedWithEncodedMin { shift } => Some(shift),
+            _ => None,
+        }
+    }
+}
 
 /// Errors returned by kd-tree construction and mutation when caller-controlled
 /// input or configuration cannot be accommodated.
@@ -252,6 +316,7 @@ fn resolve_mapped_terminal_stem_idx(
 /// * `LS`: [`LeafStrategy`] - determines how leaf nodes are stored.
 /// * `K`: [`usize`] - Dimensionality (number of dimensions)
 /// * `B`: [`usize`] - Bucket size (maximum items per leaf node - 32 is the recommended default)
+/// * `ITEM_LEAF_MODE`: encoded [`ItemLeafMode`]; defaults to [`ITEM_LEAF_MODE_UNSORTED`]
 #[cfg_attr(
     feature = "rkyv_08",
     derive(rkyv_08::Archive, rkyv_08::Serialize, rkyv_08::Deserialize)
@@ -267,6 +332,7 @@ pub struct KdTree<
     LS,             // LeafStrategy
     const K: usize, // dimensionality
     const B: usize, // bucket size
+    const ITEM_LEAF_MODE: u8 = ITEM_LEAF_MODE_UNSORTED,
 > {
     #[cfg_attr(
         feature = "rkyv_08",
@@ -282,7 +348,9 @@ pub struct KdTree<
     pub(crate) _phantom: std::marker::PhantomData<(SS, T)>,
 }
 
-impl<A, T, SS, LS, const K: usize, const B: usize> std::fmt::Debug for KdTree<A, T, SS, LS, K, B> {
+impl<A, T, SS, LS, const K: usize, const B: usize, const ITEM_LEAF_MODE: u8> std::fmt::Debug
+    for KdTree<A, T, SS, LS, K, B, ITEM_LEAF_MODE>
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("KdTree")
             .field("axis", &std::any::type_name::<A>())
@@ -291,6 +359,7 @@ impl<A, T, SS, LS, const K: usize, const B: usize> std::fmt::Debug for KdTree<A,
             .field("leaf_strategy", &std::any::type_name::<LS>())
             .field("dimensions", &K)
             .field("bucket_size", &B)
+            .field("item_leaf_mode", &ItemLeafMode::from_code(ITEM_LEAF_MODE))
             .field("size", &self.size)
             .field("stem_count", &self.stems.len())
             .field("max_stem_level", &self.max_stem_level)
@@ -299,8 +368,8 @@ impl<A, T, SS, LS, const K: usize, const B: usize> std::fmt::Debug for KdTree<A,
     }
 }
 
-impl<A, T, SS, LS, const K: usize, const B: usize> KdTreeAccessor<A, T, SS, LS, K, B>
-    for KdTree<A, T, SS, LS, K, B>
+impl<A, T, SS, LS, const K: usize, const B: usize, const ITEM_LEAF_MODE: u8>
+    KdTreeAccessor<A, T, SS, LS, K, B> for KdTree<A, T, SS, LS, K, B, ITEM_LEAF_MODE>
 where
     A: Axis<Coord = A>,
     T: Content,
@@ -336,10 +405,16 @@ where
     fn max_leaf_len(&self) -> usize {
         self.max_leaf_len
     }
+
+    #[inline(always)]
+    fn item_leaf_mode_code(&self) -> u8 {
+        ITEM_LEAF_MODE
+    }
 }
 
 #[cfg(feature = "rkyv_08")]
-impl<A, T, SS, LS, const K: usize, const B: usize> ArchivedKdTree<A, T, SS, LS, K, B>
+impl<A, T, SS, LS, const K: usize, const B: usize, const ITEM_LEAF_MODE: u8>
+    ArchivedKdTree<A, T, SS, LS, K, B, ITEM_LEAF_MODE>
 where
     A: rkyv_08::Archive + Axis<Coord = A>,
     T: Content,
@@ -376,6 +451,19 @@ where
         self.max_leaf_len.to_native() as usize
     }
 
+    /// Returns whether each leaf is ordered by ascending item value and can use
+    /// the item-sorted `best_n_within` kernel.
+    #[inline]
+    pub fn item_sorted_leaves(&self) -> bool {
+        self.item_leaf_mode().has_sorted_leaves()
+    }
+
+    /// Returns the item ordering and subtree-summary mode encoded in this tree's type.
+    #[inline]
+    pub const fn item_leaf_mode(&self) -> ItemLeafMode {
+        ItemLeafMode::from_code(ITEM_LEAF_MODE)
+    }
+
     #[inline]
     /// Returns the number of leaf nodes in the archived tree.
     pub fn leaf_count(&self) -> usize {
@@ -390,8 +478,9 @@ where
 }
 
 #[cfg(feature = "rkyv_08")]
-impl<A, T, SS, LS, const K: usize, const B: usize>
-    KdTreeAccessor<A, T, SS, rkyv_08::Archived<LS>, K, B> for ArchivedKdTree<A, T, SS, LS, K, B>
+impl<A, T, SS, LS, const K: usize, const B: usize, const ITEM_LEAF_MODE: u8>
+    KdTreeAccessor<A, T, SS, rkyv_08::Archived<LS>, K, B>
+    for ArchivedKdTree<A, T, SS, LS, K, B, ITEM_LEAF_MODE>
 where
     A: rkyv_08::Archive + Axis<Coord = A>,
     T: Content,
@@ -427,6 +516,11 @@ where
     #[inline(always)]
     fn max_leaf_len(&self) -> usize {
         self.max_leaf_len.to_native() as usize
+    }
+
+    #[inline(always)]
+    fn item_leaf_mode_code(&self) -> u8 {
+        ITEM_LEAF_MODE
     }
 }
 
@@ -487,7 +581,8 @@ where
     }
 }
 
-impl<A, T, SS, LS, const K: usize, const B: usize> KdTree<A, T, SS, LS, K, B>
+impl<A, T, SS, LS, const K: usize, const B: usize, const ITEM_LEAF_MODE: u8>
+    KdTree<A, T, SS, LS, K, B, ITEM_LEAF_MODE>
 where
     A: Axis<Coord = A>,
     T: Content,
@@ -538,6 +633,19 @@ where
     /// Returns the configured maximum leaf size heuristic used to size hot-path scratch buffers.
     pub fn max_leaf_len(&self) -> usize {
         self.max_leaf_len
+    }
+
+    /// Returns whether each leaf is ordered by ascending item value and can use
+    /// the item-sorted `best_n_within` kernel.
+    #[inline]
+    pub fn item_sorted_leaves(&self) -> bool {
+        self.item_leaf_mode().has_sorted_leaves()
+    }
+
+    /// Returns the item ordering and subtree-summary mode encoded in this tree's type.
+    #[inline]
+    pub const fn item_leaf_mode(&self) -> ItemLeafMode {
+        ItemLeafMode::from_code(ITEM_LEAF_MODE)
     }
 
     /// Returns an iterator over all item/point pairs in the tree.
@@ -597,8 +705,22 @@ where
     }
 }
 
-impl<'a, A1, T1, SS1, LS1, A2, T2, SS2, LS2, const K: usize, const B1: usize, const B2: usize>
-    TryFrom<&'a KdTree<A1, T1, SS1, LS1, K, B1>> for KdTree<A2, T2, SS2, LS2, K, B2>
+impl<
+        'a,
+        A1,
+        T1,
+        SS1,
+        LS1,
+        A2,
+        T2,
+        SS2,
+        LS2,
+        const K: usize,
+        const B1: usize,
+        const B2: usize,
+        const ITEM_LEAF_MODE: u8,
+    > TryFrom<&'a KdTree<A1, T1, SS1, LS1, K, B1, ITEM_LEAF_MODE>>
+    for KdTree<A2, T2, SS2, LS2, K, B2>
 where
     A1: Axis<Coord = A1>,
     T1: Content,
@@ -613,7 +735,9 @@ where
 {
     type Error = KdTreeConversionError;
 
-    fn try_from(source: &'a KdTree<A1, T1, SS1, LS1, K, B1>) -> Result<Self, Self::Error> {
+    fn try_from(
+        source: &'a KdTree<A1, T1, SS1, LS1, K, B1, ITEM_LEAF_MODE>,
+    ) -> Result<Self, Self::Error> {
         let mut entries = Vec::with_capacity(source.size());
 
         for (point_index, (item, point)) in source.iter().enumerate() {
@@ -642,7 +766,8 @@ where
 }
 
 // Display implementation for debugging
-impl<A, T, SS, LS, const K: usize, const B: usize> std::fmt::Display for KdTree<A, T, SS, LS, K, B>
+impl<A, T, SS, LS, const K: usize, const B: usize, const ITEM_LEAF_MODE: u8> std::fmt::Display
+    for KdTree<A, T, SS, LS, K, B, ITEM_LEAF_MODE>
 where
     A: Axis<Coord = A> + std::fmt::Display,
     T: Content + std::fmt::Display,
@@ -654,6 +779,7 @@ where
         writeln!(f, "  Summary:")?;
         writeln!(f, "    size: {}", self.size)?;
         writeln!(f, "    max_stem_level: {}", self.max_stem_level)?;
+        writeln!(f, "    item_leaf_mode: {:?}", self.item_leaf_mode())?;
         writeln!(f, "    stem len: {}", self.stems.len())?;
         writeln!(f, "    leaf count: {}", self.leaves.leaf_count())?;
         writeln!(f)?;
@@ -759,6 +885,20 @@ mod tests {
     #[cfg(feature = "rkyv_08")]
     use std::num::NonZeroUsize;
 
+    #[cfg(feature = "rkyv_08")]
+    #[derive(rkyv_08::Archive, rkyv_08::Serialize)]
+    #[rkyv(crate = rkyv_08)]
+    struct LegacyV6Tree {
+        #[rkyv(with = crate::rkyv::adapters::AsAlignedCachelineABox)]
+        stems: AVec<f64>,
+        leaves: VecOfArenas<f64, u32, 2, 8>,
+        stem_leaf_resolution: OwnedStemLeafResolution,
+        size: usize,
+        max_stem_level: i32,
+        max_leaf_len: usize,
+        _phantom: std::marker::PhantomData<(Eytzinger, u32)>,
+    }
+
     fn sort_entries_u32<A: Copy, const K: usize>(
         mut entries: Vec<(u32, [A; K])>,
     ) -> Vec<(u32, [A; K])> {
@@ -861,6 +1001,173 @@ mod tests {
             leaf_idx,
             tree.leaf_count()
         );
+    }
+
+    #[test]
+    fn item_leaf_mode_codes_have_stable_meanings() {
+        assert_eq!(ItemLeafMode::from_code(0), ItemLeafMode::Unsorted);
+        assert_eq!(
+            ItemLeafMode::from_code(2),
+            ItemLeafMode::SortedWithEncodedMin { shift: 2 }
+        );
+        assert_eq!(
+            ItemLeafMode::from_code(254),
+            ItemLeafMode::SortedWithEncodedMin { shift: 254 }
+        );
+        assert_eq!(
+            ItemLeafMode::from_code(255),
+            ItemLeafMode::SortedWithoutEncodedMin
+        );
+
+        assert!(!ItemLeafMode::Unsorted.has_sorted_leaves());
+        assert!(ItemLeafMode::SortedWithoutEncodedMin.has_sorted_leaves());
+        assert!(ItemLeafMode::from_code(2).has_sorted_leaves());
+        assert_eq!(ItemLeafMode::from_code(2).encoded_min_shift(), Some(2));
+    }
+
+    #[cfg(feature = "rkyv_08")]
+    #[test]
+    fn rkyv_preserves_item_sorted_leaves_and_best_n_within_dispatch() {
+        type Tree = KdTree<f64, u32, Eytzinger, VecOfArenas<f64, u32, 2, 8>, 2, 8>;
+        type ArchivedTree = ArchivedKdTree<
+            f64,
+            u32,
+            Eytzinger,
+            VecOfArenas<f64, u32, 2, 8>,
+            2,
+            8,
+            ITEM_LEAF_MODE_SORTED,
+        >;
+
+        let entries = (0..97u32)
+            .map(|idx| {
+                (
+                    (idx * 37) % 97,
+                    [((idx * 19) % 101) as f64, ((idx * 43) % 103) as f64],
+                )
+            })
+            .collect::<Vec<_>>();
+        let tree = Tree::builder()
+            .with_item_sorted_leaves()
+            .build_from_entries(&entries)
+            .unwrap();
+        let query = [50.0, 50.0];
+        let max_qty = NonZeroUsize::new(7).unwrap();
+        let expected = tree
+            .query(&query)
+            .best_n_within::<SquaredEuclidean<f64>>(20_000.0, max_qty)
+            .execute()
+            .into_sorted_vec();
+
+        let bytes = rkyv_08::api::high::to_bytes_in::<_, rkyv_08::rancor::Error>(
+            &tree,
+            rkyv_08::util::AlignedVec::<128>::new(),
+        )
+        .unwrap();
+        let archived =
+            rkyv_08::access::<ArchivedTree, rkyv_08::rancor::Error>(bytes.as_slice()).unwrap();
+
+        assert!(archived.item_sorted_leaves());
+        assert_eq!(
+            archived.item_leaf_mode(),
+            ItemLeafMode::SortedWithoutEncodedMin
+        );
+        assert_eq!(
+            archived
+                .query(&query)
+                .best_n_within::<SquaredEuclidean<f64>>(20_000.0, max_qty)
+                .execute()
+                .into_sorted_vec(),
+            expected
+        );
+    }
+
+    #[cfg(feature = "rkyv_08")]
+    #[test]
+    fn rkyv_preserves_embedded_min_item_summary_mode_and_queries() {
+        type Tree = KdTree<f64, u32, Donnelly<3>, VecOfArenas<f64, u32, 3, 8>, 3, 8>;
+        type ArchivedTree =
+            ArchivedKdTree<f64, u32, Donnelly<3>, VecOfArenas<f64, u32, 3, 8>, 3, 8, 8>;
+
+        let entries = (0..97u32)
+            .map(|idx| {
+                (
+                    (1u32 << (16 + (idx % 8))) | idx,
+                    [
+                        ((idx * 19) % 101) as f64,
+                        ((idx * 43) % 103) as f64,
+                        ((idx * 61) % 107) as f64,
+                    ],
+                )
+            })
+            .collect::<Vec<_>>();
+        let tree = Tree::builder()
+            .with_embedded_min_item_shifted_summary::<8>()
+            .build_from_entries(&entries)
+            .unwrap();
+        let query = [50.0, 50.0, 50.0];
+        let max_qty = NonZeroUsize::new(7).unwrap();
+        let expected = tree
+            .query(&query)
+            .best_n_within::<SquaredEuclidean<f64>>(20_000.0, max_qty)
+            .execute()
+            .into_sorted_vec();
+
+        let bytes = rkyv_08::api::high::to_bytes_in::<_, rkyv_08::rancor::Error>(
+            &tree,
+            rkyv_08::util::AlignedVec::<128>::new(),
+        )
+        .unwrap();
+        let archived =
+            rkyv_08::access::<ArchivedTree, rkyv_08::rancor::Error>(bytes.as_slice()).unwrap();
+
+        assert_eq!(
+            archived.item_leaf_mode(),
+            ItemLeafMode::SortedWithEncodedMin { shift: 8 }
+        );
+        assert_eq!(
+            archived
+                .query(&query)
+                .best_n_within::<SquaredEuclidean<f64>>(20_000.0, max_qty)
+                .execute()
+                .into_sorted_vec(),
+            expected
+        );
+    }
+
+    #[cfg(feature = "rkyv_08")]
+    #[test]
+    fn rkyv_unsorted_tree_accepts_the_v6_archive_layout() {
+        type Tree = KdTree<f64, u32, Eytzinger, VecOfArenas<f64, u32, 2, 8>, 2, 8>;
+        type ArchivedTree = ArchivedKdTree<f64, u32, Eytzinger, VecOfArenas<f64, u32, 2, 8>, 2, 8>;
+
+        let entries = (0..97u32)
+            .map(|idx| (idx, [((idx * 19) % 101) as f64, ((idx * 43) % 103) as f64]))
+            .collect::<Vec<_>>();
+        let tree = Tree::new_from_entries(&entries).unwrap();
+        let expected = tree.iter().collect::<Vec<_>>();
+        let legacy = LegacyV6Tree {
+            stems: tree.stems,
+            leaves: tree.leaves,
+            stem_leaf_resolution: tree.stem_leaf_resolution,
+            size: tree.size,
+            max_stem_level: tree.max_stem_level,
+            max_leaf_len: tree.max_leaf_len,
+            _phantom: std::marker::PhantomData,
+        };
+
+        let bytes = rkyv_08::api::high::to_bytes_in::<_, rkyv_08::rancor::Error>(
+            &legacy,
+            rkyv_08::util::AlignedVec::<128>::new(),
+        )
+        .unwrap();
+        let archived =
+            rkyv_08::access::<ArchivedTree, rkyv_08::rancor::Error>(bytes.as_slice()).unwrap();
+
+        assert!(!archived.item_sorted_leaves());
+        assert_eq!(archived.item_leaf_mode(), ItemLeafMode::Unsorted);
+        assert_eq!(archived.size(), entries.len());
+        assert_eq!(archived.iter().collect::<Vec<_>>(), expected);
     }
 
     #[cfg(feature = "rkyv_08")]
