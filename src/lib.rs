@@ -258,6 +258,11 @@ mod custom_serde;
 pub mod kd_tree;
 #[doc(hidden)]
 pub type KdTree<A, T, SS, LS, const K: usize, const B: usize> = kd_tree::KdTree<A, T, SS, LS, K, B>;
+#[cfg(feature = "exact_query_stats")]
+pub use kd_tree::query::tree::stats as tree_join_stats;
+pub use kd_tree::query::tree::{
+    PairQueryResult, TreeNearestQueryBuilder, TreeNearestQueryResult, TreeQueryBuilder,
+};
 #[cfg(feature = "multi-threaded")]
 pub use kd_tree::DEFAULT_PARALLEL_CONSTRUCTION_THRESHOLD;
 pub use kd_tree::{KdTreeBuilder, QueryScratch};

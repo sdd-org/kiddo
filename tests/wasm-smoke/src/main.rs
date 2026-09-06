@@ -11,4 +11,7 @@ fn main() {
 
     assert_eq!(nearest.item, 0);
     assert_eq!(nearest.distance, 0.0);
+
+    let other = ImmutableKdTree::new_from_slice(&[[0.0_f64, 0.0]]).unwrap();
+    assert_eq!(tree.query_tree(&other).within::<SquaredEuclidean<f64>>(0.0).count(), 1);
 }

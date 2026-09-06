@@ -7,5 +7,6 @@ pub use builder::{Exclude, Include, Projection, QueryBuilder};
 mod nearest_n;
 mod nearest_n_within;
 mod nearest_one;
+pub mod tree;
 mod within;
 mod within_unsorted;
