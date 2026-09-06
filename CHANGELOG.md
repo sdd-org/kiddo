@@ -1,5 +1,23 @@
 # Kiddo Changelog
 
+## [6.3.0] - 2026-09-06
+
+### ✨ Features
+
+- Add immutable tree-to-tree queries ([@sdd](https://github.com/sdd))
+
+- Add item-sorted leaves with embedded min-item summaries ([@sdd](https://github.com/sdd))
+
+
+### 🐛 Bug Fixes
+
+- Gate ITEM_LEAF_MODE_UNSORTED import to AVX512 targets ([@sdd](https://github.com/sdd))
+
+
+### 🧹 Chore
+
+- Bump taiki-e/install-action from 2.87.1 to 2.87.3 ([@dependabot[bot]](https://github.com/dependabot[bot]), Signed-off-by:dependabot[bot] <support@github.com>)
+
 ## [6.2.0] - 2026-09-03
 
 ### ✨ Features
