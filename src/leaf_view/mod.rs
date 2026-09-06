@@ -483,6 +483,20 @@ where
     AX: Copy,
     T: Copy,
 {
+    /// Raw tile columns can be unaligned; callers must use unaligned loads.
+    pub(crate) fn join_columns(&self) -> ([*const AX; K], *const T) {
+        let columns = std::array::from_fn(|dim| unsafe {
+            self.bytes
+                .add(dim * self.len * std::mem::size_of::<AX>())
+                .cast()
+        });
+        let items = unsafe {
+            self.bytes
+                .add(K * self.len * std::mem::size_of::<AX>())
+                .cast()
+        };
+        (columns, items)
+    }
     #[inline(always)]
     pub(crate) fn len(&self) -> usize {
         self.len

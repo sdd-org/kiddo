@@ -367,7 +367,7 @@ impl Executor {
     /// threshold.
     #[cfg(feature = "multi-threaded")]
     #[inline]
-    fn is_parallel(&self, query_count: usize) -> bool {
+    pub(crate) fn is_parallel(&self, query_count: usize) -> bool {
         if matches!(self.kind, ExecutorKind::Serial) {
             return false;
         }
@@ -378,7 +378,7 @@ impl Executor {
     /// The pool to run on, or `None` for Rayon's global pool.
     #[cfg(feature = "multi-threaded")]
     #[inline]
-    fn pool(&self) -> Option<&ThreadPool> {
+    pub(crate) fn pool(&self) -> Option<&ThreadPool> {
         match &self.kind {
             ExecutorKind::ParallelInPool(pool) => Some(pool),
             _ => None,
@@ -410,6 +410,20 @@ impl Executor {
         query_count
             .div_ceil(chunks)
             .clamp(1, MAX_STATIC_CHUNK_QUERIES)
+    }
+
+    /// Radius joins interpret the static chunk multiplier as a frontier budget.
+    #[cfg(feature = "multi-threaded")]
+    pub(crate) fn join_task_budget(&self) -> usize {
+        let threads = self
+            .pool()
+            .map_or_else(rayon::current_num_threads, ThreadPool::current_num_threads);
+        threads
+            .saturating_mul(
+                self.static_chunk_thread_multiplier
+                    .map_or(8, NonZeroUsize::get),
+            )
+            .max(1)
     }
 }
 

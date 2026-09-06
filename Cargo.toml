@@ -266,6 +266,11 @@ harness = false
 required-features = ["test_utils"]
 
 [[bench]]
+name = "tree_radius_join"
+harness = false
+required-features = ["multi-threaded"]
+
+[[bench]]
 name = "v6_periodic_queries"
 harness = false
 required-features = ["test_utils"]
@@ -783,3 +788,7 @@ path = "tests/custom_query_metric.rs"
 [[test]]
 name = "custom_leaf_strategy"
 path = "tests/custom_leaf_strategy.rs"
+
+[[test]]
+name = "tree_radius_join"
+path = "tests/tree_radius_join.rs"
