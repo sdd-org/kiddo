@@ -8,11 +8,9 @@
 
 - Add item-sorted leaves with embedded min-item summaries ([@sdd](https://github.com/sdd))
 
-
 ### 🐛 Bug Fixes
 
 - Gate ITEM_LEAF_MODE_UNSORTED import to AVX512 targets ([@sdd](https://github.com/sdd))
-
 
 ### 🧹 Chore
 
