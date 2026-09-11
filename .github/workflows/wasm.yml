@@ -24,7 +24,7 @@ jobs:
           show-progress: false
 
       - name: Install stable Rust with the WASM target
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           target: wasm32-unknown-unknown
 
@@ -40,7 +40,7 @@ jobs:
           show-progress: false
 
       - name: Install stable Rust with the WASM target
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           target: wasm32-unknown-unknown
           components: clippy
