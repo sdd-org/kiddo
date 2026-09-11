@@ -45,7 +45,7 @@ jobs:
           key: toolchain-x86-64-nightly-${{ env.TODAY_DATE }}
 
       - name: Install `nightly` Toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           toolchain: nightly
           components: rustfmt, clippy
@@ -106,7 +106,7 @@ jobs:
             nightly-target-${{ runner.os }}-${{ env.TODAY_DATE }}-debug-
 
       - name: Install `nightly` Toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           toolchain: nightly
           components: rustfmt, clippy
@@ -164,7 +164,7 @@ jobs:
             nightly-target-${{ runner.os }}-${{ env.TODAY_DATE }}-release-
 
       - name: Install `nightly` Toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           toolchain: nightly
           components: rustfmt, clippy

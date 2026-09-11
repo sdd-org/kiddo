@@ -46,7 +46,7 @@ jobs:
           key: toolchain-x86-64-${{ env.MSRV_RUST_VERSION }}
 
       - name: Install MSRV Toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           components: clippy
           toolchain: ${{ env.MSRV_RUST_VERSION }}
