@@ -58,7 +58,7 @@ jobs:
         run: bash .github/scripts/prepare-example-artifacts.sh
 
       - name: Clippy (Nightly)
-        uses: LoliGothick/clippy-check@d7e3a060dbee5d062f01de34abb230c861eb6bf6
+        uses: LoliGothick/clippy-check@5b43de1d8416a9afa98d27ef70e76ffc1c3006e7
         if: github.actor != 'dependabot[bot]'
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
