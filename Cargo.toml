@@ -154,7 +154,7 @@ features = ["parallel"]
 
 [dev-dependencies]
 assert_float_eq = "1.2"
-codspeed-criterion-compat = "5.0"
+codspeed-criterion-compat = "6.0"
 criterion = "0.8"
 elapsed = "0.1.2"
 flate2 = { version = "1", features = [
@@ -174,7 +174,7 @@ nabo = { version = "0.6.0", default-features = false }
 neighbourhood = "0.2.0"
 # kd-tree accepts ordered-float 5.x, but 5.5.0 requires Rust 1.90.
 # Keep its transitive dependency compatible with this crate's Rust 1.89 MSRV.
-ordered-float = "5,<5.5.0"
+ordered-float = "5, <5.6.0"
 postcard = { version = "1", features = ["alloc"] }
 proc-macro2 = { version = "1", features = ["default", "proc-macro"] }
 radians = "0.3"
@@ -185,14 +185,14 @@ reqwest = { version = "0.13", default-features = false, features = [
   "blocking",
   "rustls",
 ] }
-rstest = "0.26"
+rstest = "0.28"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 test-log = { version = "0.2.19", features = ["trace"] }
 tracing-subscriber = "0.3"
 trybuild = "1"
 ubyte = "0.10"
-zip = { version = "8", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 zzz = "0.3.2"
 
 [lints.rust]
