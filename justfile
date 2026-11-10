@@ -490,21 +490,23 @@ bench-nearestneighborsjl RESULT_KEY=benchmark_result_key OUTPUT_DIR='.' QUERIES=
         {{quote(JULIA)}} scripts/bench_nearestneighbors_jl.jl \
         "$output_dir/bench_result-nearestneighborsjl-${result_key}.json"
 
-chart-cpp-competitor-results CPP_RESULT_KEY KIDDO_RESULT_KEY=CPP_RESULT_KEY RESULTS_DIR='.' OUTPUT_DIR='.' PYTHON='python3':
+chart-cpp-competitor-results CPP_RESULT_KEY KIDDO_RESULT_KEY='' RESULTS_DIR='.' OUTPUT_DIR='.' PYTHON='python3':
+    kiddo_result_key={{quote(if KIDDO_RESULT_KEY == '' { CPP_RESULT_KEY } else { KIDDO_RESULT_KEY })}}; \
     {{quote(PYTHON)}} scripts/chart_cpp_competitor_results.py charts \
         --cpp {{quote(RESULTS_DIR)}}/bench_result-cpp-competitors-{{quote(CPP_RESULT_KEY)}}.json \
-        --kiddo-nearest-one {{quote(RESULTS_DIR)}}/bench_result-v6-nearest_one-eytzinger-{{quote(KIDDO_RESULT_KEY)}}.json \
-        --kiddo-nearest-n {{quote(RESULTS_DIR)}}/bench_result-v6-nearest_n-eytzinger-{{quote(KIDDO_RESULT_KEY)}}.json \
-        --kiddo-query-family {{quote(RESULTS_DIR)}}/bench_result-v6-query-family-eytzinger-{{quote(KIDDO_RESULT_KEY)}}.json \
+        --kiddo-nearest-one {{quote(RESULTS_DIR)}}/bench_result-v6-nearest_one-eytzinger-"$kiddo_result_key".json \
+        --kiddo-nearest-n {{quote(RESULTS_DIR)}}/bench_result-v6-nearest_n-eytzinger-"$kiddo_result_key".json \
+        --kiddo-query-family {{quote(RESULTS_DIR)}}/bench_result-v6-query-family-eytzinger-"$kiddo_result_key".json \
         --result-label {{quote(CPP_RESULT_KEY)}} \
         --output-dir {{quote(OUTPUT_DIR)}}
 
-html-cpp-competitor-results CPP_RESULT_KEY KIDDO_RESULT_KEY=CPP_RESULT_KEY RESULTS_DIR='.' OUTPUT_DIR='.' HTML_NAME='cpp-competitor-benchmarks.html' PYTHON='python3':
+html-cpp-competitor-results CPP_RESULT_KEY KIDDO_RESULT_KEY='' RESULTS_DIR='.' OUTPUT_DIR='.' HTML_NAME='cpp-competitor-benchmarks.html' PYTHON='python3':
+    kiddo_result_key={{quote(if KIDDO_RESULT_KEY == '' { CPP_RESULT_KEY } else { KIDDO_RESULT_KEY })}}; \
     {{quote(PYTHON)}} scripts/chart_cpp_competitor_results.py all \
         --cpp {{quote(RESULTS_DIR)}}/bench_result-cpp-competitors-{{quote(CPP_RESULT_KEY)}}.json \
-        --kiddo-nearest-one {{quote(RESULTS_DIR)}}/bench_result-v6-nearest_one-eytzinger-{{quote(KIDDO_RESULT_KEY)}}.json \
-        --kiddo-nearest-n {{quote(RESULTS_DIR)}}/bench_result-v6-nearest_n-eytzinger-{{quote(KIDDO_RESULT_KEY)}}.json \
-        --kiddo-query-family {{quote(RESULTS_DIR)}}/bench_result-v6-query-family-eytzinger-{{quote(KIDDO_RESULT_KEY)}}.json \
+        --kiddo-nearest-one {{quote(RESULTS_DIR)}}/bench_result-v6-nearest_one-eytzinger-"$kiddo_result_key".json \
+        --kiddo-nearest-n {{quote(RESULTS_DIR)}}/bench_result-v6-nearest_n-eytzinger-"$kiddo_result_key".json \
+        --kiddo-query-family {{quote(RESULTS_DIR)}}/bench_result-v6-query-family-eytzinger-"$kiddo_result_key".json \
         --result-label {{quote(CPP_RESULT_KEY)}} \
         --output-dir {{quote(OUTPUT_DIR)}} \
         --html-name {{quote(HTML_NAME)}}
@@ -596,21 +598,23 @@ view-v6-within-radius-item-only RESULT_KEY RESULTS_DIR='./focused-results' OUTPU
     just html-v6-within-radius-item-only {{quote(RESULT_KEY)}} {{quote(RESULTS_DIR)}} {{quote(OUTPUT_DIR)}} {{quote(HTML_NAME)}} {{quote(PYTHON)}}
     xdg-open {{quote(OUTPUT_DIR)}}/{{quote(HTML_NAME)}}
 
-chart-external-kd-tree-results EXTERNAL_RESULT_KEY KIDDO_RESULT_KEY=EXTERNAL_RESULT_KEY RESULTS_DIR='.' OUTPUT_DIR='.' PYTHON='python3':
+chart-external-kd-tree-results EXTERNAL_RESULT_KEY KIDDO_RESULT_KEY='' RESULTS_DIR='.' OUTPUT_DIR='.' PYTHON='python3':
+    kiddo_result_key={{quote(if KIDDO_RESULT_KEY == '' { EXTERNAL_RESULT_KEY } else { KIDDO_RESULT_KEY })}}; \
     {{quote(PYTHON)}} scripts/chart_external_kd_tree_results.py charts \
         --external {{quote(RESULTS_DIR)}}/bench_result-external-kd-trees-{{quote(EXTERNAL_RESULT_KEY)}}.json \
-        --kiddo-nearest-one {{quote(RESULTS_DIR)}}/bench_result-v6-nearest_one-eytzinger-{{quote(KIDDO_RESULT_KEY)}}.json \
-        --kiddo-nearest-n {{quote(RESULTS_DIR)}}/bench_result-v6-nearest_n-eytzinger-{{quote(KIDDO_RESULT_KEY)}}.json \
-        --kiddo-query-family {{quote(RESULTS_DIR)}}/bench_result-v6-query-family-eytzinger-{{quote(KIDDO_RESULT_KEY)}}.json \
+        --kiddo-nearest-one {{quote(RESULTS_DIR)}}/bench_result-v6-nearest_one-eytzinger-"$kiddo_result_key".json \
+        --kiddo-nearest-n {{quote(RESULTS_DIR)}}/bench_result-v6-nearest_n-eytzinger-"$kiddo_result_key".json \
+        --kiddo-query-family {{quote(RESULTS_DIR)}}/bench_result-v6-query-family-eytzinger-"$kiddo_result_key".json \
         --result-label {{quote(EXTERNAL_RESULT_KEY)}} \
         --output-dir {{quote(OUTPUT_DIR)}}
 
-html-external-kd-tree-results EXTERNAL_RESULT_KEY KIDDO_RESULT_KEY=EXTERNAL_RESULT_KEY RESULTS_DIR='.' OUTPUT_DIR='.' HTML_NAME='external-kd-tree-benchmarks.html' PYTHON='python3':
+html-external-kd-tree-results EXTERNAL_RESULT_KEY KIDDO_RESULT_KEY='' RESULTS_DIR='.' OUTPUT_DIR='.' HTML_NAME='external-kd-tree-benchmarks.html' PYTHON='python3':
+    kiddo_result_key={{quote(if KIDDO_RESULT_KEY == '' { EXTERNAL_RESULT_KEY } else { KIDDO_RESULT_KEY })}}; \
     {{quote(PYTHON)}} scripts/chart_external_kd_tree_results.py all \
         --external {{quote(RESULTS_DIR)}}/bench_result-external-kd-trees-{{quote(EXTERNAL_RESULT_KEY)}}.json \
-        --kiddo-nearest-one {{quote(RESULTS_DIR)}}/bench_result-v6-nearest_one-eytzinger-{{quote(KIDDO_RESULT_KEY)}}.json \
-        --kiddo-nearest-n {{quote(RESULTS_DIR)}}/bench_result-v6-nearest_n-eytzinger-{{quote(KIDDO_RESULT_KEY)}}.json \
-        --kiddo-query-family {{quote(RESULTS_DIR)}}/bench_result-v6-query-family-eytzinger-{{quote(KIDDO_RESULT_KEY)}}.json \
+        --kiddo-nearest-one {{quote(RESULTS_DIR)}}/bench_result-v6-nearest_one-eytzinger-"$kiddo_result_key".json \
+        --kiddo-nearest-n {{quote(RESULTS_DIR)}}/bench_result-v6-nearest_n-eytzinger-"$kiddo_result_key".json \
+        --kiddo-query-family {{quote(RESULTS_DIR)}}/bench_result-v6-query-family-eytzinger-"$kiddo_result_key".json \
         --result-label {{quote(EXTERNAL_RESULT_KEY)}} \
         --output-dir {{quote(OUTPUT_DIR)}} \
         --html-name {{quote(HTML_NAME)}}

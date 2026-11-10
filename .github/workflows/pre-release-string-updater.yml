@@ -17,6 +17,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           show-progress: false
+          ref: ${{ github.ref }}
           token: ${{ env.RELEASE_PLZ_TOKEN }}
 
       - name: Crate Version
@@ -45,6 +46,47 @@ jobs:
           find: '"https://docs.rs/kiddo/.*?"'
           include: "src/lib.rs"
           replace: ${{ format('"https://docs.rs/kiddo/{0}"', steps.crate-version.outputs.version) }}
+
+      - name: Update citation metadata
+        env:
+          CRATE_VERSION: ${{ steps.crate-version.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import datetime
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          version = os.environ["CRATE_VERSION"]
+
+          # Use release-plz's changelog date so reruns preserve the release date.
+          changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
+          release = re.search(
+              rf"^## \[{re.escape(version)}\] - (\d{{4}}-\d{{2}}-\d{{2}})\b",
+              changelog,
+              flags=re.MULTILINE,
+          )
+          if release is None:
+              raise SystemExit(f"No changelog release date found for {version}")
+          date_released = datetime.date.fromisoformat(release[1]).isoformat()
+
+          citation = Path("CITATION.cff")
+          original = citation.read_text(encoding="utf-8")
+          updated = original
+          for field, value in {"version": version, "date-released": date_released}.items():
+              updated, count = re.subn(
+                  rf"^{field}:.*$",
+                  lambda match: f"{field}: {json.dumps(value)}",
+                  updated,
+                  flags=re.MULTILINE,
+              )
+              if count != 1:
+                  raise SystemExit(f"Expected exactly one top-level {field} in CITATION.cff")
+
+          if updated != original:
+              citation.write_text(updated, encoding="utf-8")
+          PY
 
       - name: Format changelog
         run: npx --yes prettier --write CHANGELOG.md

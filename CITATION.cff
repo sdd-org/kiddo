@@ -1,0 +1,30 @@
+cff-version: "1.2.0"
+title: "Kiddo"
+abstract: |
+    A performant and flexible Rust k-d tree, ideal for nearest-neighbour search in low (<10) dimensions
+
+authors:
+  - family-names: Donnelly
+  - given-names: Scott
+  - email: "scott+kiddo@donnel.ly"
+
+message: |
+  If you use Kiddo in your research, please cite the software using this metadata.
+
+type: software
+repository-code: "https://github.com/sdd-org/kiddo"
+url: "https://docs.rs/kiddo/6.3.0"
+version: "6.3.0"
+date-released: "2026-09-06"
+
+license:
+  - "MIT"
+  - "Apache-2.0"
+
+keywords:
+  - "k-d tree"
+  - "nearest-neighbour search"
+  - "knn"
+  - "Rust"
+  - "spatial indexing"
+  - "scientific computing"
