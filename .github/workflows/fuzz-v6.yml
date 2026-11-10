@@ -152,7 +152,7 @@ jobs:
             fuzz-v6-${{ runner.os }}-
 
       - name: Install stable Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v2
 
       - name: Install just
         uses: taiki-e/install-action@v2.87.3

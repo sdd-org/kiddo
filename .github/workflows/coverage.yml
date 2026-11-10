@@ -52,7 +52,7 @@ jobs:
 
       - name: Install `nightly` Toolchain
         if: steps.changes.outputs.coverage == 'true'
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           toolchain: nightly
           components: rustfmt,clippy,llvm-tools-preview
