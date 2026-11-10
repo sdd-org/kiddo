@@ -6,7 +6,6 @@
 
 - Preserve Rust 1.89 compatibility for generator ([@sdd](https://github.com/sdd))
 
-
 ### 🧹 Chore
 
 - Add citation.cff and github actions updater for it ([@sdd](https://github.com/sdd))

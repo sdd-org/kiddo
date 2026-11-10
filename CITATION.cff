@@ -14,8 +14,8 @@ message: |
 type: software
 repository-code: "https://github.com/sdd-org/kiddo"
 url: "https://docs.rs/kiddo/6.3.0"
-version: "6.3.0"
-date-released: "2026-09-06"
+version: "6.3.1"
+date-released: "2026-11-10"
 
 license:
   - "MIT"
