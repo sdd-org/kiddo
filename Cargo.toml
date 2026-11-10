@@ -69,7 +69,8 @@ test_utils = ["dep:rand", "dep:rand_chacha", "dep:fixed"]
 unreliable_select_nth_unstable = []
 
 [target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64"))'.dependencies]
-generator = "0.8.4"
+# generator 0.8.12 requires Rust 1.95; preserve this crate's Rust 1.89 MSRV.
+generator = "0.8.4,<0.8.12"
 
 [dependencies]
 aligned-vec = "0.6.1"
