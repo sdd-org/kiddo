@@ -1,5 +1,17 @@
 # Kiddo Changelog
 
+## [6.3.1] - 2026-11-10
+
+### 🐛 Bug Fixes
+
+- Preserve Rust 1.89 compatibility for generator ([@sdd](https://github.com/sdd))
+
+### 🧹 Chore
+
+- Add citation.cff and github actions updater for it ([@sdd](https://github.com/sdd))
+
+- Acknowledge community contributors ([@sdd](https://github.com/sdd))
+
 ## [6.3.0] - 2026-09-06
 
 ### ✨ Features
