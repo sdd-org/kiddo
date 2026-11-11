@@ -4,9 +4,13 @@ abstract: |
     A performant and flexible Rust k-d tree, ideal for nearest-neighbour search in low (<10) dimensions
 
 authors:
-  - family-names: Donnelly
-  - given-names: Scott
-  - email: "scott+kiddo@donnel.ly"
+  - family-names: "Donnelly"
+    given-names: "Scott"
+    email: "scott+kiddo@donnel.ly"
+  - family-names: "Büth"
+    given-names: "Carlson Moses"
+    orcid: "https://orcid.org/0000-0003-2298-8438"
+    email: "code@cbueth.de"
 
 message: |
   If you use Kiddo in your research, please cite the software using this metadata.
