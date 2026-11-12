@@ -798,3 +798,7 @@ path = "tests/custom_leaf_strategy.rs"
 [[test]]
 name = "tree_radius_join"
 path = "tests/tree_radius_join.rs"
+
+[[test]]
+name = "scalar_off_restore"
+path = "tests/scalar_off_restore.rs"
