@@ -286,6 +286,11 @@ impl<A, SS: StemStrategy, const K: usize, const INLINE_CAPACITY: usize> StackTra
     }
 
     #[inline]
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    #[inline]
     fn clear(&mut self) {
         if self.len > INLINE_CAPACITY {
             self.spill.clear();
@@ -330,6 +335,11 @@ impl<
             self.len -= 1;
             Some(unsafe { self.stack.get_unchecked(self.len).assume_init_read() })
         }
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        self.len
     }
 
     #[inline]

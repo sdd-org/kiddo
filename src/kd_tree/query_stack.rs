@@ -26,6 +26,7 @@ pub trait ScalarStackContext<A, S>: Sized {
 pub trait StackTrait<A, SS: StemStrategy, const K: usize> {
     fn push(&mut self, item: SS::StackContext<A, K>);
     fn pop(&mut self) -> Option<SS::StackContext<A, K>>;
+    fn len(&self) -> usize;
     fn clear(&mut self);
 }
 
@@ -182,6 +183,11 @@ impl<A, SS: StemStrategy, const K: usize> StackTrait<A, SS, K> for QueryStack<A,
                 Some(unsafe { self.stack.get_unchecked(self.len).assume_init_read() })
             }
         }
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        self.len
     }
 
     #[inline]
