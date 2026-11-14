@@ -788,3 +788,128 @@ fn serial_builder_supports_non_sync_sources() {
 
     assert_eq!(tree.size(), points.len());
 }
+
+fn issue_571_grid_entries() -> Vec<(u32, [u8; 3])> {
+    let mut state = 0xfeed_faceu64 | 1;
+    (0..257)
+        .map(|item| {
+            let point = [0; 3].map(|_| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                (state % 9) as u8
+            });
+            (item, point)
+        })
+        .collect()
+}
+
+fn assert_hard_bucket_entries<A, SS, const B: usize>(
+    tree: &KdTree<A, u32, SS, VecOfArrays<A, u32, 3, B>, 3, B>,
+    entries: &[(u32, [A; 3])],
+) where
+    A: Axis<Coord = A>,
+    SS: StemStrategy,
+{
+    assert_eq!(tree.size(), entries.len());
+    let mut actual = tree.iter().collect::<Vec<_>>();
+    let mut expected = entries.to_vec();
+    actual.sort_unstable_by_key(|entry| entry.0);
+    expected.sort_unstable_by_key(|entry| entry.0);
+    assert_eq!(actual, expected);
+    assert!(tree.max_leaf_len() <= B);
+    for leaf in 0..tree.leaf_count() {
+        assert!(
+            <VecOfArrays<A, u32, 3, B> as LeafStrategy<A, u32, SS, 3, B>>::leaf_len(
+                &tree.leaves,
+                leaf
+            ) <= B
+        );
+    }
+}
+
+#[test]
+fn hard_bucket_construction_issue_571_reported_data() {
+    type Tree = crate::MutableKdTree<f64, 3>;
+    let mut entries = issue_571_grid_entries()
+        .into_iter()
+        .map(|(item, point)| (item, point.map(|axis| f64::from(axis) - 4.0)))
+        .collect::<Vec<_>>();
+    entries[128] = entries[0];
+    entries[256] = entries[1];
+
+    let tree = Tree::new_from_entries(&entries).unwrap();
+    assert_hard_bucket_entries(&tree, &entries);
+    for query in [[0.0; 3], [-6.0, 3.0, 0.0], [6.0; 3]] {
+        let mut expected = entries
+            .iter()
+            .map(|(_, point)| {
+                point
+                    .iter()
+                    .zip(query)
+                    .map(|(a, b)| (a - b).powi(2))
+                    .sum::<f64>()
+            })
+            .collect::<Vec<_>>();
+        expected.sort_unstable_by(f64::total_cmp);
+        let mut actual = tree
+            .query(&query)
+            .nearest_n::<SquaredEuclidean<f64>>(NonZeroUsize::new(33).unwrap())
+            .execute()
+            .into_iter()
+            .map(|result| result.distance)
+            .collect::<Vec<_>>();
+        actual.sort_unstable_by(f64::total_cmp);
+        assert_eq!(actual, expected[..33]);
+    }
+}
+
+#[test]
+fn hard_bucket_construction_issue_571_integer_grid_prefixes() {
+    type Tree = KdTree<u8, u32, Eytzinger, VecOfArrays<u8, u32, 3, 32>, 3, 32>;
+    let entries = issue_571_grid_entries();
+    // Include a distinct-point fixture: equal split coordinates alone suffice.
+    let mut distinct = entries.clone();
+    distinct.sort_unstable_by_key(|entry| entry.1);
+    distinct.dedup_by_key(|entry| entry.1);
+    for source in [&entries, &distinct] {
+        for len in 33..=source.len() {
+            let tree = Tree::new_from_entries(&source[..len]).unwrap();
+            assert_hard_bucket_entries(&tree, &source[..len]);
+        }
+    }
+}
+
+#[test]
+fn hard_bucket_construction_issue_571_donnelly() {
+    type Tree = KdTree<u8, u32, Donnelly<3>, VecOfArrays<u8, u32, 3, 32>, 3, 32>;
+    let entries = issue_571_grid_entries();
+    let tree = Tree::new_from_entries(&entries).unwrap();
+    assert_hard_bucket_entries(&tree, &entries);
+}
+
+#[test]
+fn hard_bucket_construction_issue_571_rebuild() {
+    type Tree = KdTree<u8, u32, Eytzinger, VecOfArrays<u8, u32, 3, 32>, 3, 32>;
+    let entries = issue_571_grid_entries();
+    let mut tree = Tree::default();
+    for &(item, point) in &entries {
+        // Exercise the same reconstruction entry point that add uses when a
+        // mutable stem strategy requests a rebuild of an unbalanced tree.
+        tree.rebuild_with_added_entry(&point, item).unwrap();
+    }
+    assert_hard_bucket_entries(&tree, &entries);
+}
+
+#[cfg(feature = "fixed")]
+#[test]
+fn hard_bucket_construction_issue_571_fixed_coordinates() {
+    use fixed::types::I32F0;
+    type Tree = KdTree<I32F0, u32, Eytzinger, VecOfArrays<I32F0, u32, 3, 32>, 3, 32>;
+    let entries = issue_571_grid_entries()
+        .into_iter()
+        .map(|(item, point)| (item, point.map(I32F0::from_num)))
+        .collect::<Vec<_>>();
+    let tree = Tree::new_from_entries(&entries).unwrap();
+    assert_hard_bucket_entries(&tree, &entries);
+}
