@@ -1014,6 +1014,19 @@ where
             return Ok(());
         }
 
+        // Moving an ancestor's pivot past equal coordinates can give this
+        // subtree more points than its original budget. Plan enough leaves
+        // and levels for the actual chunk before splitting it further. Growing
+        // only the capacity would keep an exhausted depth budget and produce
+        // a chain of B-sized left children instead of a balanced subtree.
+        let (capacity, max_stem_level) = if chunk_length > capacity {
+            let leaf_count = chunk_length.div_ceil(B);
+            let stem_levels = leaf_count.next_power_of_two().ilog2() as i32;
+            (leaf_count * B, stem_ordering.level() + stem_levels - 1)
+        } else {
+            (capacity, max_stem_level)
+        };
+
         let levels_below = max_stem_level - stem_ordering.level();
         let clamped_levels_below = levels_below.max(0) as u32;
         let left_capacity = (2usize.pow(clamped_levels_below) * B).min(capacity);
