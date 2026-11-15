@@ -31,6 +31,9 @@ use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rayon::prelude::*;
 
+#[path = "support/metric_checks.rs"]
+mod metric_checks;
+
 #[path = "support/fuzz_cases.rs"]
 mod fuzz_cases;
 
@@ -39,7 +42,7 @@ const DEFAULT_MIN_POW: u32 = 10;
 const DEFAULT_MAX_POW: u32 = 20;
 const DEFAULT_PERTURB_MIN: i32 = -5;
 const DEFAULT_PERTURB_MAX: i32 = 5;
-const DEFAULT_MAX_NEAREST_N: usize = 32;
+const DEFAULT_MAX_NEAREST_N: usize = 64;
 const DEFAULT_SEED: u64 = 0x4b1d_f00d;
 const DEFAULT_QUERY_COUNT: usize = 100;
 #[cfg(feature = "simd")]
@@ -5598,6 +5601,162 @@ fn fuzz_v6_approx_nearest_one_quality() {
                         && worst_man_f64 <= max_worst,
                     "v6 approx quality simd f64 thresholds failed sq_p99={p99_sq_f64:.4} sq_worst={worst_sq_f64:.4} man_p99={p99_man_f64:.4} man_worst={worst_man_f64:.4} max_p99={max_p99:.4} max_worst={max_worst:.4}"
                 );
+            }
+        }
+    }
+}
+
+// Keep the complete query-family checks in a shared 3-D matrix rather than
+// multiplying every legacy K/B/layout instantiation by every metric.
+macro_rules! metric_pruning_sweep {
+    ($name:ident, $runner:ident, $a:ty, $random_point:ident, $random_radius:ident) => {
+        #[test]
+        #[ignore = "long-running metric pruning differential checks"]
+        fn $name() { $runner(FuzzConfig::from_env()); }
+        fn $runner(cfg: FuzzConfig) {
+            for case in 0..cfg.cases {
+                let content_seed = cfg.case_seed(case);
+                let mut rng = StdRng::seed_from_u64(content_seed);
+                let len = random_point_count(cfg, &mut rng);
+                let points = (0..len).map(|_| $random_point::<3>(&mut rng)).collect::<Vec<_>>();
+                let (bulk, incremental, donnelly, flat, arenas) = {
+                    let _case = fuzz_cases::enter(fuzz_cases::FailureKey::generated(stringify!($name), cfg, content_seed, None));
+                type Mutable = KdTree<$a, usize, Eytzinger, VecOfArrays<$a, usize, 3, 32>, 3, 32>;
+                let bulk = Mutable::new_from_slice(&points).unwrap();
+                let mut incremental = Mutable::default();
+                for (item, point) in points.iter().enumerate() { incremental.add(point, item).unwrap(); }
+                let donnelly: KdTree<$a, usize, Donnelly<3>, VecOfArrays<$a, usize, 3, 32>, 3, 32> = KdTree::new_from_slice(&points).unwrap();
+                let flat: KdTree<$a, usize, Eytzinger, FlatVec<$a, usize, 3, 32>, 3, 32> = KdTree::new_from_slice(&points).unwrap();
+                let arenas: KdTree<$a, usize, Eytzinger, VecOfArenas<$a, usize, 3, 32>, 3, 32> = KdTree::new_from_slice(&points).unwrap();
+                    (bulk, incremental, donnelly, flat, arenas)
+                };
+                for query_idx in cfg.query_start..cfg.query_start + cfg.query_count {
+                    let _case = fuzz_cases::enter(fuzz_cases::FailureKey::generated(stringify!($name), cfg, content_seed, Some(query_idx)));
+                    let seed = query_seed(content_seed, query_idx);
+                    let mut rng = StdRng::seed_from_u64(seed);
+                    // Include queries outside the data's box to exercise
+                    // sibling traversal and changing pruning bounds.
+                    let query = $random_point::<3>(&mut rng).map(|x| x * 3.0);
+                    let n = match query_idx % 5 {
+                        0 => 1, 1 => 32, 2 => 33, 3 => 64,
+                        _ => rng.random_range(1..=cfg.max_nearest_n.max(1)),
+                    }.min(len);
+                    let radius = $random_radius::<3>(&mut rng);
+                    macro_rules! check {
+                        ($tree:expr, $mode:literal) => {
+                            for result in [
+                                metric_checks::validate_metric::<_, _, _, SquaredEuclidean<$a>, 3, 32>($tree, &points, &query, n, radius),
+                                metric_checks::validate_metric::<_, _, _, Manhattan<$a>, 3, 32>($tree, &points, &query, n, radius),
+                                metric_checks::validate_metric::<_, _, _, Chebyshev<$a>, 3, 32>($tree, &points, &query, n, radius),
+                                metric_checks::validate_metric::<_, _, _, kiddo::dist::Minkowski<3, $a>, 3, 32>($tree, &points, &query, n, radius),
+                                metric_checks::validate_metric::<_, _, _, kiddo::dist::Minkowski<4, $a>, 3, 32>($tree, &points, &query, n, radius),
+                            ] {
+                                if let Err(error) = result {
+                                    panic!("{} {} points={len} k={n} content_seed={content_seed} query_index={query_idx} query_seed={seed} query={query:?} radius={radius}: {error}", stringify!($a), $mode);
+                                }
+                            }
+                        };
+                    }
+                    check!(&bulk, "mutable-bulk");
+                    check!(&incremental, "mutable-incremental");
+                    check!(&donnelly, "mutable-Donnelly");
+                    check!(&flat, "immutable-FlatVec");
+                    check!(&arenas, "immutable-VecOfArenas");
+                }
+            }
+        }
+    };
+}
+metric_pruning_sweep!(
+    fuzz_v6_metric_pruning_f32,
+    run_metric_pruning_f32,
+    f32,
+    random_point_f32,
+    random_radius_f32
+);
+metric_pruning_sweep!(
+    fuzz_v6_metric_pruning_f64,
+    run_metric_pruning_f64,
+    f64,
+    random_point_f64,
+    random_radius_f64
+);
+
+#[cfg(feature = "fixed")]
+#[test]
+#[ignore = "long-running metric pruning differential checks"]
+fn fuzz_v6_metric_pruning_unsigned_fixed() {
+    run_metric_pruning_unsigned_fixed(FuzzConfig::from_env());
+}
+
+#[cfg(feature = "fixed")]
+fn run_metric_pruning_unsigned_fixed(cfg: FuzzConfig) {
+    type A = fixed::FixedU16<fixed::types::extra::U8>;
+    type Tree = KdTree<A, usize, Eytzinger, VecOfArrays<A, usize, 3, 32>, 3, 32>;
+    for case in 0..cfg.cases {
+        let content_seed = cfg.case_seed(case);
+        let mut rng = StdRng::seed_from_u64(content_seed);
+        let len = random_point_count(cfg, &mut rng);
+        // Exact Q8 coordinates in [1, 4], queries in [0, 6]: even the
+        // squared-distance oracle stays below 75, safely within this type.
+        let points = (0..len)
+            .map(|_| array::from_fn(|_| A::from_bits(rng.random_range(256..=1024))))
+            .collect::<Vec<[A; 3]>>();
+        let (bulk, incremental) = {
+            let _case = fuzz_cases::enter(fuzz_cases::FailureKey::generated(
+                "fuzz_v6_metric_pruning_unsigned_fixed",
+                cfg,
+                content_seed,
+                None,
+            ));
+            let bulk = Tree::new_from_slice(&points).unwrap();
+            let mut incremental = Tree::default();
+            for (item, point) in points.iter().enumerate() {
+                incremental.add(point, item).unwrap();
+            }
+            (bulk, incremental)
+        };
+        for query_idx in cfg.query_start..cfg.query_start + cfg.query_count {
+            let _case = fuzz_cases::enter(fuzz_cases::FailureKey::generated(
+                "fuzz_v6_metric_pruning_unsigned_fixed",
+                cfg,
+                content_seed,
+                Some(query_idx),
+            ));
+            let seed = query_seed(content_seed, query_idx);
+            let mut rng = StdRng::seed_from_u64(seed);
+            let query = array::from_fn(|_| A::from_bits(rng.random_range(0..=1536)));
+            let n = match query_idx % 5 {
+                0 => 1,
+                1 => 32,
+                2 => 33,
+                3 => 64,
+                _ => rng.random_range(1..=cfg.max_nearest_n.max(1)),
+            }
+            .min(len);
+            let radius = A::from_bits(rng.random_range(0..=2048));
+            for (mode, tree) in [("bulk", &bulk), ("incremental", &incremental)] {
+                let context = format!("unsigned-fixed {mode} points={len} k={n} content_seed={content_seed} query_index={query_idx} query_seed={seed} query={query:?} radius={radius}");
+                let results = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    [
+                        metric_checks::validate_metric::<_, _, _, Manhattan<A>, 3, 32>(
+                            tree, &points, &query, n, radius,
+                        ),
+                        metric_checks::validate_metric::<_, _, _, SquaredEuclidean<A>, 3, 32>(
+                            tree, &points, &query, n, radius,
+                        ),
+                        metric_checks::validate_metric::<_, _, _, Chebyshev<A>, 3, 32>(
+                            tree, &points, &query, n, radius,
+                        ),
+                    ]
+                }))
+                .unwrap_or_else(|panic| {
+                    eprintln!("{context}");
+                    std::panic::resume_unwind(panic)
+                });
+                for result in results {
+                    result.unwrap_or_else(|error| panic!("{context}: {error}"));
+                }
             }
         }
     }
