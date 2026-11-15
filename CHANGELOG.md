@@ -10,11 +10,9 @@
 
 - Replan overflowing hard-bucket subtrees ([@sdd](https://github.com/sdd), Fixes:#571)
 
-
 ### 🤖 CI
 
 - Report post-merge failures as regression PRs ([@sdd](https://github.com/sdd))
-
 
 ### 🧹 Chore
 
