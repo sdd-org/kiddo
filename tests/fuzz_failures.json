@@ -1,1 +1,170 @@
-[]
+[
+  {
+    "config": {
+      "cases": 1,
+      "max_nearest_n": 64,
+      "max_pow": 20,
+      "min_pow": 10,
+      "perturb_max": 5,
+      "perturb_min": -5,
+      "query_count": 1,
+      "query_start": 0,
+      "seed": "451951233570892910"
+    },
+    "environment": {
+      "KIDDO_FUZZ_APPROX_CASES": "4",
+      "KIDDO_FUZZ_APPROX_ENFORCE": "0",
+      "KIDDO_FUZZ_APPROX_MAX_P99": "8",
+      "KIDDO_FUZZ_APPROX_MAX_WORST": "32",
+      "KIDDO_FUZZ_APPROX_QUERY_COUNT": "128",
+      "KIDDO_FUZZ_V6_RUN_NON_SIMD": "0",
+      "KIDDO_FUZZ_V6_RUN_SIMD": "1",
+      "KIDDO_FUZZ_V6_RUN_SIMD_F32": "1",
+      "KIDDO_FUZZ_V6_SIMD_FAST": "0"
+    },
+    "selection": null,
+    "simd": true,
+    "test": "fuzz_v6_metric_pruning_unsigned_fixed",
+    "version": 1
+  },
+  {
+    "config": {
+      "cases": 1,
+      "max_nearest_n": 64,
+      "max_pow": 20,
+      "min_pow": 10,
+      "perturb_max": 5,
+      "perturb_min": -5,
+      "query_count": 1,
+      "query_start": 0,
+      "seed": "451951233570892910"
+    },
+    "environment": {
+      "KIDDO_FUZZ_APPROX_CASES": "4",
+      "KIDDO_FUZZ_APPROX_ENFORCE": "0",
+      "KIDDO_FUZZ_APPROX_MAX_P99": "8",
+      "KIDDO_FUZZ_APPROX_MAX_WORST": "32",
+      "KIDDO_FUZZ_APPROX_QUERY_COUNT": "128",
+      "KIDDO_FUZZ_V6_RUN_NON_SIMD": "1",
+      "KIDDO_FUZZ_V6_RUN_SIMD": "0",
+      "KIDDO_FUZZ_V6_RUN_SIMD_F32": "1",
+      "KIDDO_FUZZ_V6_SIMD_FAST": "0"
+    },
+    "selection": null,
+    "simd": false,
+    "test": "fuzz_v6_metric_pruning_unsigned_fixed",
+    "version": 1
+  },
+  {
+    "config": {
+      "cases": 1,
+      "max_nearest_n": 64,
+      "max_pow": 20,
+      "min_pow": 10,
+      "perturb_max": 5,
+      "perturb_min": -5,
+      "query_count": 1,
+      "query_start": 1,
+      "seed": "451951233570892910"
+    },
+    "environment": {
+      "KIDDO_FUZZ_APPROX_CASES": "4",
+      "KIDDO_FUZZ_APPROX_ENFORCE": "0",
+      "KIDDO_FUZZ_APPROX_MAX_P99": "8",
+      "KIDDO_FUZZ_APPROX_MAX_WORST": "32",
+      "KIDDO_FUZZ_APPROX_QUERY_COUNT": "128",
+      "KIDDO_FUZZ_V6_RUN_NON_SIMD": "0",
+      "KIDDO_FUZZ_V6_RUN_SIMD": "1",
+      "KIDDO_FUZZ_V6_RUN_SIMD_F32": "1",
+      "KIDDO_FUZZ_V6_SIMD_FAST": "0"
+    },
+    "selection": null,
+    "simd": true,
+    "test": "fuzz_v6_metric_pruning_f32",
+    "version": 1
+  },
+  {
+    "config": {
+      "cases": 1,
+      "max_nearest_n": 64,
+      "max_pow": 20,
+      "min_pow": 10,
+      "perturb_max": 5,
+      "perturb_min": -5,
+      "query_count": 1,
+      "query_start": 1,
+      "seed": "451951233570892910"
+    },
+    "environment": {
+      "KIDDO_FUZZ_APPROX_CASES": "4",
+      "KIDDO_FUZZ_APPROX_ENFORCE": "0",
+      "KIDDO_FUZZ_APPROX_MAX_P99": "8",
+      "KIDDO_FUZZ_APPROX_MAX_WORST": "32",
+      "KIDDO_FUZZ_APPROX_QUERY_COUNT": "128",
+      "KIDDO_FUZZ_V6_RUN_NON_SIMD": "1",
+      "KIDDO_FUZZ_V6_RUN_SIMD": "0",
+      "KIDDO_FUZZ_V6_RUN_SIMD_F32": "1",
+      "KIDDO_FUZZ_V6_SIMD_FAST": "0"
+    },
+    "selection": null,
+    "simd": false,
+    "test": "fuzz_v6_metric_pruning_f32",
+    "version": 1
+  },
+  {
+    "config": {
+      "cases": 1,
+      "max_nearest_n": 64,
+      "max_pow": 20,
+      "min_pow": 10,
+      "perturb_max": 5,
+      "perturb_min": -5,
+      "query_count": 1,
+      "query_start": 3,
+      "seed": "451951233570892910"
+    },
+    "environment": {
+      "KIDDO_FUZZ_APPROX_CASES": "4",
+      "KIDDO_FUZZ_APPROX_ENFORCE": "0",
+      "KIDDO_FUZZ_APPROX_MAX_P99": "8",
+      "KIDDO_FUZZ_APPROX_MAX_WORST": "32",
+      "KIDDO_FUZZ_APPROX_QUERY_COUNT": "128",
+      "KIDDO_FUZZ_V6_RUN_NON_SIMD": "0",
+      "KIDDO_FUZZ_V6_RUN_SIMD": "1",
+      "KIDDO_FUZZ_V6_RUN_SIMD_F32": "1",
+      "KIDDO_FUZZ_V6_SIMD_FAST": "0"
+    },
+    "selection": null,
+    "simd": true,
+    "test": "fuzz_v6_metric_pruning_f64",
+    "version": 1
+  },
+  {
+    "config": {
+      "cases": 1,
+      "max_nearest_n": 64,
+      "max_pow": 20,
+      "min_pow": 10,
+      "perturb_max": 5,
+      "perturb_min": -5,
+      "query_count": 1,
+      "query_start": 3,
+      "seed": "451951233570892910"
+    },
+    "environment": {
+      "KIDDO_FUZZ_APPROX_CASES": "4",
+      "KIDDO_FUZZ_APPROX_ENFORCE": "0",
+      "KIDDO_FUZZ_APPROX_MAX_P99": "8",
+      "KIDDO_FUZZ_APPROX_MAX_WORST": "32",
+      "KIDDO_FUZZ_APPROX_QUERY_COUNT": "128",
+      "KIDDO_FUZZ_V6_RUN_NON_SIMD": "1",
+      "KIDDO_FUZZ_V6_RUN_SIMD": "0",
+      "KIDDO_FUZZ_V6_RUN_SIMD_F32": "1",
+      "KIDDO_FUZZ_V6_SIMD_FAST": "0"
+    },
+    "selection": null,
+    "simd": false,
+    "test": "fuzz_v6_metric_pruning_f64",
+    "version": 1
+  }
+]
