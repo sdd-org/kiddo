@@ -318,11 +318,7 @@ where
             }
         }
 
-        if leaf.content_items[leaf_idx] != item {
-            return false;
-        }
-
-        true
+        leaf.content_items[leaf_idx] == item
     }
 }
 
