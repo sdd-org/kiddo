@@ -1,5 +1,31 @@
 # Kiddo Changelog
 
+## [6.3.1] - 2026-11-15
+
+### 🐛 Bug Fixes
+
+- Preserve Rust 1.89 compatibility for generator ([@sdd](https://github.com/sdd))
+
+- Satisfy Rust 1.100 Clippy ([@sdd](https://github.com/sdd))
+
+- Replan overflowing hard-bucket subtrees ([@sdd](https://github.com/sdd), Fixes:#571)
+
+
+### 🤖 CI
+
+- Report post-merge failures as regression PRs ([@sdd](https://github.com/sdd))
+
+
+### 🧹 Chore
+
+- Add citation.cff and github actions updater for it ([@sdd](https://github.com/sdd))
+
+- Acknowledge community contributors ([@sdd](https://github.com/sdd))
+
+- Add carlson to citation.cff and fix formattng of my entry ([@sdd](https://github.com/sdd))
+
+- Explain fuzz testing and replay ([@sdd](https://github.com/sdd))
+
 ## [6.3.0] - 2026-09-06
 
 ### ✨ Features
