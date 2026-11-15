@@ -1,0 +1,144 @@
+name: Fuzz / Post-merge
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-post-merge-${{ github.sha }}
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  fuzz:
+    name: Full fuzz (${{ matrix.mode }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: scalar
+            features: fuzz
+            run_non_simd: "1"
+            run_simd: "0"
+          - mode: simd
+            features: fuzz simd
+            run_non_simd: "0"
+            run_simd: "1"
+    env:
+      RUST_TEST_THREADS: "1"
+      KIDDO_FUZZ_V6_RUN_NON_SIMD: ${{ matrix.run_non_simd }}
+      KIDDO_FUZZ_V6_RUN_SIMD: ${{ matrix.run_simd }}
+      KIDDO_FUZZ_V6_SIMD_FAST: "0"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: nightly
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            Cargo.lock
+          key: fuzz-cases-${{ runner.os }}-${{ matrix.mode }}-${{ hashFiles('Cargo.toml') }}
+          restore-keys: fuzz-cases-${{ runner.os }}-${{ matrix.mode }}-
+      - name: Set capture path and vary the seed per commit
+        run: |
+          echo "KIDDO_FUZZ_SEED=$((16#${GITHUB_SHA:0:15}))" >> "$GITHUB_ENV"
+          echo "KIDDO_FUZZ_FAILURE_REPORT=$RUNNER_TEMP/fuzz-failures.jsonl" >> "$GITHUB_ENV"
+      - name: Build fuzz report tool
+        run: cargo build --features fuzz --example fuzz-report
+      - name: Full generated and adversarial sweeps
+        id: sweep
+        continue-on-error: true
+        env:
+          FUZZ_FEATURES: ${{ matrix.features }}
+        run: |
+          rm -f "$KIDDO_FUZZ_FAILURE_REPORT"
+          cargo test --profile fast-tests --features "$FUZZ_FEATURES" --test kd_tree_fuzz_v6 -- --include-ignored --nocapture
+      - name: Confirm each captured failure with a single-case replay
+        if: steps.sweep.outcome == 'failure'
+        env:
+          FUZZ_FEATURES: ${{ matrix.features }}
+        run: |
+          target/debug/examples/fuzz-report verify \
+            "$KIDDO_FUZZ_FAILURE_REPORT" \
+            "$RUNNER_TEMP/fuzz-verified.json" -- \
+            cargo test --profile fast-tests --features "$FUZZ_FEATURES" --test kd_tree_fuzz_v6 fuzz_v6_saved_failures -- --exact --nocapture
+      - name: Preserve failure keys and dependency resolution
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-failures-${{ matrix.mode }}
+          path: |
+            ${{ runner.temp }}/fuzz-failures.jsonl
+            ${{ runner.temp }}/fuzz-verified.json
+            Cargo.lock
+          if-no-files-found: ignore
+      - name: Keep the full sweep's failure visible
+        if: always() && steps.sweep.outcome != 'success'
+        run: exit 1
+
+  regression-pr:
+    name: Open a reproducible regression PR
+    needs: fuzz
+    timeout-minutes: 30
+    if: always() && !cancelled() && needs.fuzz.result == 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    # Serialize publication, but never cancel an earlier report.
+    concurrency:
+      group: fuzz-regression-publication
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: nightly
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            Cargo.lock
+          key: fuzz-cases-${{ runner.os }}-scalar-${{ hashFiles('Cargo.toml') }}
+          restore-keys: fuzz-cases-${{ runner.os }}-scalar-
+      - name: Build fuzz report tool without publication credentials
+        run: cargo build --features fuzz --example fuzz-report
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: fuzz-failures-*
+          path: ${{ runner.temp }}/fuzz-results
+      - name: Publish verified keys only
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FUZZ_REPOSITORY: ${{ github.repository }}
+          FUZZ_SHA: ${{ github.sha }}
+          FUZZ_RUN_ID: ${{ github.run_id }}
+          FUZZ_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          mapfile -t reports < <(find "$RUNNER_TEMP/fuzz-results" -name fuzz-verified.json -type f)
+          if [ "${#reports[@]}" -eq 0 ]; then
+            echo 'No verified replay keys; no regression PR will be opened.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          gh auth setup-git
+          target/debug/examples/fuzz-report publish \
+            "$FUZZ_REPOSITORY" "$FUZZ_SHA" "$FUZZ_RUN_ID" "$FUZZ_RUN_URL" "${reports[@]}"

@@ -1,0 +1,6 @@
+paths:
+  .github/workflows/fuzz-post-merge.yml:
+    ignore:
+      # v1.7.12 lacks GitHub's queue:max syntax. Keep every pending report.
+      # https://github.com/rhysd/actionlint/issues/657
+      - '^unexpected key "queue" for "concurrency" section\.'

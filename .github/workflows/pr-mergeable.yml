@@ -61,6 +61,9 @@ jobs:
     uses: ./.github/workflows/wasm.yml
     secrets: inherit
 
+  SavedFuzzRegressions:
+    uses: ./.github/workflows/fuzz-regressions.yml
+
   Fuzz:
     # Release PRs only. The sweeps take far too long for every feature PR, and the
     # non-ignored fuzz tests already run as part of the normal test job.
@@ -76,7 +79,7 @@ jobs:
 
   pr-mergeable:
     name: PR Mergeable
-    needs: [Common, Stable, Nightly, MSRV, WASM, Fuzz]
+    needs: [Common, Stable, Nightly, MSRV, WASM, SavedFuzzRegressions, Fuzz]
     # Runs even when a dependency fails, so the status is always reported and
     # branch protection never waits forever on a check that will not arrive.
     if: always()

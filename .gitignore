@@ -23,3 +23,6 @@ node_modules
 package.json
 package-lock.json
 /examples/data
+
+/kd_tree_fuzz_failures.jsonl
+/kd_tree_fuzz_failures.json

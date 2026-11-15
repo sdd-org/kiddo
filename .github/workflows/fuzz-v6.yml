@@ -160,7 +160,7 @@ jobs:
           tool: just
 
       - name: Remove stale fuzz report
-        run: rm -f kd_tree_fuzz_v6_report.txt
+        run: rm -f kd_tree_fuzz_v6_report.txt kd_tree_fuzz_failures.jsonl kd_tree_fuzz_failures.json
 
       - name: Run non-SIMD fuzz suite
         run: just fuzz-kd-tree-v6-non-simd
@@ -168,6 +168,10 @@ jobs:
       - name: Run SIMD fuzz suite
         if: inputs.run_simd
         run: just fuzz-kd-tree-v6-simd
+
+      - name: Collect exact replay keys
+        if: always()
+        run: cargo run --features fuzz --example fuzz-report -- collect kd_tree_fuzz_failures.jsonl kd_tree_fuzz_failures.json
 
       - name: Comment the outcome on the pull request
         if: always() && inputs.pr_number != ''
@@ -187,7 +191,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: Number("${{ inputs.pr_number }}"),
-              body: `${summary} for \`${{ inputs.head_sha }}\`.\n\n[View run](${runUrl})\n\nOn failure the run uploads \`kd_tree_fuzz_v6_report.txt\` as an artifact, listing the failing seeds. Each is replayable locally with \`just fuzz-case-repro <repro-id>\`.`,
+              body: `${summary} for \`${{ inputs.head_sha }}\`.\n\n[View run](${runUrl})\n\nThe failure artifact includes exact keys in \`kd_tree_fuzz_failures.json\`. Replay them locally with \`KIDDO_FUZZ_REPLAY_FILE=kd_tree_fuzz_failures.json just fuzz-replay\`.`,
             });
 
       - name: Upload fuzz failure report
@@ -195,5 +199,8 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: kd-tree-fuzz-v6-report-${{ github.run_id }}-${{ github.run_attempt }}
-          path: kd_tree_fuzz_v6_report.txt
+          path: |
+            kd_tree_fuzz_v6_report.txt
+            kd_tree_fuzz_failures.json
+            Cargo.lock
           if-no-files-found: ignore

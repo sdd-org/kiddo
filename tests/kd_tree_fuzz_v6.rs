@@ -31,6 +31,9 @@ use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rayon::prelude::*;
 
+#[path = "support/fuzz_cases.rs"]
+mod fuzz_cases;
+
 const DEFAULT_CASES: usize = 8;
 const DEFAULT_MIN_POW: u32 = 10;
 const DEFAULT_MAX_POW: u32 = 20;
@@ -52,11 +55,15 @@ const SEED_MIX_QUERY: u64 = 0xbf58_476d_1ce4_e5b9;
 static REPORT_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static FUZZ_POOL: OnceLock<rayon::ThreadPool> = OnceLock::new();
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 struct FuzzConfig {
+    #[serde(with = "fuzz_cases::seed_string")]
     seed: u64,
     cases: usize,
     query_count: usize,
+    #[serde(default)]
+    query_start: usize,
     min_pow: u32,
     max_pow: u32,
     perturb_min: i32,
@@ -76,10 +83,14 @@ struct ReproMeta {
 
 impl FuzzConfig {
     fn from_env() -> Self {
+        if let Some(key) = fuzz_cases::replay_key() {
+            return key.config;
+        }
         Self {
             seed: read_env_u64("KIDDO_FUZZ_SEED", DEFAULT_SEED),
             cases: read_env_usize("KIDDO_FUZZ_CASES", DEFAULT_CASES),
             query_count: read_env_usize("KIDDO_FUZZ_QUERY_COUNT", DEFAULT_QUERY_COUNT).max(1),
+            query_start: 0,
             min_pow: read_env_u32("KIDDO_FUZZ_MIN_POW", DEFAULT_MIN_POW),
             max_pow: read_env_u32("KIDDO_FUZZ_MAX_POW", DEFAULT_MAX_POW),
             perturb_min: read_env_i32("KIDDO_FUZZ_PERTURB_MIN", DEFAULT_PERTURB_MIN),
@@ -94,6 +105,9 @@ impl FuzzConfig {
 
     #[cfg(feature = "simd")]
     fn for_simd(self) -> Self {
+        if fuzz_cases::replay_key().is_some() {
+            return self;
+        }
         if read_env_bool("KIDDO_FUZZ_V6_SIMD_FAST", false) {
             Self {
                 cases: self.cases.clamp(1, SIMD_FAST_CASES),
@@ -1083,6 +1097,10 @@ fn run_mutable_case_f32<const K: usize, const B: usize, SO>(
     SO: StemStrategy + 'static,
     <SO as StemStrategy>::Stack<f32, 2>: 'static,
 {
+    let meta = ReproMeta { b: B, k: K, ..meta };
+    if !fuzz_cases::selected(meta) {
+        return;
+    }
     for case_idx in 0..cfg.cases {
         let content_seed = cfg.case_seed(case_idx);
         let mut rng_content = StdRng::seed_from_u64(content_seed);
@@ -1093,18 +1111,28 @@ fn run_mutable_case_f32<const K: usize, const B: usize, SO>(
 
         print_case_start(label, case_idx, cfg.cases, point_count, content_seed);
 
-        let mut tree: KdTree<f32, usize, SO, VecOfArrays<f32, usize, K, B>, K, B> =
-            KdTree::default();
+        let tree = {
+            let _case = fuzz_cases::enter(fuzz_cases::FailureKey::legacy(
+                cfg,
+                meta,
+                content_seed,
+                None,
+            ));
+            let mut tree: KdTree<f32, usize, SO, VecOfArrays<f32, usize, K, B>, K, B> =
+                KdTree::default();
 
-        for (idx, point) in points.iter().enumerate() {
-            tree.add(point, idx)
-                .expect("random finite point set must be splittable");
-        }
+            for (idx, point) in points.iter().enumerate() {
+                tree.add(point, idx)
+                    .expect("random finite point set must be splittable");
+            }
+            tree
+        };
 
         let max_nearest_n = cfg.max_nearest_n.max(1).min(point_count);
 
         fuzz_pool().install(|| {
-            (0..cfg.query_count).into_par_iter().for_each(|query_idx| {
+            (cfg.query_start..cfg.query_start + cfg.query_count).into_par_iter().for_each(|query_idx| {
+            let _case = fuzz_cases::enter(fuzz_cases::FailureKey::legacy(cfg, meta, content_seed, Some(query_idx)));
             let query_seed = query_seed(content_seed, query_idx);
             let mut rng_query = StdRng::seed_from_u64(query_seed);
             let query = random_point_f32::<K>(&mut rng_query);
@@ -1482,6 +1510,10 @@ fn run_mutable_case_f64<const K: usize, const B: usize, SO>(
     SO: StemStrategy + 'static,
     <SO as StemStrategy>::Stack<f64, 2>: 'static,
 {
+    let meta = ReproMeta { b: B, k: K, ..meta };
+    if !fuzz_cases::selected(meta) {
+        return;
+    }
     for case_idx in 0..cfg.cases {
         let content_seed = cfg.case_seed(case_idx);
         let mut rng_content = StdRng::seed_from_u64(content_seed);
@@ -1492,18 +1524,28 @@ fn run_mutable_case_f64<const K: usize, const B: usize, SO>(
 
         print_case_start(label, case_idx, cfg.cases, point_count, content_seed);
 
-        let mut tree: KdTree<f64, usize, SO, VecOfArrays<f64, usize, K, B>, K, B> =
-            KdTree::default();
+        let tree = {
+            let _case = fuzz_cases::enter(fuzz_cases::FailureKey::legacy(
+                cfg,
+                meta,
+                content_seed,
+                None,
+            ));
+            let mut tree: KdTree<f64, usize, SO, VecOfArrays<f64, usize, K, B>, K, B> =
+                KdTree::default();
 
-        for (idx, point) in points.iter().enumerate() {
-            tree.add(point, idx)
-                .expect("random finite point set must be splittable");
-        }
+            for (idx, point) in points.iter().enumerate() {
+                tree.add(point, idx)
+                    .expect("random finite point set must be splittable");
+            }
+            tree
+        };
 
         let max_nearest_n = cfg.max_nearest_n.max(1).min(point_count);
 
         fuzz_pool().install(|| {
-            (0..cfg.query_count).into_par_iter().for_each(|query_idx| {
+            (cfg.query_start..cfg.query_start + cfg.query_count).into_par_iter().for_each(|query_idx| {
+            let _case = fuzz_cases::enter(fuzz_cases::FailureKey::legacy(cfg, meta, content_seed, Some(query_idx)));
             let query_seed = query_seed(content_seed, query_idx);
             let mut rng_query = StdRng::seed_from_u64(query_seed);
             let query = random_point_f64::<K>(&mut rng_query);
@@ -1882,6 +1924,10 @@ fn run_immutable_case_f32_with_leaf<const K: usize, const B: usize, SO, LS>(
     <SO as StemStrategy>::Stack<f32, 2>: 'static,
     LS: LeafStrategy<f32, usize, SO, K, B> + ConstructibleLeafStrategy<f32, usize, SO, K, B> + Sync,
 {
+    let meta = ReproMeta { b: B, k: K, ..meta };
+    if !fuzz_cases::selected(meta) {
+        return;
+    }
     for case_idx in 0..cfg.cases {
         let content_seed = cfg.case_seed(case_idx);
         let mut rng_content = StdRng::seed_from_u64(content_seed);
@@ -1892,12 +1938,22 @@ fn run_immutable_case_f32_with_leaf<const K: usize, const B: usize, SO, LS>(
 
         print_case_start(label, case_idx, cfg.cases, point_count, content_seed);
 
-        let tree: KdTree<f32, usize, SO, LS, K, B> = KdTree::new_from_slice(&points).unwrap();
+        let tree = {
+            let _case = fuzz_cases::enter(fuzz_cases::FailureKey::legacy(
+                cfg,
+                meta,
+                content_seed,
+                None,
+            ));
+            let tree: KdTree<f32, usize, SO, LS, K, B> = KdTree::new_from_slice(&points).unwrap();
+            tree
+        };
 
         let max_nearest_n = cfg.max_nearest_n.max(1).min(point_count);
 
         fuzz_pool().install(|| {
-            (0..cfg.query_count).into_par_iter().for_each(|query_idx| {
+            (cfg.query_start..cfg.query_start + cfg.query_count).into_par_iter().for_each(|query_idx| {
+            let _case = fuzz_cases::enter(fuzz_cases::FailureKey::legacy(cfg, meta, content_seed, Some(query_idx)));
             let query_seed = query_seed(content_seed, query_idx);
             let mut rng_query = StdRng::seed_from_u64(query_seed);
             let query = random_point_f32::<K>(&mut rng_query);
@@ -2298,6 +2354,10 @@ fn run_immutable_case_f64_with_leaf<const K: usize, const B: usize, SO, LS>(
     <SO as StemStrategy>::Stack<f64, 2>: 'static,
     LS: LeafStrategy<f64, usize, SO, K, B> + ConstructibleLeafStrategy<f64, usize, SO, K, B> + Sync,
 {
+    let meta = ReproMeta { b: B, k: K, ..meta };
+    if !fuzz_cases::selected(meta) {
+        return;
+    }
     for case_idx in 0..cfg.cases {
         let content_seed = cfg.case_seed(case_idx);
         let mut rng_content = StdRng::seed_from_u64(content_seed);
@@ -2308,12 +2368,22 @@ fn run_immutable_case_f64_with_leaf<const K: usize, const B: usize, SO, LS>(
 
         print_case_start(label, case_idx, cfg.cases, point_count, content_seed);
 
-        let tree: KdTree<f64, usize, SO, LS, K, B> = KdTree::new_from_slice(&points).unwrap();
+        let tree = {
+            let _case = fuzz_cases::enter(fuzz_cases::FailureKey::legacy(
+                cfg,
+                meta,
+                content_seed,
+                None,
+            ));
+            let tree: KdTree<f64, usize, SO, LS, K, B> = KdTree::new_from_slice(&points).unwrap();
+            tree
+        };
 
         let max_nearest_n = cfg.max_nearest_n.max(1).min(point_count);
 
         fuzz_pool().install(|| {
-            (0..cfg.query_count).into_par_iter().for_each(|query_idx| {
+            (cfg.query_start..cfg.query_start + cfg.query_count).into_par_iter().for_each(|query_idx| {
+            let _case = fuzz_cases::enter(fuzz_cases::FailureKey::legacy(cfg, meta, content_seed, Some(query_idx)));
             let query_seed = query_seed(content_seed, query_idx);
             let mut rng_query = StdRng::seed_from_u64(query_seed);
             let query = random_point_f64::<K>(&mut rng_query);
@@ -4721,6 +4791,9 @@ where
 
 #[test]
 fn fuzz_v6_adversarial_fast_non_simd() {
+    let _case = fuzz_cases::enter(fuzz_cases::FailureKey::named(
+        "fuzz_v6_adversarial_fast_non_simd",
+    ));
     if !should_run_non_simd_paths() {
         return;
     }
@@ -4740,6 +4813,9 @@ fn fuzz_v6_adversarial_fast_non_simd() {
 #[test]
 #[cfg(feature = "simd")]
 fn fuzz_v6_adversarial_fast_simd() {
+    let _case = fuzz_cases::enter(fuzz_cases::FailureKey::named(
+        "fuzz_v6_adversarial_fast_simd",
+    ));
     if !should_run_simd_paths() {
         return;
     }
@@ -5332,6 +5408,9 @@ fn record_approx_quality_case_f64<SO, const B: usize>(
 
 #[test]
 fn fuzz_v6_approx_nearest_one_fast_hard() {
+    let _case = fuzz_cases::enter(fuzz_cases::FailureKey::named(
+        "fuzz_v6_approx_nearest_one_fast_hard",
+    ));
     if should_run_non_simd_paths() {
         run_approx_hard_immutable_f32::<Eytzinger>("v6 approx hard non-simd f32 Eytzinger");
         run_approx_hard_mutable_f32::<Eytzinger>("v6 approx hard non-simd f32 Eytzinger");
@@ -5357,6 +5436,9 @@ fn fuzz_v6_approx_nearest_one_fast_hard() {
 #[test]
 #[ignore = "long-running approx quality sweep; enable with --ignored"]
 fn fuzz_v6_approx_nearest_one_quality() {
+    let _case = fuzz_cases::enter(fuzz_cases::FailureKey::named(
+        "fuzz_v6_approx_nearest_one_quality",
+    ));
     let cases = read_env_usize("KIDDO_FUZZ_APPROX_CASES", 4).max(1);
     let query_count = read_env_usize("KIDDO_FUZZ_APPROX_QUERY_COUNT", 128).max(1);
     let enforce = read_env_bool("KIDDO_FUZZ_APPROX_ENFORCE", false);
@@ -5519,4 +5601,9 @@ fn fuzz_v6_approx_nearest_one_quality() {
             }
         }
     }
+}
+
+#[test]
+fn fuzz_v6_saved_failures() {
+    fuzz_cases::replay_saved();
 }

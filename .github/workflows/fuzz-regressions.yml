@@ -1,0 +1,57 @@
+name: CI / Saved fuzz regressions
+
+on:
+  workflow_call:
+  # Also used by the reporting bot so a token-created PR gets a red head check
+  # without waiting for approval of its ordinary pull_request workflows.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  replay:
+    name: Replay saved failures (${{ matrix.mode }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: scalar
+            features: fuzz
+          - mode: simd
+            features: fuzz simd
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Check for saved cases
+        id: corpus
+        run: |
+          jq -e 'type == "array"' tests/fuzz_failures.json > /dev/null
+          if [ "$(jq length tests/fuzz_failures.json)" -gt 0 ]; then
+            echo 'nonempty=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'nonempty=false' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        if: steps.corpus.outputs.nonempty == 'true'
+        with:
+          toolchain: nightly
+      - uses: actions/cache@v6
+        if: steps.corpus.outputs.nonempty == 'true'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            Cargo.lock
+          key: fuzz-cases-${{ runner.os }}-${{ matrix.mode }}-${{ hashFiles('Cargo.toml') }}
+          restore-keys: fuzz-cases-${{ runner.os }}-${{ matrix.mode }}-
+      - name: Replay only recorded cases
+        if: steps.corpus.outputs.nonempty == 'true'
+        env:
+          RUST_TEST_THREADS: "1"
+          FUZZ_FEATURES: ${{ matrix.features }}
+        run: cargo test --profile fast-tests --features "$FUZZ_FEATURES" --test kd_tree_fuzz_v6 fuzz_v6_saved_failures -- --exact --nocapture
