@@ -36,21 +36,26 @@ test-fast-v6-nearest-one-large-f32:
     cargo test --profile fast-tests --lib v6_query_nearest_one_large_f32
 
 fuzz-kd-tree-v6:
-    rm -f kd_tree_fuzz_v6_report.txt
+    rm -f kd_tree_fuzz_v6_report.txt kd_tree_fuzz_failures.jsonl
     RUST_TEST_THREADS=1 KIDDO_FUZZ_V6_RUN_NON_SIMD=1 KIDDO_FUZZ_V6_RUN_SIMD=0 cargo test --profile fast-tests --features fuzz --test kd_tree_fuzz_v6 -- --include-ignored --nocapture
     RUST_TEST_THREADS=1 KIDDO_FUZZ_V6_RUN_NON_SIMD=0 KIDDO_FUZZ_V6_RUN_SIMD=1 cargo test --profile fast-tests --features "fuzz simd" --test kd_tree_fuzz_v6 -- --include-ignored --nocapture
 
 fuzz-kd-tree-v6-non-simd:
-    rm -f kd_tree_fuzz_v6_report.txt
+    rm -f kd_tree_fuzz_v6_report.txt kd_tree_fuzz_failures.jsonl
     RUST_TEST_THREADS=1 KIDDO_FUZZ_V6_RUN_NON_SIMD=1 KIDDO_FUZZ_V6_RUN_SIMD=0 cargo test --profile fast-tests --features fuzz --test kd_tree_fuzz_v6 -- --include-ignored --nocapture
 
 fuzz-kd-tree-v6-simd:
-    rm -f kd_tree_fuzz_v6_report.txt
+    rm -f kd_tree_fuzz_v6_report.txt kd_tree_fuzz_failures.jsonl
     RUST_TEST_THREADS=1 KIDDO_FUZZ_V6_RUN_NON_SIMD=0 KIDDO_FUZZ_V6_RUN_SIMD=1 cargo test --profile fast-tests --features "fuzz simd" --test kd_tree_fuzz_v6 -- --include-ignored --nocapture
 
 fuzz-kd-tree-v6-simd-fast:
-    rm -f kd_tree_fuzz_v6_report.txt
+    rm -f kd_tree_fuzz_v6_report.txt kd_tree_fuzz_failures.jsonl
     RUST_TEST_THREADS=1 KIDDO_FUZZ_V6_RUN_NON_SIMD=0 KIDDO_FUZZ_V6_RUN_SIMD=1 KIDDO_FUZZ_V6_SIMD_FAST=1 cargo test --profile fast-tests --features "fuzz simd" --test kd_tree_fuzz_v6 -- --include-ignored --nocapture
+
+# Replays the checked-in failure keys, not the long generated sweeps.
+fuzz-replay:
+    cargo +nightly test --profile fast-tests --features fuzz --test kd_tree_fuzz_v6 fuzz_v6_saved_failures -- --exact --nocapture
+    cargo +nightly test --profile fast-tests --features "fuzz simd" --test kd_tree_fuzz_v6 fuzz_v6_saved_failures -- --exact --nocapture
 
 fuzz-case-repro REPRO:
     cargo run --features "fuzz simd" --example fuzz-case-repro -- {{REPRO}}
