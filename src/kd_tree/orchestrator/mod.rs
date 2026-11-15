@@ -1941,13 +1941,18 @@ mod tests {
             });
         }
         assert_eq!(stack.len(), total);
+        assert_eq!(stack.last().unwrap().threshold, total - 1);
 
         for index in (0..total).rev() {
+            if index == SCALAR_OFF_RESTORE_INLINE_CAPACITY - 1 {
+                assert_eq!(stack.last().unwrap().threshold, index);
+            }
             let entry = stack.pop().expect("entry should remain");
             assert_eq!(entry.threshold, index);
             assert_eq!(entry.dim, index % 4);
             assert_eq!(entry.off, index as f64);
         }
+        assert!(stack.last().is_none());
         assert!(stack.pop().is_none());
     }
 
