@@ -1,5 +1,6 @@
 mod simd;
 
+use std::mem::MaybeUninit;
 use std::ptr::NonNull;
 
 use crate::dist::DistanceMetric;
@@ -15,6 +16,70 @@ use crate::stem_strategy::{
 };
 use crate::traits::stem_strategy::PreparedBlockQuery;
 use crate::{Axis, Content, LeafStrategy, StemStrategy};
+
+const SCALAR_OFF_RESTORE_INLINE_CAPACITY: usize = 128;
+
+#[derive(Clone, Copy)]
+struct ScalarOffRestore<O> {
+    threshold: usize,
+    dim: usize,
+    off: O,
+}
+
+/// Inline stack of deferred far-child offset restores, with a heap spill so
+/// release builds cannot index past the inline storage.
+struct ScalarOffRestoreStack<O> {
+    inline: [MaybeUninit<ScalarOffRestore<O>>; SCALAR_OFF_RESTORE_INLINE_CAPACITY],
+    spill: Vec<ScalarOffRestore<O>>,
+    len: usize,
+}
+
+impl<O: Copy> ScalarOffRestoreStack<O> {
+    fn new() -> Self {
+        Self {
+            inline: [const { MaybeUninit::uninit() }; SCALAR_OFF_RESTORE_INLINE_CAPACITY],
+            spill: Vec::new(),
+            len: 0,
+        }
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn last(&self) -> Option<&ScalarOffRestore<O>> {
+        if self.len == 0 {
+            None
+        } else if self.len > SCALAR_OFF_RESTORE_INLINE_CAPACITY {
+            self.spill.last()
+        } else {
+            Some(unsafe { self.inline[self.len - 1].assume_init_ref() })
+        }
+    }
+
+    fn push(&mut self, entry: ScalarOffRestore<O>) {
+        if self.len < SCALAR_OFF_RESTORE_INLINE_CAPACITY {
+            self.inline[self.len].write(entry);
+        } else {
+            self.spill.push(entry);
+        }
+        self.len += 1;
+    }
+
+    fn pop(&mut self) -> Option<ScalarOffRestore<O>> {
+        if self.len == 0 {
+            return None;
+        }
+
+        self.len -= 1;
+        if self.len >= SCALAR_OFF_RESTORE_INLINE_CAPACITY {
+            self.spill.pop()
+        } else {
+            Some(unsafe { self.inline[self.len].assume_init() })
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 struct Block3PendingSelection<O> {
@@ -295,13 +360,30 @@ where
         #[cfg(feature = "result_collection_stats")]
         crate::results::result_collection_stats::record_query_stack_push();
 
+        // Entering a deferred far child overwrites the split dimension's offset
+        // with that child's distance. The traversal pops back to shallower
+        // siblings without visiting every intermediate node, so the overwritten
+        // offset must be restored when the far subtree is exhausted. Otherwise a
+        // later sibling that diverges on another dimension can inherit a stale
+        // (over-estimated) offset and prune subtrees that contain valid results.
+        let mut restore_entries = ScalarOffRestoreStack::<O>::new();
+
         while let Some(stack_ctx) = stack.pop() {
             #[cfg(feature = "result_collection_stats")]
             crate::results::result_collection_stats::record_query_stack_pop();
             #[cfg(any(feature = "exact_query_stats", feature = "test_utils"))]
             crate::results::exact_query_stats::record_scalar_stack_pop();
 
-            let (stem_state, restore_dim, old_off, rd) =
+            let remaining = stack.len();
+            while restore_entries
+                .last()
+                .is_some_and(|entry| entry.threshold > remaining)
+            {
+                let restore = restore_entries.pop().expect("checked non-empty above");
+                unsafe { *off.get_unchecked_mut(restore.dim) = restore.off };
+            }
+
+            let (stem_state, popped_restore_dim, old_off, rd) =
                 SS::StackContext::<O, K>::into_parts_with_restore_dim(stack_ctx);
             stem_strat.rehydrate_deferred_state(stem_state);
 
@@ -320,7 +402,8 @@ where
             }
 
             let mut dim = stem_strat.dim::<K>();
-            let restore_dim = restore_dim.unwrap_or(dim);
+            let is_deferred_far = popped_restore_dim.is_some();
+            let restore_dim = popped_restore_dim.unwrap_or(dim);
             tracing::trace!(%dim, %old_off, %rd, ?off, "Popped stack context");
 
             let max_dist = query_ctx.max_dist();
@@ -336,6 +419,14 @@ where
                 continue;
             }
             tracing::trace!(%rd, %max_dist, "SCALAR Prune check: VISIT");
+
+            if is_deferred_far {
+                restore_entries.push(ScalarOffRestore {
+                    threshold: remaining,
+                    dim: restore_dim,
+                    off: unsafe { *off.get_unchecked(restore_dim) },
+                });
+            }
 
             tracing::trace!(
                 "Restoring off[{}]. was {}, now {}",
@@ -1836,6 +1927,34 @@ mod tests {
     use crate::stem_strategy::donnelly::simd_full::DeferredBlockTraversal;
     use crate::stem_strategy::DonnellySimdFull;
     use nonmax::NonMaxUsize;
+
+    #[test]
+    fn scalar_off_restore_stack_spills_beyond_inline_capacity() {
+        let mut stack = ScalarOffRestoreStack::<f64>::new();
+        let total = SCALAR_OFF_RESTORE_INLINE_CAPACITY + 3;
+
+        for index in 0..total {
+            stack.push(ScalarOffRestore {
+                threshold: index,
+                dim: index % 4,
+                off: index as f64,
+            });
+        }
+        assert_eq!(stack.len(), total);
+        assert_eq!(stack.last().unwrap().threshold, total - 1);
+
+        for index in (0..total).rev() {
+            if index == SCALAR_OFF_RESTORE_INLINE_CAPACITY - 1 {
+                assert_eq!(stack.last().unwrap().threshold, index);
+            }
+            let entry = stack.pop().expect("entry should remain");
+            assert_eq!(entry.threshold, index);
+            assert_eq!(entry.dim, index % 4);
+            assert_eq!(entry.off, index as f64);
+        }
+        assert!(stack.last().is_none());
+        assert!(stack.pop().is_none());
+    }
 
     #[test]
     fn test_select_block3_pending_child() {

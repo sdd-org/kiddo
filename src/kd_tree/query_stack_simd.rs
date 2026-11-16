@@ -286,6 +286,11 @@ impl<A, SS: StemStrategy, const K: usize, const INLINE_CAPACITY: usize> StackTra
     }
 
     #[inline]
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    #[inline]
     fn clear(&mut self) {
         if self.len > INLINE_CAPACITY {
             self.spill.clear();
@@ -330,6 +335,11 @@ impl<
             self.len -= 1;
             Some(unsafe { self.stack.get_unchecked(self.len).assume_init_read() })
         }
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        self.len
     }
 
     #[inline]
@@ -802,10 +812,12 @@ impl<A, S> ScalarStackContext<A, S> for CyclicSimdFullQueryStackContext<A, S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::stem_strategy::Eytzinger;
+    use crate::stem_strategy::{DonnellySimdFull, Eytzinger};
     use std::ptr::NonNull;
 
     type TestStem = Eytzinger;
+    type TestSimdStem = DonnellySimdFull<4>;
+    type TestBlock3Stem = DonnellySimdFull<3>;
 
     fn test_stem() -> TestStem {
         TestStem::new(NonNull::dangling())
@@ -978,5 +990,57 @@ mod tests {
             }
             _ => panic!("expected single block3 simd context"),
         }
+    }
+
+    fn block3_context() -> Block3SimdQueryStackContext<f32, TestBlock3Stem, 3> {
+        Block3SimdQueryStackContext::Single {
+            stem_strat: <TestBlock3Stem as crate::StemStrategy>::new_no_ptr(),
+            dim: 0,
+            lower_snapshot: [0.0; 3],
+            upper_snapshot: [1.0; 3],
+            old_off: 0.0,
+            rd: 0.0,
+        }
+    }
+
+    #[test]
+    fn simd_query_stack_len_tracks_push_pop_and_clear() {
+        let mut stack = SimdQueryStack::<f32, TestSimdStem, 3>::new();
+        let stem = <TestSimdStem as crate::StemStrategy>::new_no_ptr();
+
+        assert_eq!(StackTrait::len(&stack), 0);
+
+        stack.push(SimdQueryStackContext::new_single(stem));
+        assert_eq!(StackTrait::len(&stack), 1);
+
+        stack.push(SimdQueryStackContext::new_single(stem));
+        assert_eq!(StackTrait::len(&stack), 2);
+
+        assert!(stack.pop().is_some());
+        assert_eq!(StackTrait::len(&stack), 1);
+
+        StackTrait::clear(&mut stack);
+        assert_eq!(StackTrait::len(&stack), 0);
+        assert!(stack.pop().is_none());
+    }
+
+    #[test]
+    fn block3_exact_query_stack_len_tracks_push_pop_and_clear() {
+        let mut stack = Block3ExactQueryStack::<f32, TestBlock3Stem, 3>::new();
+
+        assert_eq!(StackTrait::len(&stack), 0);
+
+        stack.push(block3_context());
+        assert_eq!(StackTrait::len(&stack), 1);
+
+        assert!(stack.pop().is_some());
+        assert_eq!(StackTrait::len(&stack), 0);
+
+        stack.push(block3_context());
+        assert_eq!(StackTrait::len(&stack), 1);
+
+        StackTrait::clear(&mut stack);
+        assert_eq!(StackTrait::len(&stack), 0);
+        assert!(stack.pop().is_none());
     }
 }
