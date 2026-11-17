@@ -173,6 +173,10 @@ let neighbours = kdtree
 assert_eq!(neighbours.len(), 2);
 ```
 
+### Construction limits
+
+`MutableKdTree` uses fixed capacity buckets of 32. If more than 32 points in a bucket share the value on the dimension being split, the bucket cannot be split and construction or `add` returns `ConstructionError::UnsplittableBucket`. `ImmutableKdTree` uses soft capacity buckets and can represent this data. The same soft behavior is available through the `leaf_strategies` module with `FlatVec` and `VecOfArenas`, or by using a larger bucket size with the full `KdTree` type.
+
 ## Batch Queries
 
 When many query points are known up front, run them as one batch. A batch query is configured exactly like a single-point query and returns one result per query point, indexed by position in the input slice:

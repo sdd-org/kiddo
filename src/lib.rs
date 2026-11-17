@@ -95,6 +95,15 @@
 //! [`KdTree`](crate::kd_tree::KdTree) with sensible defaults for these common read-heavy and mutable
 //! workloads.
 //!
+//! `MutableKdTree` stores points in fixed capacity buckets of 32. It cannot
+//! represent more than 32 points that share the value on the dimension a bucket
+//! has to split, and construction or [`add`](crate::kd_tree::KdTree::add)
+//! returns
+//! [`ConstructionError::UnsplittableBucket`](crate::kd_tree::ConstructionError::UnsplittableBucket)
+//! for such input. `ImmutableKdTree` uses soft capacity buckets and can
+//! represent it. Soft bucket strategies are also available through
+//! [`leaf_strategies`].
+//!
 //! Kiddo is not intended as a library for high-dimensional vector search or
 //! feature matching over hundreds or thousands of dimensions, where
 //! k-d trees are usually the wrong data structure and other approaches are more
