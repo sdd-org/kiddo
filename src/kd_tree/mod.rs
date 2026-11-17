@@ -129,7 +129,18 @@ pub enum ConstructionError {
         /// Human-readable type name of the generated item type.
         item_type: &'static str,
     },
-    /// A full mutable bucket could not be split without violating bucket semantics.
+    /// A fixed capacity leaf bucket could not be split without violating the
+    /// tree's split invariant.
+    ///
+    /// This happens when a bucket is full and every point in it has the same
+    /// value on the dimension being split. Hard bucket strategies such as
+    /// [`VecOfArrays`](crate::leaf_strategies::VecOfArrays) have a fixed
+    /// capacity `B`, so such input cannot be represented by that tree type.
+    /// Soft bucket strategies such as
+    /// [`FlatVec`](crate::leaf_strategies::FlatVec) and
+    /// [`VecOfArenas`](crate::leaf_strategies::VecOfArenas) can represent it,
+    /// as can a larger `B`. Mutable trees currently use a hard bucket strategy,
+    /// so an immutable tree may be required for duplicate heavy coordinates.
     UnsplittableBucket {
         /// Split dimension selected when the failure occurred.
         split_dim: usize,
@@ -149,7 +160,7 @@ impl std::fmt::Display for ConstructionError {
             Self::UnsplittableBucket { split_dim } => {
                 write!(
                     f,
-                    "cannot split leaf on dimension {split_dim} because all points have the same value on that dimension"
+                    "cannot split a fixed capacity leaf bucket on dimension {split_dim} because every point in the bucket has the same value there"
                 )
             }
         }
