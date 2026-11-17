@@ -1329,13 +1329,6 @@ where
         // leave some points unreachable. When a strictly smaller prefix exists,
         // put the whole equal run on the right.
         if less > 0 {
-            tracing::trace!(
-                slice_len = %sort_index.len(),
-                %dim,
-                %init_pivot,
-                %less,
-                "equal run kept on right",
-            );
             Ok(less)
         } else if greater < sort_index.len() {
             // The candidate is the minimum. Put the equal run on the left and
@@ -1353,20 +1346,9 @@ where
                 }
             }
             sort_index.swap(greater, min_idx);
-            tracing::trace!(
-                slice_len = %sort_index.len(),
-                %dim,
-                %init_pivot,
-                %greater,
-                "equal run kept on left",
-            );
             Ok(greater)
         } else if LS::BUCKET_LIMIT_TYPE == BucketLimitType::Hard {
-            tracing::debug!(
-                slice_len = %sort_index.len(),
-                %dim,
-                "Slice unsplittable along dimension"
-            );
+            tracing::debug!("Slice unsplittable along dimension");
             Err(ConstructionError::UnsplittableBucket { split_dim: dim })
         } else {
             Ok(sort_index.len())
