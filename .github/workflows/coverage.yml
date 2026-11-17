@@ -67,7 +67,7 @@ jobs:
         if: steps.changes.outputs.coverage == 'true'
         run: |
           cargo run --example build-immutable-doctest-tree-rkyv_08 --features="rkyv_08"
-          cargo llvm-cov --features "csv,las,serde,simd,rkyv_08,test_utils" --tests --ignore-run-fail --workspace --codecov --output-path codecov.json
+          cargo llvm-cov --features "csv,las,serde,simd,rkyv_08,test_utils" --lib --tests --ignore-run-fail --workspace --codecov --output-path codecov.json
 
       - name: Skip coverage
         if: steps.changes.outputs.coverage != 'true'
