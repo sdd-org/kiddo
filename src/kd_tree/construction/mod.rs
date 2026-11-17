@@ -1286,88 +1286,91 @@ where
         I: ConstructionIndex,
         FA: Fn(&X, usize) -> A,
     {
-        // TODO: this block might be faster by using a quickselect with a fat partition?
-        //       we could then run that quickselect and subtract (fat partition length - 1)
-        //       from the pivot, avoiding the need for the while loop.
-
-        let mut pivot = init_pivot;
-
-        // ensure the item whose index = pivot is in its correctly sorted position, and any
-        // items that are equal to it are adjacent, according to our assumptions about the
-        // behaviour of `select_nth_unstable_by` (See examples/check_select_nth_unstable.rs)
-        sort_index.select_nth_unstable_by(pivot, |&ia, &ib| {
-            A::cmp(
-                (*axis_at)(&source[ia.as_usize()], dim),
-                (*axis_at)(&source[ib.as_usize()], dim),
-            )
-        });
-
-        // if the pivot straddles two values that are equal, keep nudging it left until they aren't
-        while pivot > 0
-            && (*axis_at)(&source[sort_index[pivot].as_usize()], dim)
-                == (*axis_at)(&source[sort_index[pivot - 1].as_usize()], dim)
-        {
-            pivot -= 1;
-        }
-
-        // if we nudged it all the way to the left, reset and try nudging it rightwards from the
-        // initial pivot point instead. This requires that the entire slice is sorted, rather than
-        // just the left-hand side
-        if pivot == 0 {
-            pivot = init_pivot;
-
-            sort_index.sort_unstable_by(|&ia, &ib| {
+        // Pick a median-ish candidate value, then three-way partition the whole
+        // slice so that every coordinate equal to the candidate is contiguous.
+        // `select_nth_unstable_by` alone only guarantees a partition. It does
+        // not guarantee that equal values are adjacent, which the split
+        // boundary needs.
+        // TODO: a single fat partition quickselect could select the pivot and
+        // split in one pass instead of selecting a candidate and partitioning.
+        let candidate = {
+            let (_, pivot_item, _) = sort_index.select_nth_unstable_by(init_pivot, |&ia, &ib| {
                 A::cmp(
                     (*axis_at)(&source[ia.as_usize()], dim),
                     (*axis_at)(&source[ib.as_usize()], dim),
                 )
             });
+            (*axis_at)(&source[(*pivot_item).as_usize()], dim)
+        };
 
-            while pivot + 1 < sort_index.len()
-                && (*axis_at)(&source[sort_index[pivot].as_usize()], dim)
-                    == (*axis_at)(&source[sort_index[pivot + 1].as_usize()], dim)
-            {
-                pivot += 1;
-            }
-
-            if pivot + 1 >= sort_index.len() {
-                // if we end up here at the end of the slice, then the source slice is unsplittable
-                // in this dimension due to all entries having the same value on the given dimension
-                tracing::debug!(
-                    slice_len = %sort_index.len(),
-                    %dim,
-                    "Slice unsplittable along dimension"
-                );
-
-                if LS::BUCKET_LIMIT_TYPE == BucketLimitType::Hard {
-                    return Err(ConstructionError::UnsplittableBucket { split_dim: dim });
+        let mut less = 0;
+        let mut current = 0;
+        let mut greater = sort_index.len();
+        while current < greater {
+            match A::cmp(
+                (*axis_at)(&source[sort_index[current].as_usize()], dim),
+                candidate,
+            ) {
+                std::cmp::Ordering::Less => {
+                    sort_index.swap(less, current);
+                    less += 1;
+                    current += 1;
                 }
-
-                pivot = sort_index.len();
-            } else {
-                // Avoid empty-left splits: place the boundary after the run.
-                pivot += 1;
-                tracing::trace!(
-                    slice_len = %sort_index.len(),
-                    %dim,
-                    %init_pivot,
-                    shift = %(pivot - init_pivot),
-                    %pivot,
-                    "pivot shifted right"
-                );
+                std::cmp::Ordering::Equal => current += 1,
+                std::cmp::Ordering::Greater => {
+                    greater -= 1;
+                    sort_index.swap(current, greater);
+                }
             }
-        } else if pivot != init_pivot {
+        }
+
+        // Equal values must land on one side of the split. Queries traverse
+        // right on `query[dim] >= split`, so an equal run on both sides would
+        // leave some points unreachable. When a strictly smaller prefix exists,
+        // put the whole equal run on the right.
+        if less > 0 {
             tracing::trace!(
                 slice_len = %sort_index.len(),
                 %dim,
                 %init_pivot,
-                shift = %(init_pivot - pivot),
-                %pivot,
-                "pivot shifted left"
+                %less,
+                "equal run kept on right",
             );
+            Ok(less)
+        } else if greater < sort_index.len() {
+            // The candidate is the minimum. Put the equal run on the left and
+            // split at the smallest strictly greater value to avoid empty left
+            // splits. The greater region is partitioned but not sorted, so move
+            // its minimum to the boundary before publishing it as the split.
+            let mut min_idx = greater;
+            for idx in (greater + 1)..sort_index.len() {
+                if A::cmp(
+                    (*axis_at)(&source[sort_index[idx].as_usize()], dim),
+                    (*axis_at)(&source[sort_index[min_idx].as_usize()], dim),
+                ) == std::cmp::Ordering::Less
+                {
+                    min_idx = idx;
+                }
+            }
+            sort_index.swap(greater, min_idx);
+            tracing::trace!(
+                slice_len = %sort_index.len(),
+                %dim,
+                %init_pivot,
+                %greater,
+                "equal run kept on left",
+            );
+            Ok(greater)
+        } else if LS::BUCKET_LIMIT_TYPE == BucketLimitType::Hard {
+            tracing::debug!(
+                slice_len = %sort_index.len(),
+                %dim,
+                "Slice unsplittable along dimension"
+            );
+            Err(ConstructionError::UnsplittableBucket { split_dim: dim })
+        } else {
+            Ok(sort_index.len())
         }
-
-        Ok(pivot)
     }
 }
 
