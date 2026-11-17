@@ -17,7 +17,7 @@ use std::io::Write;
 use std::num::NonZeroUsize;
 use std::sync::{Mutex, OnceLock};
 
-use kiddo::kd_tree::KdTree;
+use kiddo::kd_tree::{ConstructionError, KdTree};
 use kiddo::leaf_strategy::{FlatVec, VecOfArenas, VecOfArrays};
 use kiddo::stem_strategy::{Donnelly, Eytzinger};
 use kiddo::traits::leaf_strategy::ConstructibleLeafStrategy;
@@ -5693,6 +5693,8 @@ fn fuzz_v6_metric_pruning_unsigned_fixed() {
 fn run_metric_pruning_unsigned_fixed(cfg: FuzzConfig) {
     type A = fixed::FixedU16<fixed::types::extra::U8>;
     type Tree = KdTree<A, usize, Eytzinger, VecOfArrays<A, usize, 3, 32>, 3, 32>;
+    type Flat = KdTree<A, usize, Eytzinger, FlatVec<A, usize, 3, 32>, 3, 32>;
+    type Arenas = KdTree<A, usize, Eytzinger, VecOfArenas<A, usize, 3, 32>, 3, 32>;
     for case in 0..cfg.cases {
         let content_seed = cfg.case_seed(case);
         let mut rng = StdRng::seed_from_u64(content_seed);
@@ -5709,13 +5711,33 @@ fn run_metric_pruning_unsigned_fixed(cfg: FuzzConfig) {
                 content_seed,
                 None,
             ));
-            let bulk = Tree::new_from_slice(&points).unwrap();
-            let mut incremental = Tree::default();
-            for (item, point) in points.iter().enumerate() {
-                incremental.add(point, item).unwrap();
-            }
+            // A hard leaf bucket cannot represent more than B points that share
+            // the coordinate the build has to split on. `UnsplittableBucket` is
+            // the documented construction error for that input, so keep the hard
+            // variants only when the data is representable and rely on the soft
+            // variants below for query coverage.
+            let bulk = match Tree::new_from_slice(&points) {
+                Ok(tree) => Some(tree),
+                Err(ConstructionError::UnsplittableBucket { .. }) => None,
+                Err(error) => panic!("unexpected hard-bucket construction error: {error:?}"),
+            };
+            let incremental = bulk.as_ref().and_then(|_| {
+                let mut tree = Tree::default();
+                for (item, point) in points.iter().enumerate() {
+                    match tree.add(point, item) {
+                        Ok(()) => {}
+                        Err(ConstructionError::UnsplittableBucket { .. }) => return None,
+                        Err(error) => panic!("unexpected hard-bucket mutation error: {error:?}"),
+                    }
+                }
+                Some(tree)
+            });
             (bulk, incremental)
         };
+        // Soft buckets can represent the run that a hard bucket cannot, so the
+        // metric checks still run for every case.
+        let flat = Flat::new_from_slice(&points).unwrap();
+        let arenas = Arenas::new_from_slice(&points).unwrap();
         for query_idx in cfg.query_start..cfg.query_start + cfg.query_count {
             let _case = fuzz_cases::enter(fuzz_cases::FailureKey::generated(
                 "fuzz_v6_metric_pruning_unsigned_fixed",
@@ -5735,28 +5757,42 @@ fn run_metric_pruning_unsigned_fixed(cfg: FuzzConfig) {
             }
             .min(len);
             let radius = A::from_bits(rng.random_range(0..=2048));
-            for (mode, tree) in [("bulk", &bulk), ("incremental", &incremental)] {
-                let context = format!("unsigned-fixed {mode} points={len} k={n} content_seed={content_seed} query_index={query_idx} query_seed={seed} query={query:?} radius={radius}");
-                let results = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    [
-                        metric_checks::validate_metric::<_, _, _, Manhattan<A>, 3, 32>(
-                            tree, &points, &query, n, radius,
-                        ),
-                        metric_checks::validate_metric::<_, _, _, SquaredEuclidean<A>, 3, 32>(
-                            tree, &points, &query, n, radius,
-                        ),
-                        metric_checks::validate_metric::<_, _, _, Chebyshev<A>, 3, 32>(
-                            tree, &points, &query, n, radius,
-                        ),
-                    ]
-                }))
-                .unwrap_or_else(|panic| {
-                    eprintln!("{context}");
-                    std::panic::resume_unwind(panic)
-                });
-                for result in results {
-                    result.unwrap_or_else(|error| panic!("{context}: {error}"));
-                }
+            macro_rules! check {
+                ($mode:literal, $tree:expr) => {{
+                    let tree = $tree;
+                    let context = format!(
+                        "unsigned-fixed {} points={len} k={n} content_seed={content_seed} query_index={query_idx} query_seed={seed} query={query:?} radius={radius}",
+                        $mode
+                    );
+                    let results = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        [
+                            metric_checks::validate_metric::<_, _, _, Manhattan<A>, 3, 32>(
+                                tree, &points, &query, n, radius,
+                            ),
+                            metric_checks::validate_metric::<_, _, _, SquaredEuclidean<A>, 3, 32>(
+                                tree, &points, &query, n, radius,
+                            ),
+                            metric_checks::validate_metric::<_, _, _, Chebyshev<A>, 3, 32>(
+                                tree, &points, &query, n, radius,
+                            ),
+                        ]
+                    }))
+                    .unwrap_or_else(|panic| {
+                        eprintln!("{context}");
+                        std::panic::resume_unwind(panic)
+                    });
+                    for result in results {
+                        result.unwrap_or_else(|error| panic!("{context}: {error}"));
+                    }
+                }};
+            }
+            check!("flat", &flat);
+            check!("arenas", &arenas);
+            if let Some(bulk) = &bulk {
+                check!("bulk", bulk);
+            }
+            if let Some(incremental) = &incremental {
+                check!("incremental", incremental);
             }
         }
     }
