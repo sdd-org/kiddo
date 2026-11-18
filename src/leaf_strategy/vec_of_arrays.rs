@@ -450,7 +450,7 @@ where
         unsafe {
             let orig = self.leaves.get_unchecked_mut(leaf_idx);
 
-            let mut pivot_idx: usize = orig.size / 2;
+            let pivot_idx: usize = orig.size / 2;
 
             // Create a mirror array to track the permutation
             let mut mirror: [usize; B] = array_init::array_init(|i| i);
@@ -463,105 +463,72 @@ where
                 |a, b| a.partial_cmp(b).expect("Leaf node sort failed."),
             );
 
-            let mut split_val = *orig
+            // Use the selected value as a candidate, then partition the bucket into
+            // values below, equal to and above it. The selection only guarantees a
+            // partition, not that equal values are contiguous, so the split boundary
+            // has to be established explicitly.
+            let candidate = *orig
                 .content_points
                 .get_unchecked(split_dim)
                 .get_unchecked(pivot_idx);
-            let mut unsplittable = false;
 
-            // At this point we hava a candidate position at which to split the leaf, that
-            // being the midpoint. This may not be a valid location, however. Take this 1D case
-            // as an example. We've sorted our leaf and it looks like this:
-            //
-            // [1, 2, 2, 4, 5]
-            //
-            // If we choose the actual midpoint and move it, and everything to the right of it,
-            // to a new leaf, and we choose 2 as the new stem value, what about the 2 that was to the
-            // left of it? It is now in the wrong bucket. So, we need to adjust our split point by
-            // moving it one place to the left.
-            //
-            // What about in this situation though?
-            //
-            // [2, 2, 2, 4, 5]
-            //
-            // If we follow the same algorithm, we end up with a split that has zero items in the
-            // left bucket and 5 on the right. This is no good! If we're splitting so that we can add
-            // a 4, for example, once the split completes, we still can't add it!
-            //
-            // So, if we've tried to adjust the split point leftwards, and got all the way to the
-            // start of the bucket, we reset back to the midpoint and start moving rightwards.
-            // In the above case this ends up with us splitting into [2, 2, 2] and [4, 5], with
-            // the pivot value being 4.
-            //
-            // But what if we had a bucket that looked like this?
-            //
-            // [2, 2, 2, 2, 2]
-            //
-            // Well then, to put it bluntly, we're fucked. This VecOfArrays leaf strategy has
-            // fixed-size buckets by design, to avoid the extra layer of indirection that would result
-            // from using a Vec for the bucket. There is no way to store another 2 in the tree - you need
-            // to either increase the bucket size or switch to a different, more permissive leaf strategy.
-
-            // if the pivot point choice results in some items whose position on the split
-            // dimension is the same as the split value being on the wrong side of the split:
-            if *orig
-                .content_points
-                .get_unchecked(split_dim)
-                .get_unchecked(pivot_idx - 1)
-                == split_val
-            {
-                let orig_pivot_idx = pivot_idx;
-
-                // Ensure that if pivot index would result in items that share the same co-ordinate
-                // on the splitting dimension would end up on different sides of the split, that we
-                // move the pivot to prevent this. We first try moving down, since that's the only
-                // part of the bucket that was sorted by mirror_select_nth_unstable_by
-                while pivot_idx > 0
-                    && *orig
-                        .content_points
-                        .get_unchecked(split_dim)
-                        .get_unchecked(pivot_idx - 1)
-                        == split_val
+            let mut less = 0;
+            let mut current = 0;
+            let mut greater = orig.size;
+            while current < greater {
+                match orig.content_points[split_dim][current]
+                    .partial_cmp(&candidate)
+                    .expect("Leaf node sort failed.")
                 {
-                    pivot_idx -= 1;
-                }
-
-                // If the attempt to move the pivot point above would have resulted in the pivot
-                // point moving to the start of the bucket, search forwards from the original
-                // pivot point instead. We need to first ensure the upper half of the bucket
-                // is sorted
-                if pivot_idx == 0 {
-                    // Re-sort to ensure the entire array is sorted
-                    mirror_select_nth_unstable_by(
-                        &mut orig.content_points[split_dim][..orig.size],
-                        &mut mirror[..orig.size],
-                        orig.size - 1,
-                        |a, b| a.partial_cmp(b).expect("Leaf node sort failed."),
-                    );
-
-                    pivot_idx = orig_pivot_idx;
-                    while *orig
-                        .content_points
-                        .get_unchecked(split_dim)
-                        .get_unchecked(pivot_idx)
-                        == split_val
-                    {
-                        pivot_idx += 1;
-
-                        if pivot_idx == B {
-                            unsplittable = true;
-                            break;
-                        }
+                    std::cmp::Ordering::Less => {
+                        orig.content_points[split_dim].swap(less, current);
+                        mirror.swap(less, current);
+                        less += 1;
+                        current += 1;
+                    }
+                    std::cmp::Ordering::Equal => current += 1,
+                    std::cmp::Ordering::Greater => {
+                        greater -= 1;
+                        orig.content_points[split_dim].swap(current, greater);
+                        mirror.swap(current, greater);
                     }
                 }
+            }
 
-                if !unsplittable {
-                    split_val = *orig
+            let (pivot_idx, split_val, unsplittable) = if less > 0 {
+                // A strictly smaller prefix exists, so keep the whole equal run on
+                // the right. Queries traverse right on `query[dim] >= split`.
+                (less, candidate, false)
+            } else if greater < orig.size {
+                // The candidate is the minimum. Keep the equal run on the left and
+                // split at the smallest strictly greater value. The greater region
+                // is partitioned but not sorted, so move its minimum to the
+                // boundary before publishing it as the split.
+                let mut min_idx = greater;
+                for idx in (greater + 1)..orig.size {
+                    if orig.content_points[split_dim][idx]
+                        .partial_cmp(&orig.content_points[split_dim][min_idx])
+                        .expect("Leaf node sort failed.")
+                        == std::cmp::Ordering::Less
+                    {
+                        min_idx = idx;
+                    }
+                }
+                orig.content_points[split_dim].swap(greater, min_idx);
+                mirror.swap(greater, min_idx);
+                (
+                    greater,
+                    *orig
                         .content_points
                         .get_unchecked(split_dim)
-                        .get_unchecked(pivot_idx);
-                }
-            }
+                        .get_unchecked(greater),
+                    false,
+                )
+            } else {
+                // Every point shares the split coordinate. A fixed capacity bucket
+                // cannot represent this input.
+                (orig.size, candidate, true)
+            };
 
             // `mirror` tracks the cumulative permutation back to the original leaf,
             // including the optional second selection pass above. Apply it exactly
