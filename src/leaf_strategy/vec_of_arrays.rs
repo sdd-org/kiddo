@@ -434,13 +434,14 @@ where
         leaf.size = new_idx;
     }
 
-    /// Splits this leaf by:
-    /// * sorting it along split_dim
-    /// * finding the midpoint
-    /// * creating a new empty leaf
-    /// * moving items from the midpoint onwards to the new leaf
+    /// Splits this leaf by partitioning it along `split_dim` at the midpoint and
+    /// moving the upper partition into a new leaf. Equal coordinates stay on one
+    /// side so query routing is unambiguous.
     ///
-    /// Returns: A tuple of (split_value, new_leaf_idx)
+    /// A full bucket whose points all share the split coordinate cannot be
+    /// represented by this fixed capacity leaf.
+    ///
+    /// Returns: `(split_value, new_leaf_idx)`
     fn split_leaf(
         &mut self,
         leaf_idx: usize,
@@ -452,10 +453,12 @@ where
 
             let pivot_idx: usize = orig.size / 2;
 
-            // Create a mirror array to track the permutation
+            // `mirror` tracks the permutation applied to the split dimension so the other
+            // coordinates and the item array can follow the same reordering.
             let mut mirror: [usize; B] = array_init::array_init(|i| i);
 
-            // Sort the split dimension and track the permutation in mirror
+            // Select a candidate at the midpoint. The mirror selection only partitions
+            // around the candidate, it does not group equal values.
             mirror_select_nth_unstable_by(
                 &mut orig.content_points[split_dim][..orig.size],
                 &mut mirror[..orig.size],
@@ -463,10 +466,8 @@ where
                 |a, b| a.partial_cmp(b).expect("Leaf node sort failed."),
             );
 
-            // Use the selected value as a candidate, then partition the bucket into
-            // values below, equal to and above it. The selection only guarantees a
-            // partition, not that equal values are contiguous, so the split boundary
-            // has to be established explicitly.
+            // Partition the bucket into values below, equal to and above the candidate.
+            // The explicit equal region is what makes the boundary valid for query routing.
             let candidate = *orig
                 .content_points
                 .get_unchecked(split_dim)
@@ -530,9 +531,8 @@ where
                 (orig.size, candidate, true)
             };
 
-            // `mirror` tracks the cumulative permutation back to the original leaf,
-            // including the optional second selection pass above. Apply it exactly
-            // once so every coordinate and item remains associated.
+            // Apply the recorded permutation to the remaining coordinates and the item
+            // array. `mirror[i]` is the original position of the entry now at position `i`.
             for dim in 0..K {
                 if dim != split_dim {
                     let temp = orig.content_points[dim];
