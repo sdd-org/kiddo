@@ -377,6 +377,47 @@ fn update_pivot_shifts_right_when_left_scan_hits_zero() {
 }
 
 #[test]
+fn update_pivot_preserves_split_invariant_with_ties() {
+    use rand::{RngExt, SeedableRng};
+
+    type TestTree = KdTree<f32, u32, Eytzinger, VecOfArrays<f32, u32, 2, 4>, 2, 4>;
+    let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(0x5eed);
+
+    for _ in 0..10_000 {
+        let len = rng.random_range(2..=32usize);
+        let source = (0..len)
+            .map(|_| {
+                [
+                    rng.random_range(0..=4u8) as f32,
+                    rng.random_range(0..=4u8) as f32,
+                ]
+            })
+            .collect::<Vec<[f32; 2]>>();
+        let mut sort_index = (0..len as u32).collect::<Vec<_>>();
+        let init_pivot = rng.random_range(1..len);
+
+        let Ok(pivot) = TestTree::update_pivot(
+            &source,
+            &|point: &[f32; 2], dim| point[dim],
+            &mut sort_index,
+            0,
+            init_pivot,
+        ) else {
+            continue;
+        };
+
+        assert!(pivot > 0 && pivot < len);
+        let split_val = source[sort_index[pivot] as usize][0];
+        for &idx in &sort_index[..pivot] {
+            assert!(source[idx as usize][0] < split_val);
+        }
+        for &idx in &sort_index[pivot..] {
+            assert!(source[idx as usize][0] >= split_val);
+        }
+    }
+}
+
+#[test]
 fn replace_item_updates_flat_vec_tree_without_changing_size() {
     type TestTree = KdTree<f32, u32, Eytzinger, FlatVec<f32, u32, 2, 32>, 2, 32>;
 

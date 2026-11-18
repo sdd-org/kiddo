@@ -1317,72 +1317,69 @@ where
         I: ConstructionIndex,
         FA: Fn(&X, usize) -> A,
     {
-        // Pick a median-ish candidate value, then three-way partition the whole
-        // slice so that every coordinate equal to the candidate is contiguous.
-        // `select_nth_unstable_by` alone only guarantees a partition. It does
-        // not guarantee that equal values are adjacent, which the split
-        // boundary needs.
         // TODO: a single fat partition quickselect could select the pivot and
-        // split in one pass instead of selecting a candidate and partitioning.
-        let candidate = {
-            let (_, pivot_item, _) = sort_index.select_nth_unstable_by(init_pivot, |&ia, &ib| {
+        // establish the boundary in one pass.
+        let (before, pivot_item, after) =
+            sort_index.select_nth_unstable_by(init_pivot, |&ia, &ib| {
                 A::cmp(
                     (*axis_at)(&source[ia.as_usize()], dim),
                     (*axis_at)(&source[ib.as_usize()], dim),
                 )
             });
-            (*axis_at)(&source[(*pivot_item).as_usize()], dim)
-        };
+        let pivot_val = (*axis_at)(&source[(*pivot_item).as_usize()], dim);
 
-        let mut less = 0;
-        let mut current = 0;
-        let mut greater = sort_index.len();
-        while current < greater {
-            match A::cmp(
-                (*axis_at)(&source[sort_index[current].as_usize()], dim),
-                candidate,
-            ) {
-                std::cmp::Ordering::Less => {
-                    sort_index.swap(less, current);
-                    less += 1;
-                    current += 1;
-                }
-                std::cmp::Ordering::Equal => current += 1,
-                std::cmp::Ordering::Greater => {
-                    greater -= 1;
-                    sort_index.swap(current, greater);
-                }
+        // Move ties in the left partition to its end. If any strictly smaller
+        // values remain, the split is already valid and the right partition can
+        // be left alone.
+        let mut i = 0;
+        let mut less = before.len();
+        while i < less {
+            let value = (*axis_at)(&source[before[i].as_usize()], dim);
+            if A::cmp(value, pivot_val) == std::cmp::Ordering::Less {
+                i += 1;
+            } else {
+                less -= 1;
+                before.swap(i, less);
             }
         }
 
-        // Equal values must land on one side of the split. Queries traverse
-        // right on `query[dim] >= split`, so an equal run on both sides would
-        // leave some points unreachable. When a strictly smaller prefix exists,
-        // put the whole equal run on the right.
         if less > 0 {
+            // Queries traverse right on `query[dim] >= split`, so the ties in
+            // `before` belong on the right together with `pivot_item` and the
+            // whole `after` partition.
             Ok(less)
-        } else if greater < sort_index.len() {
-            // The candidate is the minimum. Put the equal run on the left and
-            // split at the smallest strictly greater value to avoid empty left
-            // splits. The greater region is partitioned but not sorted, so move
-            // its minimum to the boundary before publishing it as the split.
-            let mut min_idx = greater;
-            for idx in (greater + 1)..sort_index.len() {
-                if A::cmp(
-                    (*axis_at)(&source[sort_index[idx].as_usize()], dim),
-                    (*axis_at)(&source[sort_index[min_idx].as_usize()], dim),
-                ) == std::cmp::Ordering::Less
-                {
-                    min_idx = idx;
+        } else {
+            // Every value in `before` is a tie. Move the ties in `after` to
+            // its front, then split at the smallest strictly greater value so
+            // the whole equal run stays on the left.
+            let mut write = 0;
+            for read in 0..after.len() {
+                let value = (*axis_at)(&source[after[read].as_usize()], dim);
+                if A::cmp(value, pivot_val) == std::cmp::Ordering::Equal {
+                    after.swap(write, read);
+                    write += 1;
                 }
             }
-            sort_index.swap(greater, min_idx);
-            Ok(greater)
-        } else if LS::BUCKET_LIMIT_TYPE == BucketLimitType::Hard {
-            tracing::debug!("Slice unsplittable along dimension");
-            Err(ConstructionError::UnsplittableBucket { split_dim: dim })
-        } else {
-            Ok(sort_index.len())
+
+            if write == after.len() {
+                if LS::BUCKET_LIMIT_TYPE == BucketLimitType::Hard {
+                    tracing::debug!("Slice unsplittable along dimension");
+                    Err(ConstructionError::UnsplittableBucket { split_dim: dim })
+                } else {
+                    Ok(before.len() + 1 + after.len())
+                }
+            } else {
+                let mut min_idx = write;
+                for idx in (write + 1)..after.len() {
+                    let value = (*axis_at)(&source[after[idx].as_usize()], dim);
+                    let min_value = (*axis_at)(&source[after[min_idx].as_usize()], dim);
+                    if A::cmp(value, min_value) == std::cmp::Ordering::Less {
+                        min_idx = idx;
+                    }
+                }
+                after.swap(write, min_idx);
+                Ok(before.len() + 1 + write)
+            }
         }
     }
 }
