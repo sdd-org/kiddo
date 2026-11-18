@@ -806,3 +806,7 @@ path = "tests/scalar_off_restore.rs"
 [[test]]
 name = "construction_errors"
 path = "tests/construction_errors.rs"
+
+[[test]]
+name = "mutable_split"
+path = "tests/mutable_split.rs"
