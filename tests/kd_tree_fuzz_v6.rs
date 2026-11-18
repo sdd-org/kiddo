@@ -5686,7 +5686,11 @@ metric_pruning_sweep!(
 #[test]
 #[ignore = "long-running metric pruning differential checks"]
 fn fuzz_v6_metric_pruning_unsigned_fixed() {
-    run_metric_pruning_unsigned_fixed(FuzzConfig::from_env());
+    // Keep version-1 keys replayable, but do not generate new cases from the
+    // old, quantized input distribution during full sweeps.
+    if fuzz_cases::replay_key().is_some() {
+        run_metric_pruning_unsigned_fixed(FuzzConfig::from_env());
+    }
 }
 
 #[cfg(feature = "fixed")]
@@ -5761,6 +5765,156 @@ fn run_metric_pruning_unsigned_fixed(cfg: FuzzConfig) {
         }
     }
 }
+
+#[cfg(feature = "fixed")]
+fn splittable_fixed_bits(rng: &mut StdRng, len: usize, min: u32, max: u32) -> Vec<[u32; 3]> {
+    const MAX_OCCURRENCES: u8 = 31;
+    let values = (max - min + 1) as usize;
+    assert!(
+        len <= values * usize::from(MAX_OCCURRENCES),
+        "fixed-point sweep exceeds splittable coordinate capacity"
+    );
+    let mut counts = vec![vec![0u8; values]; 3];
+    (0..len)
+        .map(|_| {
+            array::from_fn(|axis| loop {
+                let bits = rng.random_range(min..=max);
+                let count = &mut counts[axis][(bits - min) as usize];
+                if *count < MAX_OCCURRENCES {
+                    *count += 1;
+                    break bits;
+                }
+            })
+        })
+        .collect()
+}
+
+#[cfg(feature = "fixed")]
+#[test]
+fn fixed_metric_generator_limits_coordinate_multiplicity() {
+    for (min, max, len) in [(256, 1024, 8197), (65536, 262144, 65536)] {
+        let mut rng = StdRng::seed_from_u64(1260253197);
+        let points = splittable_fixed_bits(&mut rng, len, min, max);
+        assert_eq!(points.len(), len);
+        for axis in 0..3 {
+            let mut counts = vec![0u8; (max - min + 1) as usize];
+            for point in &points {
+                counts[(point[axis] - min) as usize] += 1;
+            }
+            assert!(counts.into_iter().all(|count| count < 32));
+        }
+    }
+}
+
+#[cfg(feature = "fixed")]
+macro_rules! splittable_unsigned_metric_sweep {
+    ($test:ident, $run:ident, $axis:ty, $bits:ty, $frac:expr, $max_pow:expr) => {
+        #[test]
+        #[ignore = "long-running metric pruning differential checks"]
+        fn $test() {
+            let mut cfg = FuzzConfig::from_env();
+            // Q8 has only 769 values in the safe coordinate range. Bound its
+            // tree size; the signed Q16 sweep retains large-tree coverage.
+            cfg.min_pow = cfg.min_pow.min($max_pow);
+            cfg.max_pow = cfg.max_pow.min($max_pow);
+            $run(cfg);
+        }
+
+        fn $run(cfg: FuzzConfig) {
+            type A = $axis;
+            type Tree = KdTree<A, usize, Eytzinger, VecOfArrays<A, usize, 3, 32>, 3, 32>;
+            for case in 0..cfg.cases {
+                let content_seed = cfg.case_seed(case);
+                let mut rng = StdRng::seed_from_u64(content_seed);
+                let len = random_point_count(cfg, &mut rng);
+                // Each axis has at most B-1 occurrences of any coordinate. Every
+                // full mutable bucket can therefore be split on its selected axis.
+                // Coordinate and query ranges keep oracle distances representable.
+                let points = splittable_fixed_bits(&mut rng, len, 1 << $frac, 4 << $frac)
+                    .into_iter()
+                    .map(|point| point.map(|bits| A::from_bits(bits as $bits)))
+                    .collect::<Vec<[A; 3]>>();
+                let (bulk, incremental) = {
+                    let _case = fuzz_cases::enter(fuzz_cases::FailureKey::generated(
+                        stringify!($test),
+                        cfg,
+                        content_seed,
+                        None,
+                    ));
+                    let bulk = Tree::new_from_slice(&points).unwrap();
+                    let mut incremental = Tree::default();
+                    for (item, point) in points.iter().enumerate() {
+                        incremental.add(point, item).unwrap();
+                    }
+                    (bulk, incremental)
+                };
+                for query_idx in cfg.query_start..cfg.query_start + cfg.query_count {
+                    let _case = fuzz_cases::enter(fuzz_cases::FailureKey::generated(
+                        stringify!($test),
+                        cfg,
+                        content_seed,
+                        Some(query_idx),
+                    ));
+                    let seed = query_seed(content_seed, query_idx);
+                    let mut rng = StdRng::seed_from_u64(seed);
+                    let query = array::from_fn(|_| A::from_bits(rng.random_range(0..=(6 << $frac))));
+                    let n = match query_idx % 5 {
+                        0 => 1,
+                        1 => 32,
+                        2 => 33,
+                        3 => 64,
+                        _ => rng.random_range(1..=cfg.max_nearest_n.max(1)),
+                    }
+                    .min(len);
+                    let radius = A::from_bits(rng.random_range(0..=(8 << $frac)));
+                    for (mode, tree) in [("bulk", &bulk), ("incremental", &incremental)] {
+                        let context = format!("{} {mode} points={len} k={n} content_seed={content_seed} query_index={query_idx} query_seed={seed} query={query:?} radius={radius}", stringify!($axis));
+                        let results = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            [
+                                metric_checks::validate_metric::<_, _, _, Manhattan<A>, 3, 32>(
+                                    tree, &points, &query, n, radius,
+                                ),
+                                metric_checks::validate_metric::<_, _, _, SquaredEuclidean<A>, 3, 32>(
+                                    tree, &points, &query, n, radius,
+                                ),
+                                metric_checks::validate_metric::<_, _, _, Chebyshev<A>, 3, 32>(
+                                    tree, &points, &query, n, radius,
+                                ),
+                            ]
+                        }))
+                        .unwrap_or_else(|panic| {
+                            eprintln!("{context}");
+                            std::panic::resume_unwind(panic)
+                        });
+                        for result in results {
+                            result.unwrap_or_else(|error| panic!("{context}: {error}"));
+                        }
+                    }
+                }
+            }
+        }
+
+    };
+}
+
+#[cfg(feature = "fixed")]
+splittable_unsigned_metric_sweep!(
+    fuzz_v6_metric_pruning_unsigned_fixed_u16,
+    run_metric_pruning_unsigned_fixed_u16,
+    fixed::FixedU16<fixed::types::extra::U8>,
+    u16,
+    8,
+    13
+);
+#[cfg(feature = "fixed")]
+splittable_unsigned_metric_sweep!(
+    fuzz_v6_metric_pruning_fixed_i32,
+    run_metric_pruning_fixed_i32,
+    fixed::FixedI32<fixed::types::extra::U16>,
+    i32,
+    16,
+    u32::MAX
+);
 
 #[test]
 fn fuzz_v6_saved_failures() {

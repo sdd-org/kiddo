@@ -26,6 +26,8 @@ fn validate(key: &Value) -> Result<()> {
         "fuzz_v6_metric_pruning_f32",
         "fuzz_v6_metric_pruning_f64",
         "fuzz_v6_metric_pruning_unsigned_fixed",
+        "fuzz_v6_metric_pruning_fixed_i32",
+        "fuzz_v6_metric_pruning_unsigned_fixed_u16",
         "fuzz_v6_adversarial_fast_non_simd",
         "fuzz_v6_adversarial_fast_simd",
         "fuzz_v6_approx_nearest_one_fast_hard",

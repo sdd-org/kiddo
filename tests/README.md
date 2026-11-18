@@ -10,6 +10,8 @@ cargo test --lib --features test_utils
 
 [`kd_tree_fuzz_v6.rs`](kd_tree_fuzz_v6.rs) contains generated and adversarial correctness checks. The generated tests build trees from seeded point sets and compare exact query results with a brute-force oracle across tree layouts and query types. Other tests exercise adversarial inputs and approximate search. Long-running sweeps are marked `#[ignore]`.
 
+The fixed-point metric sweeps limit repeated coordinates so mutable buckets remain splittable. The unsigned Q8 sweep caps the tree size at roughly 8,192 points; a signed Q16 sweep covers larger trees.
+
 For a small scalar run of one generated sweep:
 
 ```sh
