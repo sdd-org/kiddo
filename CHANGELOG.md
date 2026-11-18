@@ -1,5 +1,55 @@
 # Kiddo Changelog
 
+## [6.3.1] - 2026-11-18
+
+### 🐛 Bug Fixes
+
+- Preserve Rust 1.89 compatibility for generator ([@sdd](https://github.com/sdd))
+
+- Satisfy Rust 1.100 Clippy ([@sdd](https://github.com/sdd))
+
+- Replan overflowing hard-bucket subtrees ([@sdd](https://github.com/sdd), Fixes:#571)
+
+- Restore deferred far-child offsets during scalar backtracking ([@cbueth](https://github.com/cbueth))
+
+
+### ♻️ Refactor
+
+- Expose query stack length ([@cbueth](https://github.com/cbueth))
+
+
+### 🧪 Testing
+
+- Generalize metric pruning differential checks ([@sdd](https://github.com/sdd))
+
+- Cover scalar far-child offset restoration ([@cbueth](https://github.com/cbueth))
+
+- Cover stack length and offset-restore branches ([@cbueth](https://github.com/cbueth))
+
+- Cover unsplittable bucket message ([@cbueth](https://github.com/cbueth))
+
+- Accept documented unsplittable hard buckets ([@cbueth](https://github.com/cbueth))
+
+
+### 🤖 CI
+
+- Report post-merge failures as regression PRs ([@sdd](https://github.com/sdd))
+
+- Include library unit tests ([@cbueth](https://github.com/cbueth))
+
+
+### 🧹 Chore
+
+- Add citation.cff and github actions updater for it ([@sdd](https://github.com/sdd))
+
+- Acknowledge community contributors ([@sdd](https://github.com/sdd))
+
+- Add carlson to citation.cff and fix formattng of my entry ([@sdd](https://github.com/sdd))
+
+- Explain fuzz testing and replay ([@sdd](https://github.com/sdd))
+
+- Clarify unsplittable bucket errors ([@cbueth](https://github.com/cbueth))
+
 ## [6.3.0] - 2026-09-06
 
 ### ✨ Features
