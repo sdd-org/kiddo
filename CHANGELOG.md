@@ -12,11 +12,9 @@
 
 - Restore deferred far-child offsets during scalar backtracking ([@cbueth](https://github.com/cbueth))
 
-
 ### ♻️ Refactor
 
 - Expose query stack length ([@cbueth](https://github.com/cbueth))
-
 
 ### 🧪 Testing
 
@@ -30,13 +28,11 @@
 
 - Accept documented unsplittable hard buckets ([@cbueth](https://github.com/cbueth))
 
-
 ### 🤖 CI
 
 - Report post-merge failures as regression PRs ([@sdd](https://github.com/sdd))
 
 - Include library unit tests ([@cbueth](https://github.com/cbueth))
-
 
 ### 🧹 Chore
 
