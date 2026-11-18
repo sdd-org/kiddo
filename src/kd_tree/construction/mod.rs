@@ -1286,6 +1286,9 @@ where
         I: ConstructionIndex,
         FA: Fn(&X, usize) -> A,
     {
+        // `select_nth_unstable_by` places a candidate at the requested rank and
+        // partitions the slice around it, but it does not group values equal to the
+        // candidate. Build the boundary from those partitions below.
         // TODO: a single fat partition quickselect could select the pivot and
         // establish the boundary in one pass.
         let (before, pivot_item, after) =
@@ -1297,9 +1300,9 @@ where
             });
         let pivot_val = (*axis_at)(&source[(*pivot_item).as_usize()], dim);
 
-        // Move ties in the left partition to its end. If any strictly smaller
-        // values remain, the split is already valid and the right partition can
-        // be left alone.
+        // Move values equal to the candidate to the end of the left partition. If any
+        // strictly smaller values remain, the split is already valid and the right
+        // partition can be left alone.
         let mut i = 0;
         let mut less = before.len();
         while i < less {
@@ -1318,9 +1321,9 @@ where
             // whole `after` partition.
             Ok(less)
         } else {
-            // Every value in `before` is a tie. Move the ties in `after` to
-            // its front, then split at the smallest strictly greater value so
-            // the whole equal run stays on the left.
+            // Every value in `before` is a tie. `select_nth_unstable_by` can leave ties in
+            // `after` too, so move them to its front before splitting at the smallest
+            // strictly greater value. That keeps the whole equal run on the left.
             let mut write = 0;
             for read in 0..after.len() {
                 let value = (*axis_at)(&source[after[read].as_usize()], dim);
@@ -1338,6 +1341,8 @@ where
                     Ok(before.len() + 1 + after.len())
                 }
             } else {
+                // The greater region is partitioned but not sorted, so find and move its
+                // minimum to the boundary before publishing the split.
                 let mut min_idx = write;
                 for idx in (write + 1)..after.len() {
                     let value = (*axis_at)(&source[after[idx].as_usize()], dim);
@@ -1347,6 +1352,8 @@ where
                     }
                 }
                 after.swap(write, min_idx);
+                // `before` plus the pivot item plus the ties moved from `after` form the equal
+                // run. `after[write]` is the first strictly greater value and becomes the stem.
                 Ok(before.len() + 1 + write)
             }
         }
