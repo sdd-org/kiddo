@@ -28,6 +28,11 @@ updates:
       cargo-dependencies:
         patterns:
           - "*"
+    ignore:
+      - dependency-name: ordered-float
+        versions: [">=5.5.0"]
+      - dependency-name: sorted-vec
+        versions: [">=0.8.11"]
 
   - package-ecosystem: github-actions
     directory: "/"
