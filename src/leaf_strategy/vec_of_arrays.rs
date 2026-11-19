@@ -232,7 +232,7 @@ where
     T: Content,
 {
     // Enforce bucket size of at least 2. B=1 can trigger UB in split fn
-    // https://github.com/sdd/kiddo/issues/295
+    // https://github.com/sdd-org/kiddo/issues/295
     const _VALID_B: () = {
         assert!(
             B > 1,
