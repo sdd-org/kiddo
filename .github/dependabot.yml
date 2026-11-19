@@ -12,6 +12,9 @@ updates:
       cargo-dependencies:
         patterns:
           - "*"
+    ignore:
+      - dependency-name: generator
+        versions: [">=0.8.12"]
 
   - package-ecosystem: cargo
     directory: "/"
