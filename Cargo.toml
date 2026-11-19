@@ -37,7 +37,7 @@ test_utils = ["dep:rand", "dep:rand_chacha", "dep:rayon", "dep:fixed"]
 tracing = ["dep:tracing", "dep:tracing-subscriber"]
 
 [target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64"))'.dependencies]
-generator = "0.8.4"
+generator = "<0.8.12"
 
 [dependencies]
 aligned-vec = "0.6.1"
@@ -46,8 +46,8 @@ az = "1.2"
 cmov = "0.5"
 divrem = "1"
 num-traits = "0.2"
-ordered-float = "5"
-sorted-vec = "0.8"
+ordered-float = ">=5, <5.5"
+sorted-vec = "<0.8.11"
 
 [dependencies.csv]
 version = "1"
