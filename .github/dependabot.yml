@@ -15,6 +15,8 @@ updates:
     ignore:
       - dependency-name: generator
         versions: [">=0.8.12"]
+      - dependency-name: ordered-float
+        versions: [">=5.5.0"]
 
   - package-ecosystem: cargo
     directory: "/"
@@ -29,6 +31,8 @@ updates:
         patterns:
           - "*"
     ignore:
+      - dependency-name: generator
+        versions: [">=0.8.12"]
       - dependency-name: ordered-float
         versions: [">=5.5.0"]
       - dependency-name: sorted-vec
