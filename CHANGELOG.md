@@ -10,18 +10,15 @@
 
 - Use std::hint::black_box ([@cbueth](https://github.com/cbueth))
 
-
 ### ♻️ Refactor
 
 - Return split outcome directly ([@cbueth](https://github.com/cbueth))
-
 
 ### 🤖 CI
 
 - Skip commitlint for Dependabot pull requests ([@sdd](https://github.com/sdd))
 
 - Auto-merge Dependabot updates after checks ([@sdd](https://github.com/sdd))
-
 
 ### 🧹 Chore
 
@@ -40,7 +37,6 @@
 - Clarify mutable split comments ([@cbueth](https://github.com/cbueth))
 
 - Explain fixed capacity split limit ([@cbueth](https://github.com/cbueth))
-
 
 ### bench
 
