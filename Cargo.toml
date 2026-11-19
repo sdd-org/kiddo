@@ -262,6 +262,11 @@ incremental = true
 #required-features = ["test_utils"]
 
 [[bench]]
+name = "hard_bucket_construction"
+harness = false
+required-features = ["test_utils"]
+
+[[bench]]
 name = "v6_codspeed_queries"
 harness = false
 required-features = ["test_utils"]
