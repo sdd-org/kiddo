@@ -1,9 +1,10 @@
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use kiddo::kd_tree::KdTree;
 use kiddo::leaf_strategy::VecOfArrays;
 use kiddo::stem_strategy::Eytzinger;
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
+use std::hint::black_box;
 use std::time::Duration;
 
 const K: usize = 3;
