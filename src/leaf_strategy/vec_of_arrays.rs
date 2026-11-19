@@ -496,10 +496,10 @@ where
                 }
             }
 
-            let (pivot_idx, split_val, unsplittable) = if less > 0 {
+            let split_outcome: Result<(usize, AX), ConstructionError> = if less > 0 {
                 // A strictly smaller prefix exists, so keep the whole equal run on
                 // the right. Queries traverse right on `query[dim] >= split`.
-                (less, candidate, false)
+                Ok((less, candidate))
             } else if greater < orig.size {
                 // The candidate is the minimum. Keep the equal run on the left and
                 // split at the smallest strictly greater value. The greater region
@@ -517,18 +517,17 @@ where
                 }
                 orig.content_points[split_dim].swap(greater, min_idx);
                 mirror.swap(greater, min_idx);
-                (
+                Ok((
                     greater,
                     *orig
                         .content_points
                         .get_unchecked(split_dim)
                         .get_unchecked(greater),
-                    false,
-                )
+                ))
             } else {
                 // Every point shares the split coordinate. A fixed capacity bucket
                 // cannot represent this input.
-                (orig.size, candidate, true)
+                Err(ConstructionError::UnsplittableBucket { split_dim })
             };
 
             // Apply the recorded permutation to the remaining coordinates and the item
@@ -546,9 +545,7 @@ where
                 orig.content_items[i] = temp_items[mirror[i]];
             }
 
-            if unsplittable {
-                return Err(ConstructionError::UnsplittableBucket { split_dim });
-            }
+            let (pivot_idx, split_val) = split_outcome?;
 
             // At this point, we have a valid index at which we can split the bucket.
             // We need to copy the old leaf data before we can borrow self again
