@@ -23,7 +23,8 @@ env:
 jobs:
   commitlint:
     name: Commit Lint
-    if: github.event_name != 'pull_request' || github.actor != 'dependabot[bot]'
+    # The triggering actor can be a maintainer even on a Dependabot PR.
+    if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: read
