@@ -439,7 +439,8 @@ where
     /// side so query routing is unambiguous.
     ///
     /// A full bucket whose points all share the split coordinate cannot be
-    /// represented by this fixed capacity leaf.
+    /// represented with this bucket size. Use a larger `B` or a leaf strategy
+    /// without fixed capacity buckets.
     ///
     /// Returns: `(split_value, new_leaf_idx)`
     fn split_leaf(
@@ -526,7 +527,9 @@ where
                 ))
             } else {
                 // Every point shares the split coordinate. A fixed capacity bucket
-                // cannot represent this input.
+                // of this size cannot represent this input. Either a larger bucket
+                // size (`B`) is required or a leaf strategy without fixed capacity
+                // buckets.
                 Err(ConstructionError::UnsplittableBucket { split_dim })
             };
 
