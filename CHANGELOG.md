@@ -324,7 +324,7 @@ long-standing issues.
 
 - Configurable scratch location ([@sdd](https://github.com/sdd))
 
-- Introduce QueryMetric public trait ([@sdd](https://github.com/sdd), Fixes:[Issue #390](https://github.com/sdd/kiddo/issues/390))
+- Introduce QueryMetric public trait ([@sdd](https://github.com/sdd), Fixes:[Issue #390](https://github.com/sdd-org/kiddo/issues/390))
 
 - Ensure third-party leaf strategies can be used ([@sdd](https://github.com/sdd))
 
@@ -461,15 +461,15 @@ I'm hoping to have v6 available soon, which will include both these changes as w
 
 ### ✨ Features
 
-- Improve the flexibility of T type, KdTree.size. Add generate nearest_one_point (https://github.com/sdd/kiddo/pull/214, @pjkundert)
-- Fix broken test of custom struct as T. Add test for `()` as T (https://github.com/sdd/kiddo/pull/243 @pjkundert)
+- Improve the flexibility of T type, KdTree.size. Add generate nearest_one_point (https://github.com/sdd-org/kiddo/pull/214, @pjkundert)
+- Fix broken test of custom struct as T. Add test for `()` as T (https://github.com/sdd-org/kiddo/pull/243 @pjkundert)
 
 ## [5.3.1] - 2026-04-15
 
 ### 🐛 Bug Fixes
 
 - Add a compile-time assertion to prevent bucket size of less than 2 for `KdTree` to avoid UB when trying to split a bucket of size 1.
-  Fixes https://github.com/sdd/kiddo/issues/295. (Note that even though bucket sizes of 2 are possible, I would generally not recommend
+  Fixes https://github.com/sdd-org/kiddo/issues/295. (Note that even though bucket sizes of 2 are possible, I would generally not recommend
   using a value of B below 32 anyway, for best performance.)
 
 ## [5.3.0] - 2026-03-19
@@ -479,9 +479,9 @@ come with extensive tests, and he was even able to contribute a big fix and some
 
 ### ✨ Features
 
-- Add Chebyshev (L_∞ norm) distance metric (https://github.com/sdd/kiddo/pull/290, @cbueth)
-- Add Generalised Minkowski (L_p norm) distance metric (https://github.com/sdd/kiddo/pull/291, @cbueth)
-- Add `*_exclusive` methods for querying with an exclusive (`<`) rather than inclusive (`<=`) boundary check (https://github.com/sdd/kiddo/pull/294, @cbueth)
+- Add Chebyshev (L_∞ norm) distance metric (https://github.com/sdd-org/kiddo/pull/290, @cbueth)
+- Add Generalised Minkowski (L_p norm) distance metric (https://github.com/sdd-org/kiddo/pull/291, @cbueth)
+- Add `*_exclusive` methods for querying with an exclusive (`<`) rather than inclusive (`<=`) boundary check (https://github.com/sdd-org/kiddo/pull/294, @cbueth)
 
 ### 🐛 Bug Fixes
 
@@ -490,7 +490,7 @@ come with extensive tests, and he was even able to contribute a big fix and some
 
 ### Docs
 
-- Correct a mistake in the docs for `fixed::distance::Manhattan` (https://github.com/sdd/kiddo/pull/283, @Luca-spopo)
+- Correct a mistake in the docs for `fixed::distance::Manhattan` (https://github.com/sdd-org/kiddo/pull/283, @Luca-spopo)
 
 ### Deps
 
@@ -650,15 +650,15 @@ docs on docs.rs, I chose to yank 5.1.0 instead.
 
 ### Deps
 
-- Update generator dependency to 0.8.4, Fixes:https://github.com/sdd/kiddo/issues/182
+- Update generator dependency to 0.8.4, Fixes:https://github.com/sdd-org/kiddo/issues/182
 
 ## [5.0.2] - 2024-12-15
 
 ### 🐛 Bug Fixes
 
 - Disable broken get_best_from_dists_f64_avx2 until fixed
-- only export WithinUnsortedIter on archs where the within_unsorted_iter mod is configured (https://github.com/sdd/kiddo/issues/190)
-- fix: consistently use CACHELINE_ALIGN (https://github.com/sdd/kiddo/issues/190)
+- only export WithinUnsortedIter on archs where the within_unsorted_iter mod is configured (https://github.com/sdd-org/kiddo/issues/190)
+- fix: consistently use CACHELINE_ALIGN (https://github.com/sdd-org/kiddo/issues/190)
 
 ## [5.0.1] - 2024-12-08
 
@@ -678,7 +678,7 @@ Version 5 bundles a complete re-write of [`ImmutableKdTree`](`immutable::float::
 
 **BREAKING CHANGE**: For anyone that has been serializing `ImmutableKdTree` (using either `serde` or `rkyv`), version 5 constitutes a breaking change as serialized trees from prior versions will not be deserializable with v5 and vice-versa.
 
-Quite a few people (https://github.com/sdd/kiddo/issues/172, https://github.com/sdd/kiddo/issues/158, https://github.com/sdd/kiddo/issues/78) have previously unsuccessfully tried to use `ImmutableKdTree` with data containing many points that have the same value on one or more of their axes, for example point cloud data containing many points on a flat axis-aligned plane.
+Quite a few people (https://github.com/sdd-org/kiddo/issues/172, https://github.com/sdd-org/kiddo/issues/158, https://github.com/sdd-org/kiddo/issues/78) have previously unsuccessfully tried to use `ImmutableKdTree` with data containing many points that have the same value on one or more of their axes, for example point cloud data containing many points on a flat axis-aligned plane.
 The v5 rewrite of `ImmutableKdTree` experiences none of these kinds of problems and can be safely used no matter what your data looks like.
 Query performance is in many cases faster than the prior version, but sometimes slightly slower - your mileage may vary but differences in query performance is pretty small.
 Construction performance is considerably improved, with up to a 2x speedup, with the improvement becoming more pronounced as the tree size increases.
@@ -707,7 +707,7 @@ See `immutable-rkyv-serialize` and `immutable-rkyv-deserialize` in the examples 
 
 ### Feature name changes
 
-**BREAKING CHANGE**: It was pointed out in https://github.com/sdd/kiddo/issues/159 that it was necessary to enable both `rkyv` and `serialize_rkyv` features to use Rkyv serialization. I took the opportunity of the major version bump to rationalize the feature names to make them easier to use.
+**BREAKING CHANGE**: It was pointed out in https://github.com/sdd-org/kiddo/issues/159 that it was necessary to enable both `rkyv` and `serialize_rkyv` features to use Rkyv serialization. I took the opportunity of the major version bump to rationalize the feature names to make them easier to use.
 `serialize_rkyv` has been removed and now only `rkyv` feature is needed to enable Rkyv serialization.
 `serialize` has been renamed to `serde` in line with ecosystem conventions.
 `half` has been renamed to `f16` for clarity (but is not needed for `f16` support anyway and is only used to ensure that the `half` crate is only
@@ -715,7 +715,7 @@ depended upon within the "half" examples and not as a core dependency)
 
 ### `max_qty` Changed to `NonZero<usize>`
 
-**BREAKING CHANGE**: It was noted by [@ezrasingh](https://github.com/sdd/kiddo/issues/168#issuecomment-2335183999) that specifying `max_qty` as `0` in version 4.2.1 alongside `sorted = false` resulted in a panic. Since requesting a `max_qty` of zero makes no sense, and to avoid adding a run-time check for users who have no possibility of specifying a `max_qty` of `0`, the type of `max_qty` has been changed to `NonZero<usize>` to make this a compile-time check instead.
+**BREAKING CHANGE**: It was noted by [@ezrasingh](https://github.com/sdd-org/kiddo/issues/168#issuecomment-2335183999) that specifying `max_qty` as `0` in version 4.2.1 alongside `sorted = false` resulted in a panic. Since requesting a `max_qty` of zero makes no sense, and to avoid adding a run-time check for users who have no possibility of specifying a `max_qty` of `0`, the type of `max_qty` has been changed to `NonZero<usize>` to make this a compile-time check instead.
 
 ## [4.2.1] - 2024-08-17
 
@@ -729,7 +729,7 @@ depended upon within the "half" examples and not as a core dependency)
 
 ### 🐛 Bug Fixes
 
-- Nearest_n_within does not limit num of items when not sorted, Issue:https://github.com/sdd/kiddo/issues/168
+- Nearest_n_within does not limit num of items when not sorted, Issue:https://github.com/sdd-org/kiddo/issues/168
 - Update rust crate itertools to 0.13
 
 ## [4.2.0] - 2024-02-18
@@ -780,7 +780,7 @@ depended upon within the "half" examples and not as a core dependency)
 - Stdsimd removed from unstable, fix:fixup simd removal
 - Add missing global_allocate feature definition and sort feature defs alphabetically
 - Update benches to require test_utils feature. update clippy and test steps to include new test_utils feature
-- Claytonwramsey bug, Fixes:[#138](https://github.com/sdd/kiddo/pull/138)
+- Claytonwramsey bug, Fixes:[#138](https://github.com/sdd-org/kiddo/pull/138)
 
 ### 🧪 Testing
 

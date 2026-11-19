@@ -7,11 +7,11 @@ Built with an aggressive focus on query performance, including cache-aware layou
 - [Crate](https://crates.io/crates/kiddo)
 - [Documentation](https://docs.rs/kiddo)
 - [Usage](#usage)
-- [Examples](https://github.com/sdd/kiddo/blob/master/examples/Readme.md)
+- [Examples](https://github.com/sdd-org/kiddo/blob/master/examples/Readme.md)
 - [What's New In v6](#whats-new-in-v6)
 - [MSRV](#msrv)
 - [Benchmarks](#benchmarks)
-- [Change Log](https://github.com/sdd/kiddo/blob/master/CHANGELOG.md)
+- [Change Log](https://github.com/sdd-org/kiddo/blob/master/CHANGELOG.md)
 - [License](#license)
 
 Kiddo v6 provides a single generic [`KdTree`](https://docs.rs/kiddo/latest/kiddo/struct.KdTree.html) that supports floating-point (`f64`, `f32`, `f16`), selected fixed-point (via the `fixed` crate), and unsigned-integer (`u8`, `u16`, `u32`) types as coordinates, along with both mutable and immutable usage patterns.
@@ -137,7 +137,7 @@ assert_eq!(
 );
 ```
 
-See the [examples documentation](https://github.com/sdd/kiddo/tree/master/examples) for some more detailed examples.
+See the [examples documentation](https://github.com/sdd-org/kiddo/tree/master/examples) for some more detailed examples.
 
 The same builder can be used to select unsorted range queries, approximate nearest-neighbour search, exclusive radius boundaries, result projection, and periodic boundary conditions. For example:
 
@@ -250,14 +250,14 @@ I'd have loved to hear how it fared on a machine with a 128-byte cache line widt
 
 ### Feature name changes
 
-It was pointed out in https://github.com/sdd/kiddo/issues/159 that it was necessary to anable both `rkyv` and `serialize_rkyv` features to use Rkyv serialization. I took the opportunity of the major version bump to rationalize the feature names to make them easier to use.
+It was pointed out in https://github.com/sdd-org/kiddo/issues/159 that it was necessary to anable both `rkyv` and `serialize_rkyv` features to use Rkyv serialization. I took the opportunity of the major version bump to rationalize the feature names to make them easier to use.
 `serialize_rkyv` has been removed and now only `rkyv` feature is needed to enable Rkyv serialization.
 `serialize` has been renamed to `serde` in line with ecosystem conventions.
 `half` has been renamed to `f16` for clarity.
 
 ### `max_qty` Changed to `NonZero<usize>`
 
-It was noted by [@ezrasingh](https://github.com/sdd/kiddo/issues/168#issuecomment-2335183999) that specifying `max_qty` as zero in version 4.2.1 alongside `sorted = false` resulted in a panic. Since requesting a `max_qty` of zero makes no sense, and to avoid adding a run-time check, the type of `max_qty` has been changed to `NonZero<usize>` to make this a compile-time check instead.
+It was noted by [@ezrasingh](https://github.com/sdd-org/kiddo/issues/168#issuecomment-2335183999) that specifying `max_qty` as zero in version 4.2.1 alongside `sorted = false` resulted in a panic. Since requesting a `max_qty` of zero makes no sense, and to avoid adding a run-time check, the type of `max_qty` has been changed to `NonZero<usize>` to make this a compile-time check instead.
 
 ### `ImmutableKdTree` + `rkyv`
 
@@ -302,7 +302,7 @@ Version 2.x was a complete rewrite, providing:
 - a new internal architecture for **much-improved performance**;
 - Added **integer / fixed point support** via the [`Fixed`](https://docs.rs/fixed/latest/fixed/) library;
 - **instant zero-copy deserialization** and serialization via [`Rkyv`](https://docs.rs/rkyv/latest/rkyv/) ([`Serde`](https://docs.rs/serde/latest/serde/) still available).
-- See the [changelog](https://github.com/sdd/kiddo/blob/master/CHANGELOG.md) for a detailed run-down on all the changes made in v2.
+- See the [changelog](https://github.com/sdd-org/kiddo/blob/master/CHANGELOG.md) for a detailed run-down on all the changes made in v2.
 
 ## Benchmarks
 

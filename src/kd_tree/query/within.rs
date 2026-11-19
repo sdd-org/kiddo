@@ -381,7 +381,7 @@ mod tests {
 
     #[test]
     fn v6_within_queries_fix_issue_258() {
-        // see https://github.com/sdd/kiddo/issues/258
+        // see https://github.com/sdd-org/kiddo/issues/258
 
         let points = issue_258_test_data();
 
@@ -445,7 +445,7 @@ mod tests {
         (a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)
     }
 
-    // see https://github.com/sdd/kiddo/issues/258
+    // see https://github.com/sdd-org/kiddo/issues/258
     fn issue_258_test_data() -> Vec<[f64; 2]> {
         vec![
             [3317.0756414929883, 811.7122408967787],

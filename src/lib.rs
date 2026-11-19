@@ -9,7 +9,7 @@
 #![warn(rustdoc::broken_intra_doc_links)]
 #![warn(rustdoc::private_intra_doc_links)]
 #![doc(html_root_url = "https://docs.rs/kiddo/6.3.1")]
-#![doc(issue_tracker_base_url = "https://github.com/sdd/kiddo/issues/")]
+#![doc(issue_tracker_base_url = "https://github.com/sdd-org/kiddo/issues/")]
 #![allow(clippy::pointers_in_nomem_asm_block)]
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::needless_range_loop)]
@@ -161,7 +161,7 @@
 //! );
 //! ```
 //!
-//! See the [examples documentation](https://github.com/sdd/kiddo/tree/master/examples) for some more in-depth examples.
+//! See the [examples documentation](https://github.com/sdd-org/kiddo/tree/master/examples) for some more in-depth examples.
 //!
 //! ## Batch Queries
 //!
