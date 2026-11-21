@@ -2,6 +2,7 @@ use super::*;
 use std::num::NonZeroUsize;
 
 use crate::dist::SquaredEuclidean;
+use crate::kd_tree::OwnedStemLeafResolution;
 use crate::leaf_strategy::FlatVec;
 use crate::leaf_strategy::VecOfArenas;
 use crate::leaf_strategy::VecOfArrays;
@@ -365,9 +366,55 @@ fn update_pivot_shifts_right_when_left_scan_hits_zero() {
     .unwrap();
 
     assert_eq!(pivot, 3);
-    assert_eq!(sort_index, [0, 1, 2, 3, 4]);
+    assert!(sort_index[..pivot]
+        .iter()
+        .all(|&idx| source[idx.as_usize()][0] < 2.0));
+    assert!(sort_index[pivot..]
+        .iter()
+        .all(|&idx| source[idx.as_usize()][0] >= 2.0));
     assert_eq!(source[sort_index[pivot - 1].as_usize()][0], 1.0);
     assert_eq!(source[sort_index[pivot].as_usize()][0], 2.0);
+}
+
+#[test]
+fn update_pivot_preserves_split_invariant_with_ties() {
+    use rand::{RngExt, SeedableRng};
+
+    type TestTree = KdTree<f32, u32, Eytzinger, VecOfArrays<f32, u32, 2, 4>, 2, 4>;
+    let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(0x5eed);
+
+    for _ in 0..10_000 {
+        let len = rng.random_range(2..=32usize);
+        let source = (0..len)
+            .map(|_| {
+                [
+                    rng.random_range(0..=4u8) as f32,
+                    rng.random_range(0..=4u8) as f32,
+                ]
+            })
+            .collect::<Vec<[f32; 2]>>();
+        let mut sort_index = (0..len as u32).collect::<Vec<_>>();
+        let init_pivot = rng.random_range(1..len);
+
+        let Ok(pivot) = TestTree::update_pivot(
+            &source,
+            &|point: &[f32; 2], dim| point[dim],
+            &mut sort_index,
+            0,
+            init_pivot,
+        ) else {
+            continue;
+        };
+
+        assert!(pivot > 0 && pivot < len);
+        let split_val = source[sort_index[pivot] as usize][0];
+        for &idx in &sort_index[..pivot] {
+            assert!(source[idx as usize][0] < split_val);
+        }
+        for &idx in &sort_index[pivot..] {
+            assert!(source[idx as usize][0] >= split_val);
+        }
+    }
 }
 
 #[test]
@@ -912,4 +959,114 @@ fn hard_bucket_construction_issue_571_fixed_coordinates() {
         .collect::<Vec<_>>();
     let tree = Tree::new_from_entries(&entries).unwrap();
     assert_hard_bucket_entries(&tree, &entries);
+}
+
+fn collect_split_leaves<A, SS, LS>(
+    tree: &KdTree<A, u32, SS, LS, 3, 32>,
+    stem: SS,
+    arithmetic_leaf_idx: usize,
+) -> Vec<usize>
+where
+    A: Axis<Coord = A>,
+    SS: StemStrategy,
+    LS: LeafStrategy<A, u32, SS, 3, 32>,
+{
+    let stem_idx = stem.stem_idx();
+    let is_terminal = match &tree.stem_leaf_resolution {
+        OwnedStemLeafResolution::Mapped { .. } => {
+            tree.stem_leaf_resolution.is_terminal_stem_idx(stem_idx)
+        }
+        OwnedStemLeafResolution::Arithmetic { stems_depth, .. }
+        | OwnedStemLeafResolution::Pristine { stems_depth, .. } => {
+            stem.level() as usize >= *stems_depth
+        }
+    };
+
+    if is_terminal {
+        return vec![tree
+            .stem_leaf_resolution
+            .resolve_terminal_stem_idx(stem_idx, arithmetic_leaf_idx)];
+    }
+
+    let split = tree.stems[stem_idx];
+    assert_ne!(
+        split,
+        A::max_value(),
+        "internal stem {stem_idx} has no split value"
+    );
+    let dim = stem.dim::<3>();
+
+    let mut left = stem.clone();
+    left.traverse::<A, 3>(false);
+    let left_leaves = collect_split_leaves(tree, left, arithmetic_leaf_idx << 1);
+
+    let mut right = stem;
+    right.traverse::<A, 3>(true);
+    let right_leaves = collect_split_leaves(tree, right, (arithmetic_leaf_idx << 1) | 1);
+
+    let max_left = left_leaves
+        .iter()
+        .flat_map(|&leaf| {
+            (0..tree.leaves.leaf_len(leaf))
+                .map(move |position| tree.leaves.leaf_point_item(leaf, position).0[dim])
+        })
+        .max_by(|a, b| A::cmp(*a, *b));
+    let min_right = right_leaves
+        .iter()
+        .flat_map(|&leaf| {
+            (0..tree.leaves.leaf_len(leaf))
+                .map(move |position| tree.leaves.leaf_point_item(leaf, position).0[dim])
+        })
+        .min_by(|a, b| A::cmp(*a, *b));
+
+    if let Some(max_left) = max_left {
+        assert!(
+            A::cmp(max_left, split) != std::cmp::Ordering::Greater,
+            "stem {stem_idx}: left subtree has {max_left:?} > split {split:?} on dim {dim}"
+        );
+    }
+    if let Some(min_right) = min_right {
+        assert!(
+            A::cmp(min_right, split) != std::cmp::Ordering::Less,
+            "stem {stem_idx}: right subtree has {min_right:?} < split {split:?} on dim {dim}"
+        );
+    }
+    if let (Some(max_left), Some(min_right)) = (max_left, min_right) {
+        assert!(
+            A::cmp(max_left, split) == std::cmp::Ordering::Less
+                || A::cmp(min_right, split) == std::cmp::Ordering::Greater,
+            "stem {stem_idx}: equal coordinate {split:?} appears in both children on dim {dim}"
+        );
+    }
+
+    let mut leaves = left_leaves;
+    leaves.extend(right_leaves);
+    leaves
+}
+
+#[test]
+fn mapped_hard_bucket_splits_keep_equal_coordinates_on_one_side() {
+    type Tree = crate::MutableKdTree<f64, 3>;
+    let mut entries = issue_571_grid_entries()
+        .into_iter()
+        .map(|(item, point)| (item, point.map(|axis| f64::from(axis) - 4.0)))
+        .collect::<Vec<_>>();
+    entries[128] = entries[0];
+    entries[256] = entries[1];
+
+    let tree = Tree::new_from_entries(&entries).unwrap();
+    assert!(matches!(
+        tree.stem_leaf_resolution,
+        OwnedStemLeafResolution::Mapped { .. }
+    ));
+
+    let leaves = collect_split_leaves(&tree, Eytzinger::new_no_ptr(), 0);
+    assert_eq!(leaves.len(), tree.leaf_count());
+
+    let mut incremental = Tree::default();
+    for &(item, point) in &entries {
+        incremental.add(&point, item).unwrap();
+    }
+    let incremental_leaves = collect_split_leaves(&incremental, Eytzinger::new_no_ptr(), 0);
+    assert_eq!(incremental_leaves.len(), incremental.leaf_count());
 }
