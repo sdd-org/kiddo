@@ -10,7 +10,7 @@ profile_queries := env_var_or_default("KIDDO_PROFILE_QUERIES", "1000")
 
 fmt:
     cargo fmt --all
-    cargo sort -wg
+    cargo sort -g
     taplo format *.toml
     npx --yes prettier --write ".github/workflows/*.{yml,yaml}" "*.yml" "*.yaml" ".*.yml" ".*.yaml" "**/*.md"
 

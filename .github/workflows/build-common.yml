@@ -91,7 +91,7 @@ jobs:
         run: cargo fmt --all --check
 
       - name: Cargo sort check
-        run: cargo sort -cwg
+        run: cargo sort -cg
 
       - name: Cargo machete
         run: cargo machete
