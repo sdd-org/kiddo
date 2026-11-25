@@ -1,5 +1,74 @@
 # Kiddo Changelog
 
+## [6.3.2] - 2026-11-25
+
+### 🐛 Bug Fixes
+
+- Keep mutable split coordinates on one side ([@cbueth](https://github.com/cbueth))
+
+- Nest commitlint type-enum under rules ([@cbueth](https://github.com/cbueth))
+
+- Use std::hint::black_box ([@cbueth](https://github.com/cbueth))
+
+- Drop cargo sort workspace flag ([@cbueth](https://github.com/cbueth))
+
+- Keep equal hard bucket coordinates on one side ([@cbueth](https://github.com/cbueth))
+
+
+### ⚡️ Performance
+
+- Avoid a full tie pass in pivot selection ([@cbueth](https://github.com/cbueth))
+
+
+### ♻️ Refactor
+
+- Return split outcome directly ([@cbueth](https://github.com/cbueth))
+
+
+### 🤖 CI
+
+- Skip commitlint for Dependabot pull requests ([@sdd](https://github.com/sdd))
+
+- Auto-merge Dependabot updates after checks ([@sdd](https://github.com/sdd))
+
+- Preserve warning policy with toolchain v2 ([@sdd](https://github.com/sdd))
+
+
+### 🧹 Chore
+
+- Bump taiki-e/install-action from 2.87.3 to 2.90.5 ([@dependabot[bot]](https://github.com/dependabot[bot]), Signed-off-by:dependabot[bot] <support@github.com>)
+
+- Depedabot ignore generator >= 0.8.12 (MSRV) ([@sdd](https://github.com/sdd))
+
+- Dependabot ignores (msrv) ([@sdd](https://github.com/sdd))
+
+- Dependabot msrv pins ([@sdd](https://github.com/sdd))
+
+- Bump the cargo-dependencies group with 3 updates ([@dependabot[bot]](https://github.com/dependabot[bot]), Signed-off-by:dependabot[bot] <support@github.com>)
+
+- Add `bench` to list of permitted commit message types ([@sdd](https://github.com/sdd))
+
+- Clarify mutable split comments ([@cbueth](https://github.com/cbueth))
+
+- Explain fixed capacity split limit ([@cbueth](https://github.com/cbueth))
+
+- Bump actions/dependency-review-action from 5.0.0 to 5.0.1 ([@dependabot[bot]](https://github.com/dependabot[bot]), Signed-off-by:dependabot[bot] <support@github.com>)
+
+- Use canonical repository URLs ([@cbueth](https://github.com/cbueth))
+
+- Validate CITATION.cff in pre-commit ([@cbueth](https://github.com/cbueth))
+
+- Bump actions-rust-lang/setup-rust-toolchain from 1 to 2 ([@dependabot[bot]](https://github.com/dependabot[bot]), Signed-off-by:dependabot[bot] <support@github.com>)
+
+- Simplify pivot tracing ([@cbueth](https://github.com/cbueth))
+
+- Explain pivot tie handling ([@cbueth](https://github.com/cbueth))
+
+
+### bench
+
+- Add hard bucket bulk construction benchmark ([@cbueth](https://github.com/cbueth))
+
 ## [6.3.1] - 2026-11-18
 
 ### 🐛 Bug Fixes
