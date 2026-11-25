@@ -48,6 +48,8 @@ jobs:
       - name: Install `stable` Toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
+          build-warnings: ""
+          rustflags: "-D warnings"
           components: rustfmt,clippy
 
       - name: Clippy (stable)
@@ -94,6 +96,8 @@ jobs:
       - name: Install `stable` Toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
+          build-warnings: ""
+          rustflags: "-D warnings"
           components: rustfmt,clippy
 
       - name: Cargo test
