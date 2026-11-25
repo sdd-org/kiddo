@@ -89,6 +89,9 @@ jobs:
 
       - name: Install `stable` Toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          build-warnings: ""
+          rustflags: "-D warnings"
 
       - name: Install `just`
         uses: baptiste0928/cargo-install@v3

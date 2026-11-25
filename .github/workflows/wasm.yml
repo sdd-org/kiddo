@@ -26,6 +26,8 @@ jobs:
       - name: Install stable Rust with the WASM target
         uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
+          build-warnings: ""
+          rustflags: "-D warnings"
           target: wasm32-unknown-unknown
 
       - name: Build ImmutableKdTree WASM smoke test
@@ -42,6 +44,8 @@ jobs:
       - name: Install stable Rust with the WASM target
         uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
+          build-warnings: ""
+          rustflags: "-D warnings"
           target: wasm32-unknown-unknown
           components: clippy
 

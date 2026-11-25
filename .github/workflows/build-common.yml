@@ -63,6 +63,9 @@ jobs:
       - name: Install `stable` Toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
+          # Preserve v1's warning policy: do not deny Cargo warnings, but deny rustc warnings.
+          build-warnings: ""
+          rustflags: "-D warnings"
           components: rustfmt, clippy
 
       - name: Install cargo-sort
@@ -103,7 +106,7 @@ jobs:
         run: npx --yes prettier --check ".github/workflows/*.{yml,yaml}" "*.yml" "*.yaml" ".*.yml" ".*.yaml" "**/*.md"
 
       - name: Check Rustdoc Links
-        run: RUSTDOCFLAGS="--deny broken_intra_doc_links" cargo doc --verbose --workspace --no-deps --document-private-items
+        run: RUSTDOCFLAGS="--deny rustdoc::broken_intra_doc_links" cargo doc --verbose --workspace --no-deps --document-private-items
 
   github-actions-lint:
     name: Lint GitHub Actions

@@ -184,7 +184,7 @@ where
     /// per-leaf matches inline in the common case, spilling to heap allocation only if the
     /// tree depth or a single leaf's match count exceeds the inline capacities.
     ///
-    /// For the absolute lowest overhead, use [`within_unsorted_visit`](Self::within_unsorted_visit).
+    /// For the absolute lowest overhead, use [`within_unsorted_visit_impl`](Self::within_unsorted_visit_impl).
     #[allow(dead_code)]
     #[inline]
     pub(crate) fn within_unsorted_iter<D>(

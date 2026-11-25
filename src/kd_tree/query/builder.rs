@@ -1364,7 +1364,7 @@ where
 ///
 /// - [`nearest_one`](Self::nearest_one) and
 ///   [`nearest_one`](Self::nearest_one)`(...).`[`approx`](Self::approx)`()`
-///   return one [`QueryResultItem`](crate::QueryResultItem).
+///   return one [`QueryResultItem`].
 /// - [`nearest_n`](Self::nearest_n),
 ///   [`nearest_n`](Self::nearest_n)`(...).`[`within`](Self::within)`(...)`, and
 ///   [`within`](Self::within)`(...)` return `Vec<QueryResultItem<...>>`.

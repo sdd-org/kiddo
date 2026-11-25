@@ -37,6 +37,8 @@ jobs:
       - name: Install `stable` Toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
+          build-warnings: ""
+          rustflags: "-D warnings"
           target: s390x-unknown-linux-gnu
 
       # Build scripts are normally compiled for the host, even when Cargo is
@@ -71,6 +73,8 @@ jobs:
       - name: Install `stable` Toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
+          build-warnings: ""
+          rustflags: "-D warnings"
           components: rustfmt, clippy
 
       - name: Prepare example artifacts
@@ -134,6 +138,8 @@ jobs:
       - name: Install `stable` Toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
+          build-warnings: ""
+          rustflags: "-D warnings"
           components: rustfmt, clippy
 
       - name: Prepare example artifacts
