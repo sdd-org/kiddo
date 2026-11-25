@@ -14,16 +14,13 @@
 
 - Keep equal hard bucket coordinates on one side ([@cbueth](https://github.com/cbueth))
 
-
 ### ⚡️ Performance
 
 - Avoid a full tie pass in pivot selection ([@cbueth](https://github.com/cbueth))
 
-
 ### ♻️ Refactor
 
 - Return split outcome directly ([@cbueth](https://github.com/cbueth))
-
 
 ### 🤖 CI
 
@@ -32,7 +29,6 @@
 - Auto-merge Dependabot updates after checks ([@sdd](https://github.com/sdd))
 
 - Preserve warning policy with toolchain v2 ([@sdd](https://github.com/sdd))
-
 
 ### 🧹 Chore
 
@@ -63,7 +59,6 @@
 - Simplify pivot tracing ([@cbueth](https://github.com/cbueth))
 
 - Explain pivot tie handling ([@cbueth](https://github.com/cbueth))
-
 
 ### bench
 
