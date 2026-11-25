@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - "**"
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: pr-mergeable-${{ github.ref }}
+  cancel-in-progress: true
+
+# Called workflows cannot request more permissions than the caller.
+permissions:
+  contents: read
+  pull-requests: read
+  checks: write
+
+jobs:
+  # Keep this existing v5 required status while the aggregate is introduced.
+  # Always run the job so the status succeeds when Dependabot lint is exempt.
+  CommitLint:
+    name: Commit Lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+        if: github.event.pull_request.user.login != 'dependabot[bot]'
+      - uses: wagoid/commitlint-github-action@v6
+        if: github.event.pull_request.user.login != 'dependabot[bot]'
+        with:
+          configFile: .commitlintrc.yaml
+      - name: Skip Dependabot commit messages
+        if: github.event.pull_request.user.login == 'dependabot[bot]'
+        run: echo "Dependabot commit messages are exempt from commitlint."
+
+  Common:
+    uses: ./.github/workflows/build-common.yml
+    secrets: inherit
+
+  Stable:
+    uses: ./.github/workflows/build-stable.yml
+    secrets: inherit
+
+  Nightly:
+    uses: ./.github/workflows/build-nightly.yml
+    secrets: inherit
+
+  MSRV:
+    uses: ./.github/workflows/build-msrv.yml
+    secrets: inherit
+
+  pr-mergeable:
+    name: PR Mergeable
+    needs: [CommitLint, Common, Stable, Nightly, MSRV]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify every required check passed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          blocking=$(echo "$NEEDS" | jq -r '
+            to_entries[]
+            | select(.value.result != "success")
+            | .key
+          ')
+          if [ -n "$blocking" ]; then
+            echo "::error::Required checks did not pass: $(echo "$blocking" | tr '\n' ' ')"
+            exit 1
+          fi
+          echo "All required checks passed."

@@ -5,13 +5,12 @@ on:
     branches:
       - master
       - v5.x.x
-  pull_request:
-    branches:
-      - "**"
+  # PRs call this workflow from PR Mergeable; avoid duplicate runs.
+  workflow_call:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-nightly-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
