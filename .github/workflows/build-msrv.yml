@@ -48,6 +48,8 @@ jobs:
       - name: Install MSRV Toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
+          build-warnings: ""
+          rustflags: "-D warnings"
           components: clippy
           toolchain: ${{ env.MSRV_RUST_VERSION }}
 

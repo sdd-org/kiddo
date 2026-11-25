@@ -45,6 +45,8 @@ jobs:
       - name: Install `nightly` Toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
+          build-warnings: ""
+          rustflags: "-D warnings"
           toolchain: nightly
           components: rustfmt,clippy,llvm-tools-preview
 

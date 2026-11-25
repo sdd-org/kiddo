@@ -119,9 +119,9 @@ pub(crate) fn is_stem_index<IDX: Index<T = IDX>>(x: IDX) -> bool {
 ///
 /// # Required Methods
 ///
-/// - [`dist()`]: Compute total distance between two points
-/// - [`dist1()`]: Compute per-dimension distance component
-/// - [`accumulate()`]: Aggregate distance components (add or max)
+/// - [`dist()`](Self::dist): Compute total distance between two points
+/// - [`dist1()`](Self::dist1): Compute per-dimension distance component
+/// - [`accumulate()`](Self::accumulate): Aggregate distance components (add or max)
 ///
 pub trait DistanceMetric<A, const K: usize> {
     /// Returns the distance between two K-d points, as measured by this metric.
