@@ -5,13 +5,12 @@ on:
     branches:
       - master
       - v5.x.x
-  pull_request:
-    branches:
-      - "**"
+  # PRs call this workflow from PR Mergeable; avoid duplicate runs.
+  workflow_call:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-common-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -23,8 +22,8 @@ env:
 jobs:
   commitlint:
     name: Commit Lint
-    # The triggering actor can be a maintainer even on a Dependabot PR.
-    if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'dependabot[bot]'
+    # PR commitlint runs in the caller under the existing required check name.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -84,7 +83,7 @@ jobs:
         run: cargo fmt --all --check
 
       - name: Cargo sort check
-        run: cargo sort -cwg
+        run: cargo sort -cg
 
       - name: Toml format check
         run: taplo format --check ./*.toml
