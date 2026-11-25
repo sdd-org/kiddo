@@ -31,8 +31,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: wagoid/commitlint-github-action@v6
+        if: github.event_name != 'push'
         with:
           configFile: .commitlintrc.yaml
+      - name: Lint non-Dependabot commits in the push
+        if: github.event_name == 'push'
+        run: bash .github/scripts/lint-push-commits.sh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   formatting:
     name: Formatting
@@ -104,3 +110,6 @@ jobs:
 
       - name: Lint GitHub Actions workflows
         uses: docker://rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+
+      - name: Test push commit lint filtering
+        run: python3 .github/scripts/test-lint-push-commits.py
